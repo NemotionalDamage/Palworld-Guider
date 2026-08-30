@@ -6,6 +6,8 @@ Last updated: 2026-08-30, Asia/Shanghai.
 
 Phase G0 is complete. This repository is established as an independent guide-first project. The governing documents, source policy, and reference-intake baseline are in place. No Rust implementation, game adapter, or detailed game dataset exists yet.
 
+The initial documentation commit is preserved locally. Pushing to GitHub is currently blocked because this machine has no usable SSH key for git@github.com.
+
 The older `Pal` project remains separate. Its control-oriented roadmap does not govern this repository.
 
 ## Phase Summary
@@ -43,7 +45,7 @@ Documentation-only phase. Verification consists of repository structure, content
 
 ### Blockers
 
-None.
+Remote backup is blocked: GitHub SSH authentication returns Permission denied (publickey). The local main branch is intact. Push can resume after a usable SSH key is configured for the repository owner or after authenticated HTTPS credentials are supplied.
 
 ## Phase Boundaries
 
