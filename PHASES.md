@@ -44,6 +44,7 @@ Completed:
 - Added the project-owner-supplied candidate reference-source catalog to `AGENTS.md`.
 - Refined the architecture and G1–G6 roadmap around hybrid Rust RAG and deterministic Tool Use.
 - Defined the Stage 1 static-information and Stage 2 explicit dynamic-state release boundary.
+- Cataloged validated sibling `Pal` communication, provider, registry, runtime, and adapter assets as reuse references.
 
 Remaining:
 

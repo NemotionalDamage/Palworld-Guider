@@ -293,6 +293,39 @@ These links define candidate implementation paths and technical constraints. The
 - Provider failure, retrieval failure, timeout, and invalid data produce clear errors without fabrication.
 - Private server status is read-only and requires explicit configured ownership; public-server automation is prohibited.
 
+## Reusable Sibling Implementation References
+
+The sibling repository at `../Pal` contains validated implementation assets that this project may copy or adapt. Unless a later note records another revision, use the clean sibling commit `16d1c12b91ad536b1b2f9e8700eefd56590aed47` as the reference snapshot. Reused code still requires renaming, dependency review, project-specific tests, and the normal formatting, Clippy, and test gates.
+
+### High-Confidence Reuse Candidates
+
+| Component | Sibling reference | Reuse in this project |
+|---|---|---|
+| Loopback WebSocket gateway | `../Pal/crates/game-gateway/src/lib.rs` and `../Pal/crates/game-gateway/tests/websocket_{protocol,server}.rs` | Reuse schema-2 frames, bearer authentication, loopback binding, sequence and payload validation, one-active-session replacement, pending-call cancellation, and diagnostic file-IPC patterns for the future G5 interface path. |
+| File diagnostic gateway | `../Pal/crates/game-gateway/src/lib.rs` and `../Pal/crates/game-gateway/tests/file_gateway.rs` | Reuse atomic writes, request IDs, stale-response rejection, timeout handling, and single-flight behavior as a fallback adapter design. |
+| LLM provider crate | `../Pal/crates/llm-provider/` | Reuse the typed `Provider`, `ChatRequest`, completion/tool-call models, timeout and error taxonomy, OpenAI-compatible adapter, Ollama adapter, Anthropic stub, and provider contract tests for G3. |
+| Tool registry | `../Pal/crates/tool-registry/` | Reuse typed tool definitions, registry dispatch, argument validation, gateway abstraction, standard statuses, and disabled-capability behavior; replace the current tool set with knowledge, retrieval, calculation, and state-analysis tools. |
+| Bounded agent runtime | `../Pal/crates/agent-core/src/lib.rs` and `../Pal/crates/agent-core/tests/{runtime,websocket_runtime,configuration}.rs` | Reuse configuration loading, provider selection, bounded tool rounds, reply-size limits, provider-failure handling, session history, and gateway adapters after replacing the old mission prompt and tools with the Guider policy. |
+| Configuration and secret boundaries | `../Pal/config/default.toml` and `../Pal/crates/agent-core/src/{lib.rs,main.rs}` | Reuse environment-only gateway-token and provider-key lookup, local Ollama defaults, request timeouts, payload limits, and the pattern of keeping provider credentials out of logs. Rename environment variables for this project when appropriate. |
+| UE4SS hybrid transport | `../Pal/adapter/ue4ss-lua/transport-msvc-production/` | Reuse the transport-only MSVC/WinHTTP carrier design, exports, queue and frame limits, off-game-thread send/receive behavior, and CMake build shape for a future read-only G5 adapter. Rename the mod and revalidate against the exact target UE4SS and Palworld builds. |
+| Lua session and JSON layer | `../Pal/adapter/ue4ss-lua/Scripts/{main.lua,pal_transport.lua,pal_json.lua}` and `../Pal/tests/lua/{transport_state_test.lua,stage_b_state_test.lua}` | Reuse bounded reconnect/backoff state, sequence reset, authentication-failure handling, JSON encoding, and Lua state-machine tests. Replace old game tools and capability manifests with Guider read-only interfaces. |
+
+### Evidence And Design References
+
+| Evidence | Sibling reference | Use |
+|---|---|---|
+| Protocol specification | `../Pal/docs/protocol.md` | Primary communication design contract for schema-2 WebSocket, heartbeat, reconnect, replacement, cancellation, logging, and diagnostic fallback. |
+| Live transport record | `../Pal/docs/phase-records/phase-2.md` | Evidence that the gateway, UE4SS registration ABI, native carrier, chat/tool dispatch, restart recovery, replacement session, and offline contract suite were validated. |
+| Read-only Palworld API audit | `../Pal/docs/palworld-api-audit.md` | Evidence boundary for future G4/G5 dynamic fields such as player position and active-Otomo identity; do not promote unverified rows. |
+| Runtime verification patterns | `../Pal/crates/*/tests/` | Reuse test structures for protocol malformed-frame coverage, provider failure, disabled tools, timeouts, stale responses, and replacement sessions. |
+
+### Reference Exclusions
+
+- `../Pal/crates/body-control/` is control-oriented and remains outside the Guider roadmap.
+- Movement, combat, gathering, construction, inventory mutation, and body-lease code remain reference-only and are excluded from Stage 1 and Stage 2.
+- Old project phase records describe the sibling project and do not override this repository's phases.
+- Copy no local evidence, backups, generated builds, credentials, logs, or machine-specific paths from the sibling repository.
+
 ## Research And Data Boundary
 
 - Palworld is frequently updated. Community guides can be stale, incomplete, or version-specific.
