@@ -78,7 +78,7 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 
 ## Release Stages And Dynamic-State Boundary
 
-The product is delivered in two stages. The first stage establishes a complete public-information guide; the second stage adds explicit, consented player-state awareness.
+The product is delivered in three stages. The first stage establishes a complete public-information guide. The second stage adds explicit, consented dynamic-state awareness for one configured user. The third stage extends that proven guide to private multi-player environments.
 
 ### Release Stage 1: Public Static-Information Agent
 
@@ -98,6 +98,8 @@ Stage 1 is complete only when the static guide can answer common factual and cal
 ### Release Stage 2: Explicit Dynamic-State Guide
 
 Stage 2 begins with Phase G4 after the static guide is useful and reliable.
+
+Stage 2 is a single-user dynamic-state product. It may read a local save copy or a private-server snapshot owned or explicitly authorized by the operator, but it models one configured player, one consent scope, and one primary guide session. Multi-player identity, authorization, routing, and per-player data isolation remain Stage 3 work.
 
 Dynamic state is optional, off by default, and enabled only through an explicit source configuration. Rust normalizes every enabled source into a versioned `PlayerStateSnapshot` containing:
 
@@ -123,6 +125,25 @@ The model receives only question-relevant summaries derived from that snapshot. 
 The first dynamic fields should be the highest-value guide inputs: inventory, unlocked technologies, party, captured-Pal roster summaries, player level, goals, and preferences. Position, HP, current action, and nearby actors remain conditional fields enabled only when a question needs them.
 
 Steam achievements are a low-priority progress signal. Prefer richer in-game progression evidence such as unlocked technology, boss or stage state, base camps, work data, and Pal roster coverage.
+
+### Release Stage 3: Private Multi-Player Guide
+
+Stage 3 is the next major target after Release Stage 2 has passed G4–G6. It must receive its own phase specification before implementation begins.
+
+Stage 3 targets a private multiplayer server owned or administered by the operator, or a private server whose administrator has explicitly authorized the integration. It extends the single-user guide with:
+
+- per-player identity binding
+- explicit per-player consent and preference storage
+- administrator and player permission roles
+- per-player state snapshots and data isolation
+- server-authoritative player selection from read-only APIs
+- chat routing for multiple authorized players
+- redaction of IP addresses, platform user IDs, credentials, and other players' private state
+- rate limits and abuse controls per player and per server
+
+Stage 3 must prefer server-authoritative evidence from the official private-server REST API and stable copied saves. UE4SS remains a local-client observer and must not become a public-server integration path.
+
+Stage 3 does not add gameplay mutation, autonomous play, public-server automation, anti-cheat bypass, or cross-player access to private inventories, parties, bases, or provider configuration. Public multiplayer services remain outside the roadmap.
 
 ### Dynamic-State Research References
 

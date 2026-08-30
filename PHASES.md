@@ -8,7 +8,7 @@ Phase G0 is complete. This repository is established as an independent guide-fir
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-The product is split into two release stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 begins at G4 and adds explicit, consented dynamic-state sources such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads.
+The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
 
 The older `Pal` project remains separate. Its control-oriented roadmap does not govern this repository.
 
@@ -29,7 +29,8 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
 | Stage 1: Public Static-Information Agent | G0–G3 | G0 complete, G1–G3 pending | Answer public game-knowledge and calculation questions without a running game |
-| Stage 2: Explicit Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for personalized planning |
+| Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
+| Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
 ## Phase G0 Progress
 
@@ -44,6 +45,7 @@ Completed:
 - Added the project-owner-supplied candidate reference-source catalog to `AGENTS.md`.
 - Refined the architecture and G1–G6 roadmap around hybrid Rust RAG and deterministic Tool Use.
 - Defined the Stage 1 static-information and Stage 2 explicit dynamic-state release boundary.
+- Defined Stage 3 as deferred private multi-player support following the completed single-user dynamic-state guide.
 - Cataloged validated sibling `Pal` communication, provider, registry, runtime, and adapter assets as reuse references.
 
 Remaining:
