@@ -145,6 +145,29 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::Recipe(record) => {
                     validate_id(&record.id, "recipe.id", &record.id, &mut errors);
+                    if record.ingredients.is_empty() {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "ingredients",
+                            "at least one ingredient is required",
+                        ));
+                    }
+                    if record.crafting_stations.is_empty() {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "crafting_stations",
+                            "at least one crafting station is required",
+                        ));
+                    }
+                    if let Some(seconds) = record.crafting_seconds {
+                        if !seconds.is_finite() || seconds <= 0.0 {
+                            errors.push(ValidationError::new(
+                                Some(record.id.clone()),
+                                "crafting_seconds",
+                                "crafting seconds must be a finite positive number",
+                            ));
+                        }
+                    }
                     if record.output.quantity == 0 {
                         errors.push(ValidationError::new(
                             Some(record.id.clone()),
@@ -359,7 +382,6 @@ impl KnowledgeStore {
                 "output.item_id",
                 &record.output.item_id,
                 self.items.keys(),
-                fact_ids,
                 errors,
             );
             for ingredient in &record.ingredients {
@@ -368,7 +390,6 @@ impl KnowledgeStore {
                     "ingredients.item_id",
                     &ingredient.item_id,
                     self.items.keys(),
-                    fact_ids,
                     errors,
                 );
             }
@@ -378,7 +399,6 @@ impl KnowledgeStore {
                     "technology_id",
                     technology_id,
                     self.technologies.keys(),
-                    fact_ids,
                     errors,
                 );
             }
@@ -391,7 +411,6 @@ impl KnowledgeStore {
                     "drops.item_id",
                     &drop.item_id,
                     self.items.keys(),
-                    fact_ids,
                     errors,
                 );
             }
@@ -401,7 +420,6 @@ impl KnowledgeStore {
                     "habitat_ids",
                     habitat_id,
                     self.habitats.keys(),
-                    fact_ids,
                     errors,
                 );
             }
@@ -414,7 +432,6 @@ impl KnowledgeStore {
                     "habitat.pal_ids",
                     pal_id,
                     self.pals.keys(),
-                    fact_ids,
                     errors,
                 );
             }
@@ -426,7 +443,6 @@ impl KnowledgeStore {
                 "breeding.parent_a_id",
                 &record.parent_a_id,
                 self.pals.keys(),
-                fact_ids,
                 errors,
             );
             require_reference(
@@ -434,7 +450,6 @@ impl KnowledgeStore {
                 "breeding.parent_b_id",
                 &record.parent_b_id,
                 self.pals.keys(),
-                fact_ids,
                 errors,
             );
             require_reference(
@@ -442,47 +457,24 @@ impl KnowledgeStore {
                 "breeding.child_id",
                 &record.child_id,
                 self.pals.keys(),
-                fact_ids,
                 errors,
             );
         }
 
         for record in self.aliases.values() {
-            require_reference(
-                &record.id,
-                "target_id",
-                &record.target_id,
-                fact_ids,
-                fact_ids,
-                errors,
-            );
+            require_fact_reference(&record.id, "target_id", &record.target_id, fact_ids, errors);
         }
 
         for record in self.progression_relationships.values() {
-            require_reference(
-                &record.id,
-                "from_id",
-                &record.from_id,
-                fact_ids,
-                fact_ids,
-                errors,
-            );
-            require_reference(
-                &record.id,
-                "to_id",
-                &record.to_id,
-                fact_ids,
-                fact_ids,
-                errors,
-            );
+            require_fact_reference(&record.id, "from_id", &record.from_id, fact_ids, errors);
+            require_fact_reference(&record.id, "to_id", &record.to_id, fact_ids, errors);
         }
 
         for record in self.conflicts.values() {
-            require_reference(
+            require_fact_reference(
                 &record.id,
                 "subject_id",
                 &record.subject_id,
-                fact_ids,
                 fact_ids,
                 errors,
             );
@@ -722,11 +714,26 @@ fn require_reference<'a>(
     field: &'static str,
     value: &str,
     valid: impl IntoIterator<Item = &'a String>,
-    fact_ids: &BTreeSet<String>,
     errors: &mut Vec<ValidationError>,
 ) {
     let direct_match = valid.into_iter().any(|candidate| candidate == value);
-    if !direct_match && !fact_ids.contains(value) && field != "ingredients.item_id" {
+    if !direct_match {
+        errors.push(ValidationError::new(
+            Some(record_id.to_string()),
+            field,
+            "reference does not resolve to the required record type",
+        ));
+    }
+}
+
+fn require_fact_reference(
+    record_id: &str,
+    field: &'static str,
+    value: &str,
+    fact_ids: &BTreeSet<String>,
+    errors: &mut Vec<ValidationError>,
+) {
+    if !fact_ids.contains(value) {
         errors.push(ValidationError::new(
             Some(record_id.to_string()),
             field,
@@ -746,8 +753,30 @@ fn is_iso_date(value: &str) -> bool {
     if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
         return false;
     }
-    bytes
+    if !bytes
         .iter()
         .enumerate()
         .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+    {
+        return false;
+    }
+
+    let year = value[0..4].parse::<u16>().expect("four ASCII digits");
+    let month = value[5..7].parse::<u8>().expect("two ASCII digits");
+    let day = value[8..10].parse::<u8>().expect("two ASCII digits");
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap_year {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+
+    year > 0 && (1..=days_in_month).contains(&day)
 }

@@ -4,7 +4,7 @@ Last updated: 2026-08-31, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. Phase G1 is also complete: the repository now has a Rust workspace, a typed and validated knowledge schema, provenance propagation, explicit conflict support, and a small reviewed JSONL seed dataset.
+Phase G0 is complete. Phase G1 is complete after an audit correction: the repository now has a Rust workspace, a typed and validated knowledge schema, strict provenance propagation, explicit conflict support, and a small reviewed JSONL seed dataset.
 
 No deterministic CLI, retrieval index, LLM agent, game adapter, or dynamic-state source exists yet. The next required phase is G2.
 
@@ -73,6 +73,7 @@ Completed:
 - Implemented JSONL loading plus provenance, identifier, locale, range, date, and reference-integrity validation.
 - Registered the reviewed Paldb source and normalized eight seed facts covering Wood acquisition, Wooden Club crafting, Technology Level 1, and Lamball work/drop data.
 - Added schema, reference-integrity, version, alias, conflict, and canonical-dataset regression tests.
+- Corrected the accepted audit findings: ingredient references are strict, typed references cannot fall back to unrelated fact IDs, dates are real Gregorian dates, recipe shape and crafting time are validated, and the source-log empty-state contradiction was removed.
 
 Remaining:
 
@@ -80,7 +81,7 @@ None.
 
 ### Verification
 
-Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` with six tests. Detailed evidence and source uncertainty are recorded in `docs/phase-records/phase-g1.md`.
+Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` with eight tests after audit correction. Detailed evidence and source uncertainty are recorded in `docs/phase-records/phase-g1.md`.
 
 ### Blockers
 

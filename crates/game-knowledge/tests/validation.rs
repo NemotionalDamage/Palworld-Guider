@@ -259,3 +259,71 @@ fn validates_all_related_fact_schemas_and_keeps_conflicts_visible() {
         ConflictResolution::Unresolved
     );
 }
+
+#[test]
+fn rejects_recipe_reference_and_shape_violations() {
+    let mut records = valid_records();
+    let recipe = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Recipe(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain recipe");
+    recipe.output.item_id = "TECH_LEVEL_1".to_string();
+    recipe.ingredients[0].item_id = "ITEM_MISSING".to_string();
+
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("wrong reference types and missing ingredients must fail");
+    assert!(errors.iter().any(|error| error.field == "output.item_id"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "ingredients.item_id"));
+
+    let mut records = valid_records();
+    let recipe = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Recipe(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain recipe");
+    recipe.ingredients.clear();
+    recipe.crafting_stations.clear();
+    recipe.crafting_seconds = Some(-1.0);
+
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("incomplete and invalid recipe values must fail");
+    assert!(errors.iter().any(|error| error.field == "ingredients"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "crafting_stations"));
+    assert!(errors.iter().any(|error| error.field == "crafting_seconds"));
+}
+
+#[test]
+fn rejects_impossible_dates_and_provenance_drift() {
+    let mut records = valid_records();
+    if let Some(KnowledgeRecord::Source(record)) = records.first_mut() {
+        record.retrieved_on = "9999-99-99".to_string();
+    }
+    if let Some(KnowledgeRecord::Alias(record)) = records.last_mut() {
+        record.provenance.retrieved_on = "9999-99-99".to_string();
+    }
+
+    let errors =
+        KnowledgeStore::from_records(records).expect_err("impossible calendar dates must fail");
+    assert!(errors.iter().any(|error| error.field == "retrieved_on"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "provenance.retrieved_on"));
+
+    let mut records = valid_records();
+    if let Some(KnowledgeRecord::Alias(record)) = records.last_mut() {
+        record.provenance.applicable_game_version = "1.0.4".to_string();
+    }
+
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("fact provenance cannot drift from its source");
+    assert!(errors.iter().any(|error| error.field == "provenance"));
+}

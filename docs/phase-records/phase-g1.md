@@ -44,6 +44,12 @@ The source is fan-maintained. Only directly reviewed, transformed facts were sto
 - Red test 2: `cargo test --test canonical_dataset` initially failed because `data/reviewed/sources.jsonl` did not exist.
 - Final format gate: `cargo-fmt --all -- --check` passed.
 - Final lint gate: `cargo-clippy --all-targets -- -D warnings` passed.
-- Final test gate: `cargo test` passed with six tests across schema validation and the canonical dataset.
+- Post-audit test gate: `cargo test` passed with eight tests across schema validation and the canonical dataset.
+
+## Audit Correction
+
+An accepted audit reopened the phase because the initial validator allowed missing ingredient references, wrong-type references through a global fact-ID fallback, impossible calendar dates, and incomplete recipe fields. The source log also retained a stale “no sources” sentence.
+
+The correction adds regressions for missing recipe ingredient references, recipe output pointing to a non-item fact, empty ingredients or crafting stations, negative crafting time, impossible dates, and provenance drift from the registered source. Typed references now resolve only to their required record type; generic alias, progression, and conflict references use a separate any-fact check. Recipe ingredients, stations, and present crafting time are validated. Dates use real Gregorian calendar validation, and the stale source-log sentence was removed.
 
 No checks were intentionally skipped.

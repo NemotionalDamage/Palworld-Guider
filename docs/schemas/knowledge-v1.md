@@ -45,10 +45,12 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 
 - IDs are nonempty and use ASCII letters, digits, hyphen, or underscore.
 - English names are required; localized names cannot be blank when present.
-- Dates use `YYYY-MM-DD`; evidence URLs use HTTP or HTTPS.
+- Dates use a valid `YYYY-MM-DD` Gregorian calendar date; evidence URLs use HTTP or HTTPS.
 - Fact IDs are globally unique, and source IDs are unique.
-- Recipe and output quantities are greater than zero.
+- Recipes require at least one ingredient and one crafting station.
+- Recipe ingredient, output, and technology references resolve to the exact required record type.
+- Recipe and output quantities are greater than zero; present crafting time is finite and greater than zero.
 - Work-suitability levels are 1–5.
 - Drop quantities are positive, minimum does not exceed maximum, and probability is 0–100.
-- Item, Pal, recipe, technology, habitat, breeding, alias, progression, conflict, and source references resolve.
+- Item, Pal, recipe, technology, habitat, breeding, and source references resolve to their required record types. Generic alias targets, progression endpoints, and conflict subjects may reference any fact.
 - Conflicts remain records and are never silently resolved by loading.
