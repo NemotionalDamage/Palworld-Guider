@@ -1,12 +1,12 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-08-30, Asia/Shanghai.
+Last updated: 2026-08-31, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. This repository is established as an independent guide-first project. The governing documents, source policy, and reference-intake baseline are in place. No Rust implementation, game adapter, or detailed game dataset exists yet.
+Phase G0 is complete. Phase G1 is also complete: the repository now has a Rust workspace, a typed and validated knowledge schema, provenance propagation, explicit conflict support, and a small reviewed JSONL seed dataset.
 
-Phase G1 is in progress. The phase is limited to the Rust workspace, `game-knowledge` schema and validation, reviewed JSONL source intake, provenance propagation, conflict representation, and canonical-dataset tests. No CLI, retrieval, LLM, runtime advisor, game adapter, or dynamic-state source is in scope.
+No deterministic CLI, retrieval index, LLM agent, game adapter, or dynamic-state source exists yet. The next required phase is G2.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
@@ -19,7 +19,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Phase | Status | Purpose |
 |---|---|---|
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
-| G1 | In progress | Define knowledge schemas and ingest reviewed sources |
+| G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Not started | Build the deterministic offline guide CLI |
 | G3 | Not started | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
@@ -30,7 +30,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0 complete, G1–G3 pending | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | G0–G1 complete, G2–G3 pending | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -68,20 +68,31 @@ Completed:
 
 - Selected Paldb `v1.0.3` as the first reviewed-secondary source for a deliberately small seed dataset.
 - Defined the Phase G1 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g1.md`.
+- Created the Rust workspace and `game-knowledge` crate.
+- Implemented typed schemas for sources, provenance, items, recipes, technologies, Pals, work suitability, drops, habitats, breeding rules, aliases, progression relationships, and conflicts.
+- Implemented JSONL loading plus provenance, identifier, locale, range, date, and reference-integrity validation.
+- Registered the reviewed Paldb source and normalized eight seed facts covering Wood acquisition, Wooden Club crafting, Technology Level 1, and Lamball work/drop data.
+- Added schema, reference-integrity, version, alias, conflict, and canonical-dataset regression tests.
 
 Remaining:
 
-- Implement the Rust workspace, `game-knowledge` crate, validation, and tests.
-- Register the selected source and normalize the reviewed seed records.
-- Run formatting, lint, test, and canonical-dataset gates.
+None.
+
+### Verification
+
+Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` with six tests. Detailed evidence and source uncertainty are recorded in `docs/phase-records/phase-g1.md`.
 
 ### Blockers
 
 None.
 
+### Next Required Action
+
+Start Phase G2 to implement deterministic identifier resolution, exact lookup, and material calculators.
+
 ## Phase Boundaries
 
-- Current scope remains documentation and project definition.
+- Current scope is the reviewed offline knowledge foundation.
 - Game integration and adapter work are deferred to the defined later phases.
-- Game facts await reviewed source intake.
+- Detailed game coverage remains intentionally incomplete until later reviewed intakes.
 - The product remains a read-only guide and advisor.

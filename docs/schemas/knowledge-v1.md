@@ -1,0 +1,54 @@
+# Knowledge Schema v1
+
+Knowledge v1 is the Phase G1 canonical record format. Canonical data is stored as one JSON object per line in:
+
+- `data/reviewed/sources.jsonl`
+- `data/reviewed/facts.jsonl`
+
+## Source Records
+
+Source records register the evidence boundary before game facts are normalized. They contain:
+
+- stable source ID, title, and supplier
+- retrieval date and evidence URLs
+- claimed applicable Palworld version
+- reviewer, review status, and confidence
+- review notes
+
+## Fact Envelope
+
+Every fact record carries an inline provenance object:
+
+- `source_id`
+- `applicable_game_version`
+- `retrieved_on`
+- `reviewer`
+- `review_status`
+- `confidence`
+- optional `change_risk`
+
+Validation requires the source to exist, the fact to be reviewed, the confidence to support normal answers, and version/date/reviewer/status/confidence fields to agree with the registered source.
+
+## Fact Types
+
+- `item`: localized names, description, rarity, and acquisition leads
+- `technology`: localized names and technology level
+- `recipe`: output, ingredients, crafting stations, optional technology, and optional crafting time
+- `pal`: names, optional stats, work suitability, drops, and habitat references
+- `habitat`: names and referenced Pals
+- `breeding_rule`: parent A, parent B, and child Pal references
+- `alias`: locale-specific alias and target fact
+- `progression_relationship`: typed `unlocks`, `requires`, or `improves` edge
+- `conflict`: subject, field, competing values, evidence sources, and resolution state
+
+## Validation Rules
+
+- IDs are nonempty and use ASCII letters, digits, hyphen, or underscore.
+- English names are required; localized names cannot be blank when present.
+- Dates use `YYYY-MM-DD`; evidence URLs use HTTP or HTTPS.
+- Fact IDs are globally unique, and source IDs are unique.
+- Recipe and output quantities are greater than zero.
+- Work-suitability levels are 1–5.
+- Drop quantities are positive, minimum does not exceed maximum, and probability is 0–100.
+- Item, Pal, recipe, technology, habitat, breeding, alias, progression, conflict, and source references resolve.
+- Conflicts remain records and are never silently resolved by loading.
