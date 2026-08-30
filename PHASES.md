@@ -6,6 +6,8 @@ Last updated: 2026-08-30, Asia/Shanghai.
 
 Phase G0 is complete. This repository is established as an independent guide-first project. The governing documents, source policy, and reference-intake baseline are in place. No Rust implementation, game adapter, or detailed game dataset exists yet.
 
+Phase G1 is in progress. The phase is limited to the Rust workspace, `game-knowledge` schema and validation, reviewed JSONL source intake, provenance propagation, conflict representation, and canonical-dataset tests. No CLI, retrieval, LLM, runtime advisor, game adapter, or dynamic-state source is in scope.
+
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
 The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
@@ -17,7 +19,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Phase | Status | Purpose |
 |---|---|---|
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
-| G1 | Not started | Define knowledge schemas and ingest reviewed sources |
+| G1 | In progress | Define knowledge schemas and ingest reviewed sources |
 | G2 | Not started | Build the deterministic offline guide CLI |
 | G3 | Not started | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
@@ -55,6 +57,23 @@ None.
 ### Verification
 
 Documentation-only phase. Repository structure, source catalog, phase definitions, and whitespace checks passed; Rust checks do not apply yet.
+
+### Blockers
+
+None.
+
+## Phase G1 Progress
+
+Completed:
+
+- Selected Paldb `v1.0.3` as the first reviewed-secondary source for a deliberately small seed dataset.
+- Defined the Phase G1 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g1.md`.
+
+Remaining:
+
+- Implement the Rust workspace, `game-knowledge` crate, validation, and tests.
+- Register the selected source and normalize the reviewed seed records.
+- Run formatting, lint, test, and canonical-dataset gates.
 
 ### Blockers
 
