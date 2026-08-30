@@ -8,8 +8,6 @@ Phase G0 is complete. This repository is established as an independent guide-fir
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-The initial documentation commit is preserved locally. Pushing to GitHub is currently blocked because this machine has no usable SSH key for git@github.com.
-
 The older `Pal` project remains separate. Its control-oriented roadmap does not govern this repository.
 
 ## Phase Summary
@@ -36,8 +34,6 @@ Completed:
 - Created the reference-data source log and intake template.
 - Added the project-owner-supplied candidate reference-source catalog to `AGENTS.md`.
 - Refined the architecture and G1–G6 roadmap around hybrid Rust RAG and deterministic Tool Use.
-- Initialized the Git repository on `main`.
-- Connected the provided private GitHub remote.
 
 Remaining:
 
@@ -45,11 +41,11 @@ None.
 
 ### Verification
 
-Documentation-only phase. Verification consists of repository structure, content review, source-catalog review, remote configuration, and Git status review; no Rust checks apply yet.
+Documentation-only phase. Repository structure, source catalog, phase definitions, and whitespace checks passed; Rust checks do not apply yet.
 
 ### Blockers
 
-Remote backup is blocked: GitHub SSH authentication returns Permission denied (publickey). The local main branch is intact. Push can resume after a usable SSH key is configured for the repository owner or after authenticated HTTPS credentials are supplied.
+None.
 
 ## Phase Boundaries
 

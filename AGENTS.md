@@ -12,6 +12,28 @@ This repository implements an in-game guide and advisor for Palworld. The agent 
 - Prefer offline knowledge-engine and mock-state tests during normal development. Use a real game only for final read-only validation.
 - Report unresolved game-data uncertainty, live-game limitations, and version-compatibility risks explicitly.
 
+## PHASES.md Content Rules
+
+`PHASES.md` is a concise phase ledger, not an operational log or incident ticket.
+
+Record only project-progress facts:
+
+- current phase and overall project state
+- phase table with status and purpose
+- completed scope for the active or recently completed phase
+- acceptance-gate results and durable verification summary
+- blockers that prevent phase completion or require a product decision
+- the next required action when a phase is not complete
+
+Do not record:
+
+- transient Git, network, authentication, build-machine, or shell failures after they are resolved
+- push state, commit hashes, or routine commit/check noise
+- raw command output, logs, secrets, timestamps unrelated to phase progress, or duplicate history
+- environmental details that do not affect the current phase gate
+
+Put detailed evidence, incident handling, and implementation notes in the appropriate `docs/phase-records/` or design document. If a transient incident creates a durable requirement, record that requirement in the relevant specification; do not preserve the incidental failure narrative in `PHASES.md`. Compress completed phase sections to their durable result.
+
 ## Git Backup And Version Control
 
 The canonical repository is this directory. Its private GitHub remote is:
