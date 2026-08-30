@@ -44,12 +44,13 @@ git@github.com:NemotionalDamage/Palworld-Guider.git
 
 - Keep the default working branch on `main` unless the user explicitly requests another branch.
 - Commit after every completed phase, subphase, accepted fix, or documentation update that leaves the repository in a coherent state.
-- Push to the private remote after every commit intended to be preserved. Do not accumulate unpushed work across sessions.
+- After completing and committing a coherent change, ask the user whether to push. Push only after explicit user approval.
+- Do not silently accumulate unpushed work across sessions; report the local commits that remain unpushed.
 - Before committing code, run the relevant checks for the touched surface and record any intentionally skipped command.
 - Use precise commit messages that name the phase or subsystem, for example `phase g0: establish guide project charter`.
 - Never commit API keys, bearer tokens, cookies, local provider configuration, logs containing secrets, game assets, or wholesale copyrighted text.
 - Keep generated artifacts, build directories, local logs, secrets, machine-specific paths, and unreviewed bulk reference dumps out of Git through `.gitignore`.
-- If authentication or network access prevents pushing, commit locally when safe, clearly report the unpushed commit, and retry before ending the session.
+- If an approved push fails because of authentication or network access, report the failed attempt and the unpushed commit, then ask the user before retrying.
 - Do not rewrite published history or force-push without explicit user approval.
 
 ## Product Mission
