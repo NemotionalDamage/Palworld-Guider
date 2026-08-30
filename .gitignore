@@ -1,0 +1,27 @@
+# Rust
+/target/
+Cargo.lock
+
+# Local evidence and generated artifacts
+/.local/
+/dist/
+/build/
+/coverage/
+
+# Secrets and provider configuration
+.env
+.env.*
+config/local.*
+*.secret
+*.token
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
