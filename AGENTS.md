@@ -76,6 +76,82 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 - Keep the first release read-only: no movement, combat, gathering, construction, inventory mutation, or world mutation.
 - Keep the interface low-friction: short answers by default, with optional deeper explanation.
 
+## Release Stages And Dynamic-State Boundary
+
+The product is delivered in two stages. The first stage establishes a complete public-information guide; the second stage adds explicit, consented player-state awareness.
+
+### Release Stage 1: Public Static-Information Agent
+
+Stage 1 spans Phases G0–G3 and is the first product target.
+
+It uses:
+
+- reviewed public game knowledge, such as items, recipes, technologies, Pals, habitats, drops, work suitability, mechanics, and progression graphs
+- the user's current question
+- bounded follow-up context
+- explicit numbers supplied as calculation arguments, such as a desired craft quantity
+
+It reads process-independent public information only. During Stage 1, the agent has no game-process observer, save-file reader, private-server API client, UE4SS adapter, or dynamic player-state tool.
+
+Stage 1 is complete only when the static guide can answer common factual and calculation questions with provenance, uncertainty handling, and no dependency on a running game or player save.
+
+### Release Stage 2: Explicit Dynamic-State Guide
+
+Stage 2 begins with Phase G4 after the static guide is useful and reliable.
+
+Dynamic state is optional, off by default, and enabled only through an explicit source configuration. Rust normalizes every enabled source into a versioned `PlayerStateSnapshot` containing:
+
+- source type
+- capture timestamp
+- applicable game version
+- freshness or time-to-live
+- completeness and missing fields
+- consent scope
+- redaction metadata
+
+The model receives only question-relevant summaries derived from that snapshot. It never receives raw save files, raw API responses, full actor lists, IP addresses, platform user IDs, authentication credentials, or arbitrary Unreal objects.
+
+#### Dynamic-State Acquisition Paths
+
+| Path | Evidence and constraints | Stage |
+|---|---|---|
+| User-entered or imported snapshot | The player explicitly supplies inventory, party, unlocks, goals, or preferences. This is the first dynamic source because it requires no game integration. | G4 |
+| Copied save snapshot | Parse a stable, explicitly selected copy of a local or private-server save. Use the format research below; preserve the original save unchanged. | G4 or later |
+| Private-server official REST API | Use read-only `GET` endpoints on a server owned or explicitly authorized by the user. The `game-data` endpoint requires the server flag `-enable-gamedata-api`. | G5 |
+| UE4SS read-only adapter | Access specific verified client objects and events on the game thread. Every field requires a target-build probe before becoming visible to the agent. | G5 |
+
+The first dynamic fields should be the highest-value guide inputs: inventory, unlocked technologies, party, captured-Pal roster summaries, player level, goals, and preferences. Position, HP, current action, and nearby actors remain conditional fields enabled only when a question needs them.
+
+Steam achievements are a low-priority progress signal. Prefer richer in-game progression evidence such as unlocked technology, boss or stage state, base camps, work data, and Pal roster coverage.
+
+### Dynamic-State Research References
+
+These links define candidate implementation paths and technical constraints. They are research references, not claims that every field is available in the current target build.
+
+#### Official Server REST API
+
+- [Palworld Server Guide](https://docs.palworldgame.com/)
+- [Get player list](https://docs.palworldgame.com/api/rest-api/players): player name, level, coarse location, and building count
+- [Get world actor snapshot](https://docs.palworldgame.com/api/rest-api/game-data): Player, OtomoPal, BaseCampPal, WildPal, NPC, and PalBox actors with location, HP, level, guild, action, and stage fields; requires `-enable-gamedata-api`
+- [Get server metrics](https://docs.palworldgame.com/api/rest-api/metrics)
+- [Get server info](https://docs.palworldgame.com/api/rest-api/info)
+
+#### Modding And Runtime Research
+
+- [Palworld Modding Docs](https://pwmodding.wiki/)
+- [UE4SS function overview](https://pwmodding.wiki/docs/developers/ue4ss-modding/lua-mods/ue4ss-functions)
+- [Hooking functions with UE4SS](https://pwmodding.wiki/docs/developers/ue4ss-modding/lua-mods/hooking-functions)
+- [UE4SS DataTable access](https://pwmodding.wiki/docs/developers/ue4ss-modding/lua-mods/datatables)
+- [Blueprints with Lua](https://pwmodding.wiki/docs/developers/ue4ss-modding/lua-mods/blueprints-with-lua)
+- [PalworldModdingKit](https://github.com/localcc/PalworldModdingKit)
+
+#### Save And Static-Asset Research
+
+- [palworld-save-tools](https://github.com/cheahjs/palworld-save-tools): documents `Level.sav` structures including characters, item containers, character containers, dynamic items, groups, base camps, and work data
+- [FModel](https://fmodel.app/): static game-asset and DataTable research
+- [UAssetGUI](https://github.com/atenfyr/UAssetGUI): static `.uasset` research
+- [PalSchema documentation](https://okaetsu.github.io/PalSchema/): mod-facing game data schema research
+
 ## Expected Capability Ladder
 
 ### Tier 0: Deterministic Knowledge Engine
@@ -363,22 +439,24 @@ Acceptance:
 - Retrieval returns a small, relevant, provenance-bearing context set.
 - Provider, timeout, malformed-tool, and budget failures are clear and non-fatal.
 - Missing knowledge returns `unknown`; stale or conflicting knowledge is visible.
+- The Stage 1 public-information guide works without a running game, save file, server API, or dynamic player-state tool.
 ```
 
 ### Phase G4: State-Aware Advisor And Progression Planner
 
 ```text
-Goal: combine knowledge, explicit player state, and preferences into prioritized advice.
+Goal: begin Release Stage 2 by combining knowledge, explicit player state, and preferences into prioritized advice.
 
 Tasks:
 1. Add the `state-snapshot` and `guide-planner` crates.
-2. Define a versioned read-only player-state schema for inventory, party, unlocks, goals, and preferences.
-3. Distinguish observed state, user-entered state, assumptions, and unknowns.
-4. Implement inventory-gap, party-work-gap, craftable-now, and goal-readiness analysis.
-5. Model progression relationships and player preferences.
-6. Rank three to five next steps by relevance, effort, benefit, risk, and uncertainty.
-7. Explain requirements, alternatives, expected benefit, and data confidence for each recommendation.
-8. Add mock-state, invalid-state, adversarial-goal, stale-knowledge, and conflicting-preference tests.
+2. Define a versioned read-only `PlayerStateSnapshot` schema for source, timestamp, game version, freshness, completeness, consent, inventory, party, unlocks, captured-Pal summaries, goals, and preferences.
+3. Support user-entered or explicitly imported snapshots first; enable copied-save parsing only behind explicit opt-in and validation.
+4. Distinguish observed state, user-entered state, save-derived state, assumptions, and unknowns.
+5. Implement inventory-gap, party-work-gap, craftable-now, and goal-readiness analysis.
+6. Model progression relationships and player preferences.
+7. Rank three to five next steps by relevance, effort, benefit, risk, and uncertainty.
+8. Explain requirements, alternatives, expected benefit, and data confidence for each recommendation.
+9. Add mock-state, invalid-state, stale-snapshot, adversarial-goal, stale-knowledge, and conflicting-preference tests.
 
 Acceptance:
 - Recommendations are deterministic for the same knowledge and state.
@@ -386,7 +464,9 @@ Acceptance:
 - Advice references supplied state and clearly identifies missing state.
 - Missing state degrades cleanly to general guidance.
 - Spoiler-sensitive and long-horizon advice is controlled by preferences.
-- No game I/O or mutation is performed.
+- Dynamic-state sources remain off by default.
+- The LLM receives redacted, question-relevant state summaries rather than raw snapshots or save files.
+- No runtime game I/O or world mutation is performed.
 ```
 
 ### Phase G5: Integrated Interfaces
@@ -398,11 +478,12 @@ Tasks:
 1. Add the `guide-server` crate with an Axum Web API and a minimal browser UI.
 2. Preserve session state, follow-up context, provider configuration, rate limits, and answer provenance.
 3. Add optional interface adapters only after the Web path is stable, such as Tauri, Discord, or QQ.
-4. Define the target Palworld version, platform, load mode, save backup, and adapter constraints before live integration.
-5. Add read-only state snapshot retrieval only where safely verifiable in the target build.
-6. Add natural-language in-game input and concise reply output through a thin adapter.
-7. Add timeouts, payload limits, redaction, cancellation, and clear provider, adapter, and retrieval errors.
-8. Validate the final read-only chat path in a private local session.
+4. Define the target Palworld version, platform, load mode, save backup, ownership, and adapter constraints before live integration.
+5. Add private-server REST snapshot retrieval only through read-only endpoints and explicit user configuration.
+6. Add UE4SS client-state retrieval only for fields verified safe and stable in the target build.
+7. Add natural-language in-game input and concise reply output through a thin adapter.
+8. Add timeouts, payload limits, redaction, cancellation, and clear provider, adapter, and retrieval errors.
+9. Validate the final read-only chat path in a private local session.
 
 Acceptance:
 - The Web interface can answer grounded questions and show provenance and uncertainty.

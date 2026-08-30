@@ -8,6 +8,8 @@ Phase G0 is complete. This repository is established as an independent guide-fir
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
+The product is split into two release stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 begins at G4 and adds explicit, consented dynamic-state sources such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads.
+
 The older `Pal` project remains separate. Its control-oriented roadmap does not govern this repository.
 
 ## Phase Summary
@@ -22,6 +24,13 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
 
+## Release Stage Summary
+
+| Stage | Phases | Status | Purpose |
+|---|---|---|---|
+| Stage 1: Public Static-Information Agent | G0–G3 | G0 complete, G1–G3 pending | Answer public game-knowledge and calculation questions without a running game |
+| Stage 2: Explicit Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for personalized planning |
+
 ## Phase G0 Progress
 
 Completed:
@@ -34,6 +43,7 @@ Completed:
 - Created the reference-data source log and intake template.
 - Added the project-owner-supplied candidate reference-source catalog to `AGENTS.md`.
 - Refined the architecture and G1–G6 roadmap around hybrid Rust RAG and deterministic Tool Use.
+- Defined the Stage 1 static-information and Stage 2 explicit dynamic-state release boundary.
 
 Remaining:
 
