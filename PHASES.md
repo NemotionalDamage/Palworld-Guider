@@ -32,6 +32,7 @@ Completed:
 - Defined the Rust core architecture boundary.
 - Created the knowledge-source policy.
 - Created the reference-data source log and intake template.
+- Added the project-owner-supplied candidate reference-source catalog to `AGENTS.md`.
 - Initialized the Git repository on `main`.
 - Connected the provided private GitHub remote.
 
@@ -41,7 +42,7 @@ None.
 
 ### Verification
 
-Documentation-only phase. Verification consists of repository structure, content review, remote configuration, and Git status review; no Rust checks apply yet.
+Documentation-only phase. Verification consists of repository structure, content review, source-catalog review, remote configuration, and Git status review; no Rust checks apply yet.
 
 ### Blockers
 

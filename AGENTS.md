@@ -142,6 +142,49 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 - Normalize only the facts needed by the guide into reviewed structured data.
 - When the user provides reference material, register it in the source log before using it as evidence.
 
+### Candidate Reference Sources
+
+The following sources were supplied by the project owner on 2026-08-30. They are candidate leads only. Listing them does not verify accuracy, license, coverage, availability, or current URL. Before a source supports a persisted fact, register and review it through `docs/reference-data/source-log.md`.
+
+#### Comprehensive Databases
+
+| Source | Entry point | Claimed strength | Intended guide use |
+|---|---|---|---|
+| Palworld Database Wiki | `https://paldb.cc/` | Detailed item, weapon, material, unlock, and Pal data with clear categories. | Community lead for item use, recipes, materials, and unlock metadata. |
+| Palworld.gg | `https://palworld.gg/` | Pal, item, recipe, building, and breeding data plus calculators. | Cross-check for recipes, materials, Pals, buildings, and calculators. |
+| OP.GG Palworld database | `https://op.gg/` | Item recipes, values, dropping Pals, prices, and a Pal codex. | Cross-check for item stats, recipes, drops, prices, and Pal data; confirm the exact Palworld section before use. |
+
+#### Chinese Wikis And Guides
+
+| Source | Entry point | Claimed strength | Intended guide use |
+|---|---|---|---|
+| BWIKI 幻兽帕鲁 Wiki | `https://wiki.biligame.com/palworld` | Chinese item categories, Pal codex, and base-building guides. | Chinese terminology, item descriptions, Pal names, and localized explanations. |
+| Palworld Wiki (GameVault) | `https://palworld.gamevault.in` | Chinese survival guide covering basics, objectives, HUD, and mechanics. | Chinese onboarding and mechanics explanations. |
+| Gamersky Palworld guides | `https://www.gamersky.com/` | Chinese guides and a 1.0 Pal codex with attributes and drops. | Chinese terminology, Pal attributes, drops, and progression guides; locate the specific article before citing. |
+
+#### Gameplay Guide Sites
+
+| Source | Entry point | Claimed strength | Intended guide use |
+|---|---|---|---|
+| Game8 | `https://game8.co/` | Craftable-item lists, unlock requirements, materials, mechanics, and building guides. | Cross-check for recipes, unlock requirements, mechanics, and progression advice; confirm the Palworld hub before use. |
+| IGN Palworld guides | `https://www.ign.com/` | Broad early-game through late-game progression guides. | Progression structure, goal framing, and explanatory language; locate the specific Palworld guide before citing. |
+| GameWith | `https://gamewith.ai/` | Recipe and material calculation pages with dependency trees and totals. | Material dependency trees, shortage calculations, and acquisition advice; confirm the Palworld section before use. |
+
+#### Developer And Technical Documentation
+
+| Source | Entry point | Claimed strength | Intended guide use |
+|---|---|---|---|
+| Palworld Server Guide | `https://docs.palworldgame.com/` | Official server guide with technology IDs and experimental REST API documentation. | Official technology identifiers, server mechanics, and future technical integration research. |
+| PalSchema Hub | `https://www.nexusmods.com/` | Community schema database for editable Pal, item, recipe, and building fields. | Field-name and schema leads for local-data extraction; confirm the exact hub page and license before use. |
+
+#### Open Data And API Projects
+
+| Source | Entry point | Claimed strength | Intended guide use |
+|---|---|---|---|
+| Paldex | `https://github.com/blaynem/paldex` | Open-source translated companion app with generated game-file data and an API. | Open-data schema and extraction approach; review license, update process, and data version. |
+| palworld-paldex-api | `https://github.com/nonopolarity/palworld-paldex-api` | Open-source API for Pal codex data. | Pal-data schema and API design reference; review license and freshness. |
+| palworld-api | `https://pypi.org/project/palworld-api/` | Python REST API client package. | Client behavior and endpoint reference only; the guide core remains Rust. |
+
 ## Phase Workflow
 
 Each phase has a prompt below. Use only the prompt for the requested phase.
