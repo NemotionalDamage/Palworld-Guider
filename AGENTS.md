@@ -55,35 +55,44 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 
 ## Expected Capability Ladder
 
-### Tier 0: Offline Knowledge Guide
+### Tier 0: Deterministic Knowledge Engine
 
-- Answer common questions about item use, material sources, recipes, Pal work suitability, and basic mechanics.
-- Use a local, versioned, source-tracked knowledge base.
-- Work without live game state.
-- Clearly report missing or uncertain knowledge.
+- Load and validate a local, versioned, source-tracked knowledge base.
+- Resolve item, Pal, recipe, technology, and alias identifiers deterministically.
+- Answer exact lookup, recipe, material-tree, and shortage questions through Rust tools.
+- Work offline without an LLM or live game state.
+- Clearly report missing, stale, conflicted, or uncertain knowledge.
 
-### Tier 1: State-Aware Advisor
+### Tier 1: Grounded Natural-Language Guide
 
-- Combine knowledge with read-only player state.
+- Understand natural-language questions through a bounded Rust agent loop.
+- Combine structured lookup, lexical retrieval, and optional semantic retrieval.
+- Let the LLM choose whitelisted tools and phrase answers, but never serve as the fact source.
+- Keep every answer grounded in returned tool results and knowledge provenance.
+- Enforce tool-call budgets, schemas, timeouts, and uncertainty reporting.
+
+### Tier 2: State-Aware Advisor
+
+- Combine knowledge with read-only or user-provided player state.
 - Identify material shortages, craftable recipes, party work gaps, and likely next objectives.
-- Distinguish observed state from user-provided state.
-- Fall back to general advice when live state is unavailable.
+- Distinguish observed state, user-entered state, assumptions, and unknowns.
+- Fall back to general guidance when live state is unavailable.
 
-### Tier 2: Progression Planner
+### Tier 3: Progression Planner
 
 - Maintain a goal graph covering materials, technology, crafting, Pal suitability, base setup, and progression stages.
 - Recommend three to five prioritized next steps.
 - Explain the reason, requirements, alternatives, and uncertainty for each recommendation.
 - Respect player preferences such as combat, building, collection, automation, pace, and spoiler tolerance.
 
-### Tier 3: Integrated Chat Guide
+### Tier 4: Integrated Interfaces
 
 - Receive natural-language questions through an in-game chat adapter.
 - Return concise, grounded replies without leaving the game.
 - Support follow-up questions and simple commands.
 - Provide controlled, rate-limited proactive hints after explicit opt-in.
 
-### Tier 4: Maintainable Knowledge System
+### Tier 5: Maintainable Knowledge System
 
 - Detect game-version and knowledge-version mismatches.
 - Record source, extraction date, applicable game version, confidence, and review status.
@@ -102,12 +111,19 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 
 ## Required Architecture
 
-- Core knowledge, retrieval, planning, ranking, provider calls, state interpretation, safety checks, and tests must be implemented in Rust.
+- The project is a hybrid Rust RAG and Tool Use system, not a pure vector database or a framework-driven chatbot.
+- Core knowledge schemas, validation, retrieval, ranking, deterministic calculators, planning, state interpretation, provider calls, agent orchestration, safety checks, interfaces, and tests must be implemented in Rust.
+- Python projects, LangChain, AutoGen, Dify, and FastGPT may be studied as design references, but they must not become the production brain, tool registry, data pipeline, or agent runtime.
 - A future game adapter may only expose read-only observation and chat input/output.
 - The adapter must not own game semantics, planning, or advisory logic.
 - The LLM may interpret language and phrase answers, but must not invent game facts.
+- The LLM must not generate SQL, arbitrary file paths, unrestricted JSON queries, shell commands, or direct database access.
+- All model-visible capabilities are typed, versioned tools registered in Rust.
+- Tool calls require argument validation, result envelopes, timeouts, cancellation, and a maximum call budget.
+- Exact facts and calculations are resolved before answer generation; the model must not overwrite tool-provided values.
 - Every answer path should be able to identify:
   - the user question
+  - the tools called
   - the knowledge records used
   - the live or user-provided state used
   - unresolved uncertainty
@@ -132,6 +148,51 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
    - change risk where relevant
 6. Version-sensitive data must warn when its knowledge version does not match the current game version.
 7. Conflicting sources require an explicit conflict record; do not silently choose one.
+
+## Data And Retrieval Architecture
+
+1. Reviewed source data is stored as versioned, diffable JSONL under `data/reviewed/`.
+2. SQLite may be used as a derived read-only cache; it is not the canonical review artifact.
+3. Do not introduce MySQL, MongoDB, or another networked database during the first usable release.
+4. Retrieval is hybrid and ordered:
+   1. exact identifier and alias resolution
+   2. structured entity and relationship lookup
+   3. lexical full-text search, normally Tantivy
+   4. optional semantic vector search
+   5. deterministic graph traversal for recipes, unlocks, drops, and breeding chains
+5. Vector search is optional and supplementary. It must never override structured facts.
+6. Embedding configuration must record provider, model, dimension, locale, normalization, and knowledge version.
+7. Guide text should be transformed into reviewed summaries or factual chunks rather than copied wholesale from copyrighted pages.
+8. When chunking is useful, use document-aware paragraphs of roughly 400–800 tokens with 10–20% overlap, preserve heading context, and attach source and version metadata.
+9. Retrieval returns provenance and confidence; it does not return unreviewed text as settled fact.
+10. A query must expose conflicts, stale versions, and missing records instead of selecting a silent winner.
+
+## Tool Use Architecture
+
+### Deterministic Tool Rules
+
+- Recipes, material totals, shortages, craftable counts, breeding results, breeding chains, and work-capacity calculations must be pure Rust functions.
+- The LLM must not perform arithmetic for user-visible quantities or guess breeding inheritance.
+- Recursive material expansion must detect cycles, depth limits, duplicate ingredients, multiple outputs, by-products, and alternative recipes.
+- Calculations must retain intermediate dependency trees so answers can show how totals were derived.
+
+### Initial Tool Families
+
+- Entity lookup: `resolve_name`, `get_item`, `get_pal`, `get_recipe`, `get_technology`.
+- Relation lookup: `get_pal_work_suitability`, `get_pal_drops`, `get_pal_habitat`, `get_recipe_tree`.
+- Calculators: `calculate_materials`, `calculate_shortage`, `calculate_craftable_count`, `calculate_breeding_result`, `calculate_breeding_chain`.
+- Retrieval: `search_structured_knowledge`, `search_guide_text`, `get_conflicting_records`.
+- State analysis: `import_player_snapshot`, `analyze_inventory`, `analyze_party`, `suggest_next_goals`.
+- Optional private infrastructure status: `query_private_server_status`.
+
+### Tool Boundaries
+
+- The model sees only tool names, descriptions, and JSON schemas published by the Rust registry.
+- Tool arguments are validated before execution.
+- Tool results use a standard envelope containing status, data, provenance, version, uncertainty, and errors.
+- The agent loop has a fixed maximum number of tool calls per question.
+- Provider failure, retrieval failure, timeout, and invalid data produce clear errors without fabrication.
+- Private server status is read-only and requires explicit configured ownership; public-server automation is prohibited.
 
 ## Research And Data Boundary
 
@@ -211,91 +272,119 @@ Acceptance:
 ### Phase G1: Knowledge Schema And Source Intake
 
 ```text
-Goal: define the structured representation for guide knowledge and ingest the first reviewed source set.
+Goal: build a reviewed, versioned, offline knowledge foundation.
 
 Tasks:
-1. Design typed schemas for items, recipes, materials, technologies, Pals, work suitability, sources, and progression relationships.
-2. Define validation rules for identifiers, versions, units, ranges, and provenance.
-3. Build a reproducible offline data pipeline.
-4. Register all user-provided sources.
-5. Normalize the first reviewed dataset.
-6. Add tests for schema validation and conflicting-source handling.
+1. Create the Rust workspace and the `game-knowledge` crate.
+2. Design typed schemas for sources, provenance, items, recipes, technologies, Pals, work suitability, drops, habitats, breeding rules, aliases, conflicts, and progression relationships.
+3. Define validation rules for identifiers, locale names, versions, units, ranges, references, and provenance.
+4. Store canonical reviewed records as versioned JSONL and derive a read-only SQLite cache when useful.
+5. Register every user-provided source in the source log before its facts are used.
+6. Normalize the first reviewed dataset without copying wholesale copyrighted text.
+7. Implement conflict records and provenance propagation.
+8. Add schema, reference-integrity, version, alias, and conflict tests.
 
 Acceptance:
 - Every persisted fact has source, version, date, review status, and confidence.
 - Invalid or incomplete records fail validation.
 - Conflicts remain visible rather than being silently resolved.
-- No runtime advisor is required yet.
+- Canonical data remains diffable and reviewable.
+- No LLM, retrieval index, or runtime advisor is required yet.
 ```
 
-### Phase G2: Offline Guide MVP
+### Phase G2: Deterministic Guide CLI
 
 ```text
-Goal: answer common guide questions without live game state.
+Goal: prove lookup and calculation correctness without an LLM or live game state.
 
 Tasks:
-1. Implement deterministic knowledge retrieval and resolution.
-2. Support questions for item use, acquisition, recipes, and Pal work suitability.
-3. Add intent parsing suitable for short chat queries.
-4. Return concise answers with uncertainty when data is missing or stale.
-5. Add regression tests for representative questions.
+1. Implement deterministic identifier and alias resolution.
+2. Implement exact lookup for item use, acquisition leads, recipes, unlock requirements, Pal stats, drops, habitats, and work suitability.
+3. Implement recursive material expansion, shortage calculation, and craftable-count calculation.
+4. Implement deterministic breeding-result and breeding-chain tools once their rules are reviewed.
+5. Add a CLI with commands such as `lookup`, `recipe`, `materials`, `shortage`, and `breeding`.
+6. Detect cycles, depth limits, duplicate ingredients, multiple outputs, by-products, and alternative recipes.
+7. Return uncertainty for missing, stale, or conflicted records.
+8. Add property and regression tests for every calculator.
 
 Acceptance:
-- Common factual questions are answered from structured data.
+- Common exact questions are answered from structured data.
+- Recipe trees and quantity calculations are deterministic and reproducible.
+- Shortage and craftable-count results show usable dependency trees.
 - Missing knowledge returns `unknown` rather than a plausible fabrication.
-- The guide works offline.
-- Tests cover aliases, ambiguous names, missing records, and stale versions.
+- The guide works completely offline without an LLM.
+- Tests cover aliases, ambiguous names, missing records, stale versions, cycles, and invalid quantities.
 ```
 
-### Phase G3: State-Aware Advisor
+### Phase G3: Hybrid Retrieval And Grounded LLM Guide
 
 ```text
-Goal: combine knowledge with an explicit player-state snapshot.
+Goal: answer natural-language questions through bounded Rust tool use.
 
 Tasks:
-1. Define a versioned read-only player-state schema.
-2. Implement inventory, party, and goal-gap analysis.
-3. Distinguish observed state, user-entered state, assumptions, and unknowns.
-4. Answer what is craftable, what is missing, and whether an item is useful now.
-5. Add mock-state and invalid-state tests.
+1. Add the `knowledge-index` and `guide-agent` crates.
+2. Build a Tantivy lexical index over reviewed structured summaries and guide chunks.
+3. Keep exact identifier, structured lookup, and graph traversal ahead of optional vector search.
+4. If semantic search is added, record embedding provider, model, dimension, locale, normalization, and knowledge version.
+5. Define the typed tool registry, JSON schemas, result envelope, timeouts, cancellation, and maximum tool-call budget.
+6. Add OpenAI-compatible and Ollama providers; other providers may remain typed stubs.
+7. Implement a bounded agent loop that classifies intent, resolves names, selects tools, and synthesizes answers.
+8. Require deterministic tools for all numerical recipes, shortages, and breeding calculations.
+9. Attach knowledge provenance, version warnings, conflicts, and unknowns to every answer path.
+10. Add mock-provider and retrieval regression tests.
 
 Acceptance:
-- Advice references the supplied state.
-- Missing state degrades cleanly to general guidance.
-- The advisor performs no game I/O and no mutation.
+- Natural-language questions can use exact lookup, lexical retrieval, and deterministic tools.
+- The LLM cannot bypass the Rust tool registry.
+- Model-generated arithmetic and breeding guesses never become user-visible facts.
+- Retrieval returns a small, relevant, provenance-bearing context set.
+- Provider, timeout, malformed-tool, and budget failures are clear and non-fatal.
+- Missing knowledge returns `unknown`; stale or conflicting knowledge is visible.
 ```
 
-### Phase G4: Progression Planner
+### Phase G4: State-Aware Advisor And Progression Planner
 
 ```text
-Goal: recommend prioritized next steps from a goal graph and player preferences.
+Goal: combine knowledge, explicit player state, and preferences into prioritized advice.
 
 Tasks:
-1. Model progression relationships and player preferences.
-2. Rank three to five next steps by relevance, effort, benefit, and uncertainty.
-3. Explain requirements and alternatives.
-4. Add adversarial tests for bad goals, stale knowledge, and conflicting preferences.
+1. Add the `state-snapshot` and `guide-planner` crates.
+2. Define a versioned read-only player-state schema for inventory, party, unlocks, goals, and preferences.
+3. Distinguish observed state, user-entered state, assumptions, and unknowns.
+4. Implement inventory-gap, party-work-gap, craftable-now, and goal-readiness analysis.
+5. Model progression relationships and player preferences.
+6. Rank three to five next steps by relevance, effort, benefit, risk, and uncertainty.
+7. Explain requirements, alternatives, expected benefit, and data confidence for each recommendation.
+8. Add mock-state, invalid-state, adversarial-goal, stale-knowledge, and conflicting-preference tests.
 
 Acceptance:
 - Recommendations are deterministic for the same knowledge and state.
 - Every step has a reason and requirement basis.
+- Advice references supplied state and clearly identifies missing state.
+- Missing state degrades cleanly to general guidance.
 - Spoiler-sensitive and long-horizon advice is controlled by preferences.
+- No game I/O or mutation is performed.
 ```
 
-### Phase G5: Integrated Chat Guide
+### Phase G5: Integrated Interfaces
 
 ```text
-Goal: connect the advisor to a read-only in-game chat interface for the recorded local target.
+Goal: expose the advisor through useful interfaces, ending with read-only in-game chat for the recorded target.
 
 Tasks:
-1. Define the target Palworld version, platform, load mode, and adapter constraints.
-2. Add read-only state snapshot retrieval where safely verifiable.
-3. Add natural-language input and concise reply output.
-4. Add timeouts, rate limits, redaction, and clear provider/adapter errors.
-5. Validate in a private local session.
+1. Add the `guide-server` crate with an Axum Web API and a minimal browser UI.
+2. Preserve session state, follow-up context, provider configuration, rate limits, and answer provenance.
+3. Add optional interface adapters only after the Web path is stable, such as Tauri, Discord, or QQ.
+4. Define the target Palworld version, platform, load mode, save backup, and adapter constraints before live integration.
+5. Add read-only state snapshot retrieval only where safely verifiable in the target build.
+6. Add natural-language in-game input and concise reply output through a thin adapter.
+7. Add timeouts, payload limits, redaction, cancellation, and clear provider, adapter, and retrieval errors.
+8. Validate the final read-only chat path in a private local session.
 
 Acceptance:
-- A player question receives a useful grounded reply in game.
+- The Web interface can answer grounded questions and show provenance and uncertainty.
+- Optional adapters reuse the same Rust core and tool registry.
+- A player question receives a useful grounded reply in game for the recorded target.
 - Read-only capabilities fail clearly when unavailable.
 - No mutation path exists.
 ```
@@ -306,15 +395,16 @@ Acceptance:
 Goal: keep the guide trustworthy across game updates and long sessions.
 
 Tasks:
-1. Add game-version and knowledge-version compatibility checks.
-2. Add source review and update workflows.
-3. Add answer regression suites and evaluation metrics.
-4. Add log rotation, secret redaction, crash recovery, and backup documentation.
-5. Document installation, troubleshooting, and data-update procedures.
+1. Add game-version, knowledge-version, index-version, and embedding-version compatibility checks.
+2. Add source review, conflict resolution, and knowledge-update workflows.
+3. Add answer regression suites and evaluation metrics for lookup accuracy, calculation correctness, retrieval hit rate, hallucination rate, and version-warning behavior.
+4. Add performance budgets, log rotation, secret redaction, crash recovery, and backup documentation.
+5. Document installation, configuration, troubleshooting, data updates, and interface deployment.
 
 Acceptance:
 - Version drift is visible to the user.
 - Knowledge changes are auditable.
+- Regressions protect common facts, recipe calculations, shortages, breeding chains, and natural-language answers.
 - Formatting, lint, tests, and answer regressions pass.
 ```
 
@@ -331,10 +421,13 @@ Your responsibilities:
 3. Explain items, materials, Pals, mechanics, and progression choices.
 4. Recommend a small number of useful next steps.
 5. Report missing, conflicting, or version-stale information clearly.
+6. Use the provided tools for exact facts, recipes, quantities, shortages, and breeding results.
 
 Hard rules:
 - Never invent game facts.
 - Never claim a state was observed unless it is present in the supplied state.
+- Never calculate material totals, recipe trees, shortages, or breeding results without calling the corresponding deterministic tool.
+- Never change a value returned by a tool.
 - Never recommend cheats, exploits, public-server automation, or anti-cheat bypass.
 - Keep answers concise and suitable for in-game chat.
 - Prefer a short answer with an optional detailed follow-up.
@@ -354,14 +447,15 @@ Response style:
 3. Prefer small, reviewable changes.
 4. Add or update tests for schemas, retrieval, state analysis, planner, and answer behavior.
 5. Do not promote community data to reviewed status without source registration and review.
-6. Do not add live-game integration before Phase G5.
-7. Treat every Palworld update as a knowledge-compatibility boundary.
-8. Keep secrets outside Git.
-9. Before finishing a code phase, normally run:
+6. Do not adopt Python agent frameworks, hosted low-code platforms, or external orchestration services as the production brain.
+7. Do not add live-game integration before Phase G5.
+8. Treat every Palworld update as a knowledge-compatibility boundary.
+9. Keep secrets outside Git.
+10. Before finishing a code phase, normally run:
    - `cargo fmt --all -- --check`
    - `cargo clippy --all-targets -- -D warnings`
    - `cargo test`
-10. Report unresolved data uncertainty and skipped verification explicitly.
+11. Report unresolved data uncertainty and skipped verification explicitly.
 
 ## Target Layout
 
@@ -372,9 +466,13 @@ adapter/
 crates/
   guide-core/
   game-knowledge/
+  knowledge-index/
+  guide-tools/
+  guide-agent/
   guide-planner/
   provider/
   state-snapshot/
+  guide-server/
 
 docs/
   product-goal.md
