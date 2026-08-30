@@ -16,7 +16,7 @@ Switching to external wikis and tutorials breaks play flow and often provides ge
 
 Palworld Guider is an accessible, state-aware advisor. It answers questions in short, concrete terms and personalizes them when player state is available.
 
-The product is not an autopilot. It explains options and recommends next steps; the player remains responsible for executing them.
+The product explains options, compares routes, and recommends next steps; the player remains the decision maker and executes the resulting gameplay actions.
 
 ## Core User Questions
 

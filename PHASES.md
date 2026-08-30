@@ -28,7 +28,7 @@ Completed:
 
 - Created an independent project root.
 - Defined the guide-first product mission.
-- Defined the read-only capability ladder and non-goals.
+- Defined the read-only capability ladder, scope, and guardrails.
 - Defined the Rust core architecture boundary.
 - Created the knowledge-source policy.
 - Created the reference-data source log and intake template.
@@ -49,7 +49,7 @@ None.
 
 ## Phase Boundaries
 
-- No game API is called.
-- No adapter is implemented.
-- No game fact is asserted beyond the current documentation boundary.
-- No world mutation or player automation is planned.
+- Current scope remains documentation and project definition.
+- Game integration and adapter work are deferred to the defined later phases.
+- Game facts await reviewed source intake.
+- The product remains a read-only guide and advisor.

@@ -1,8 +1,8 @@
 # Palworld Guider
 
-Palworld Guider is a read-only in-game advisor that helps players understand items, materials, Pals, crafting, and progression without switching to a wiki.
+Palworld Guider is a read-only in-game advisor that helps players understand items, materials, Pals, crafting, and progression directly in their play flow.
 
-The project is guide-first rather than automation-first. It will provide:
+The project is guide-first and keeps the player in control. It will provide:
 
 - factual explanations from a versioned knowledge base
 - state-aware material and goal-gap analysis

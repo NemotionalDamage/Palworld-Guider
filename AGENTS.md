@@ -1,6 +1,6 @@
 # Palworld Guider Agent Instructions
 
-This repository implements an in-game guide and advisor for Palworld. The agent helps players understand items, materials, Pals, mechanics, and progression, then gives personalized next-step advice. It is not an autonomous player.
+This repository implements an in-game guide and advisor for Palworld. The agent helps players understand items, materials, Pals, mechanics, and progression, then gives personalized next-step advice while keeping the player in control of gameplay decisions.
 
 ## Standing Operating Contract
 
@@ -14,7 +14,7 @@ This repository implements an in-game guide and advisor for Palworld. The agent 
 
 ## PHASES.md Content Rules
 
-`PHASES.md` is a concise phase ledger, not an operational log or incident ticket.
+`PHASES.md` is a concise phase ledger focused on durable project-progress facts.
 
 Record only project-progress facts:
 
@@ -70,7 +70,7 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 
 - Reduce context switching: the player should not need to leave the game to understand basic progression choices.
 - Personalize advice: combine game knowledge with the player's actual state when that state is available.
-- Prefer explanation over automation: the agent recommends actions; it does not replace the player.
+- Prefer explanation and recommendation: the player remains the decision maker and actor.
 - Ground every fact: concrete recipes, drop sources, stats, mechanics, and unlock requirements must come from reviewed structured data.
 - Never fake certainty: missing or stale data must produce an explicit uncertainty warning or `unknown`.
 - Keep the first release read-only: no movement, combat, gathering, construction, inventory mutation, or world mutation.
@@ -122,21 +122,21 @@ The first usable milestone is an offline guide backed by a versioned knowledge b
 - Provide regression tests for common answers.
 - Support auditable knowledge updates after Palworld patches.
 
-## Non-Goals
+## Scope And Guardrails
 
-- Autonomous or unsupervised play.
-- Automatic movement, combat, gathering, construction, or item transfer.
-- Public-server automation or anti-cheat bypass.
-- Replacing the game's existing tutorials for basic controls.
-- Using an LLM as the authoritative source of game facts.
-- Copying game assets or large copyrighted text into the repository.
-- General conversational personality features before guide quality is reliable.
+- Keep the player in control of gameplay decisions and execution.
+- Present recommendations and explanations while the player performs movement, combat, gathering, construction, and item transfer.
+- Support local, private, guide-oriented use and comply with game and platform rules.
+- Complement native tutorials with context-aware guidance.
+- Treat reviewed structured knowledge as the authoritative source of game facts.
+- Respect game assets and copyrighted text by storing only reviewed, transformed facts and source metadata.
+- Prioritize guide quality before conversational personality features.
 
 ## Required Architecture
 
-- The project is a hybrid Rust RAG and Tool Use system, not a pure vector database or a framework-driven chatbot.
+- The project combines hybrid Rust RAG with deterministic Tool Use.
 - Core knowledge schemas, validation, retrieval, ranking, deterministic calculators, planning, state interpretation, provider calls, agent orchestration, safety checks, interfaces, and tests must be implemented in Rust.
-- Python projects, LangChain, AutoGen, Dify, and FastGPT may be studied as design references, but they must not become the production brain, tool registry, data pipeline, or agent runtime.
+- Python projects, LangChain, AutoGen, Dify, and FastGPT may serve as design references; the production brain, tool registry, data pipeline, and agent runtime remain in Rust.
 - A future game adapter may only expose read-only observation and chat input/output.
 - The adapter must not own game semantics, planning, or advisory logic.
 - The LLM may interpret language and phrase answers, but must not invent game facts.
@@ -280,7 +280,7 @@ Goal: establish the independent guide project and its evidence boundary.
 
 Tasks:
 1. Create the independent repository and governing documents.
-2. Define the product mission, capability ladder, non-goals, and architecture.
+2. Define the product mission, capability ladder, scope, guardrails, and architecture.
 3. Establish the source-log and reference-intake format.
 4. Record that no detailed game data has been reviewed yet.
 5. Keep this phase documentation-only.
