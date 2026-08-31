@@ -152,3 +152,46 @@ fn reports_unknown_ambiguous_and_depth_limited_breeding_paths() {
     assert_eq!(answer.status, AnswerStatus::Error);
     assert!(answer.errors.iter().any(|error| error.contains("depth")));
 }
+
+#[test]
+fn reports_ambiguous_breeding_parent_names_with_candidates() {
+    let engine = engine(vec![
+        pal("PAL_ALPHA_1", "Same Name"),
+        pal("PAL_ALPHA_2", "Same Name"),
+        pal("PAL_BETA", "Beta"),
+    ]);
+
+    let answer = engine.calculate_breeding_result("Same Name", "Beta");
+    assert_eq!(answer.status, AnswerStatus::Ambiguous);
+    assert!(answer.data.is_none());
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("PAL_ALPHA_1") && message.contains("PAL_ALPHA_2")));
+}
+
+#[test]
+fn reports_ambiguous_breeding_chain_endpoints_with_candidates() {
+    let engine = engine(vec![
+        pal("PAL_START_1", "Start"),
+        pal("PAL_START_2", "Start"),
+        pal("PAL_UNIQUE_START", "Unique Start"),
+        pal("PAL_TARGET_1", "Target"),
+        pal("PAL_TARGET_2", "Target"),
+    ]);
+
+    let start_answer = engine.calculate_breeding_chain("Start", "Target", 3);
+    assert_eq!(start_answer.status, AnswerStatus::Ambiguous);
+    assert!(start_answer.data.is_none());
+    assert!(start_answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("PAL_START_1") && message.contains("PAL_START_2")));
+
+    let target_answer = engine.calculate_breeding_chain("Unique Start", "Target", 3);
+    assert_eq!(target_answer.status, AnswerStatus::Ambiguous);
+    assert!(target_answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("PAL_TARGET_1") && message.contains("PAL_TARGET_2")));
+}

@@ -232,3 +232,48 @@ fn supports_raw_targets_and_rejects_unknown_inventory() {
         .iter()
         .any(|error| error.contains("unknown inventory item")));
 }
+
+#[test]
+fn converts_multi_output_craftable_batches_to_item_count() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 5),
+            &[("ITEM_WOOD", 1)],
+            &[],
+        ),
+    ]);
+
+    let answer = engine.calculate_craftable_count("Result", &[InventoryEntry::new("Wood", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 5);
+    assert_eq!(
+        craftable.limiting_material_ids,
+        vec!["ITEM_WOOD".to_string()]
+    );
+}
+
+#[test]
+fn reports_craftable_count_overflow_for_multiple_outputs() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", u32::MAX),
+            &[("ITEM_WOOD", 1)],
+            &[],
+        ),
+    ]);
+
+    let answer = engine.calculate_craftable_count("Result", &[InventoryEntry::new("Wood", 2)]);
+    assert_eq!(answer.status, AnswerStatus::Error);
+    assert!(answer.data.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("craftable count overflow")));
+}

@@ -19,6 +19,7 @@ Phase G2 added the deterministic offline guide core:
 - checked arithmetic, cycle detection, depth limits, and alternative-recipe ambiguity
 - order-insensitive breeding-result lookup
 - bounded shortest breeding-chain traversal
+- explicit ambiguous breeding parent and endpoint candidates
 - commands: `lookup`, `recipe`, `materials`, `shortage`, `craftable`, `breeding`, and `chain`
 
 No LLM, retrieval index, provider, adapter, server, save reader, or dynamic-state source was added.
@@ -33,9 +34,10 @@ No LLM, retrieval index, provider, adapter, server, save reader, or dynamic-stat
 - Recipe cycles and depth-limit violations return `error`.
 - Quantities use checked `u32` arithmetic.
 - Raw acquisition targets are not reported as craftable.
-- Craftable counts describe additional items and include the full material calculation.
+- Craftable counts describe additional items, convert inventory-limited recipe batches through the root output quantity, use checked multiplication, and include the full material calculation.
 - Breeding rules match either parent order.
 - Breeding chains use bounded traversal and retain shortest-path ambiguity.
+- Ambiguous parent or endpoint names retain candidate IDs and return `ambiguous` rather than `unknown`.
 
 ## Verification
 
@@ -47,12 +49,15 @@ Red test checkpoints:
 - CLI tests initially failed because no `guide-core` binary target existed.
 - A craftable-tree regression initially failed because the result omitted the dependency calculation.
 - A raw-target craftable regression initially failed by reporting an item without a recipe as craftable.
+- A multi-output craftable regression initially failed by returning `1` item for a one-batch recipe yielding `5`.
+- A craftable overflow regression initially returned `ok` instead of an arithmetic error.
+- Ambiguous breeding parent and endpoint regressions initially returned `unknown` instead of `ambiguous` with candidate IDs.
 
 Final gates:
 
 - `cargo fmt --all -- --check` passed.
 - `cargo clippy --all-targets -- -D warnings` passed.
-- `cargo test` passed with 23 tests.
+- `cargo test` passed with 27 tests.
 
 No checks were intentionally skipped.
 

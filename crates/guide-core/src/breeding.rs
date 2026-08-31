@@ -35,21 +35,47 @@ struct SearchPath {
     subject_ids: BTreeSet<String>,
 }
 
+enum PalResolution {
+    Unique(ResolvedEntity),
+    Ambiguous(Vec<ResolvedEntity>),
+    Unknown,
+}
+
 impl GuideEngine {
     pub fn calculate_breeding_result(
         &self,
         parent_a_query: &str,
         parent_b_query: &str,
     ) -> crate::GuideAnswer<BreedingResult> {
-        let (parent_a, parent_b) = match (
+        let (parent_a_resolution, parent_b_resolution) = (
             self.resolve_pal(parent_a_query),
             self.resolve_pal(parent_b_query),
-        ) {
-            (Some(parent_a), Some(parent_b)) => (parent_a, parent_b),
-            _ => {
-                return self
-                    .context()
-                    .unknown("unknown parent Pal; no reviewed record matches")
+        );
+        let (parent_a, parent_b) = match (parent_a_resolution, parent_b_resolution) {
+            (PalResolution::Unique(parent_a), PalResolution::Unique(parent_b)) => {
+                (parent_a, parent_b)
+            }
+            (parent_a_resolution, parent_b_resolution) => {
+                let mut candidates = Vec::new();
+                if let PalResolution::Ambiguous(matches) = parent_a_resolution {
+                    candidates.extend(matches);
+                }
+                if let PalResolution::Ambiguous(matches) = parent_b_resolution {
+                    candidates.extend(matches);
+                }
+                if candidates.is_empty() {
+                    return self
+                        .context()
+                        .unknown("unknown parent Pal; no reviewed record matches");
+                }
+                let ids = candidates
+                    .into_iter()
+                    .map(|candidate| candidate.id)
+                    .collect::<Vec<_>>();
+                return self.context().ambiguous(format!(
+                    "ambiguous parent Pal; candidates: {}; no parent was selected",
+                    ids.join(", ")
+                ));
             }
         };
         let rules = self
@@ -103,15 +129,33 @@ impl GuideEngine {
         target_query: &str,
         maximum_depth: usize,
     ) -> crate::GuideAnswer<BreedingChain> {
-        let (start, target) = match (
+        let (start_resolution, target_resolution) = (
             self.resolve_pal(start_query),
             self.resolve_pal(target_query),
-        ) {
-            (Some(start), Some(target)) => (start, target),
-            _ => {
-                return self
-                    .context()
-                    .unknown("unknown start or target Pal; no reviewed record matches")
+        );
+        let (start, target) = match (start_resolution, target_resolution) {
+            (PalResolution::Unique(start), PalResolution::Unique(target)) => (start, target),
+            (start_resolution, target_resolution) => {
+                let mut candidates = Vec::new();
+                if let PalResolution::Ambiguous(matches) = start_resolution {
+                    candidates.extend(matches);
+                }
+                if let PalResolution::Ambiguous(matches) = target_resolution {
+                    candidates.extend(matches);
+                }
+                if candidates.is_empty() {
+                    return self
+                        .context()
+                        .unknown("unknown start or target Pal; no reviewed record matches");
+                }
+                let ids = candidates
+                    .into_iter()
+                    .map(|candidate| candidate.id)
+                    .collect::<Vec<_>>();
+                return self.context().ambiguous(format!(
+                    "ambiguous start or target Pal; candidates: {}; no endpoint was selected",
+                    ids.join(", ")
+                ));
             }
         };
         if maximum_depth == 0 && start.id != target.id {
@@ -259,10 +303,13 @@ impl GuideEngine {
         }
     }
 
-    fn resolve_pal(&self, query: &str) -> Option<ResolvedEntity> {
+    fn resolve_pal(&self, query: &str) -> PalResolution {
         match self.resolve(query, Some(crate::EntityKind::Pal)) {
-            crate::resolver::Resolution::Unique(resolved) => Some(resolved),
-            _ => None,
+            crate::resolver::Resolution::Unique(resolved) => PalResolution::Unique(resolved),
+            crate::resolver::Resolution::Ambiguous(candidates) => {
+                PalResolution::Ambiguous(candidates)
+            }
+            crate::resolver::Resolution::Unknown => PalResolution::Unknown,
         }
     }
 }

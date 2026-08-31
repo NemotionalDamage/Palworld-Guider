@@ -287,20 +287,39 @@ impl GuideEngine {
                 .context()
                 .unknown("unknown crafting recipe; raw acquisition is not reported as craftable");
         }
+        let root_output_quantity = match &material_calculation.tree.acquisition {
+            MaterialAcquisition::Recipe {
+                output_quantity, ..
+            } => *output_quantity,
+            MaterialAcquisition::Raw => {
+                return self.context().unknown(
+                    "unknown crafting recipe; raw acquisition is not reported as craftable",
+                )
+            }
+        };
         let craftable = {
-            let mut maximum_additional_count = u32::MAX;
+            let mut maximum_recipe_batches = u32::MAX;
             for total in &material_calculation.totals {
                 let available_quantity = parsed_inventory.get(&total.item_id).copied().unwrap_or(0);
-                maximum_additional_count =
-                    maximum_additional_count.min(available_quantity / total.required_quantity);
+                maximum_recipe_batches =
+                    maximum_recipe_batches.min(available_quantity / total.required_quantity);
             }
+            let maximum_additional_count =
+                match maximum_recipe_batches.checked_mul(root_output_quantity) {
+                    Some(count) => count,
+                    None => {
+                        return self
+                            .context()
+                            .error("craftable count overflow; no result was calculated")
+                    }
+                };
             let limiting_material_ids = material_calculation
                 .totals
                 .iter()
                 .filter(|total| {
                     let available_quantity =
                         parsed_inventory.get(&total.item_id).copied().unwrap_or(0);
-                    available_quantity / total.required_quantity == maximum_additional_count
+                    available_quantity / total.required_quantity == maximum_recipe_batches
                 })
                 .map(|total| total.item_id.clone())
                 .collect();
