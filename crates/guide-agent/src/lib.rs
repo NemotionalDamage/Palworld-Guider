@@ -581,6 +581,25 @@ const BREEDING_ALLOWED_WORDS: &[&str] = &[
     "对于",
 ];
 
+const OUTCOME_ASSERTION_KEYWORDS: &[&str] = &[
+    "offspring",
+    "child",
+    "result",
+    "results",
+    "后代",
+    "孩子",
+    "结果",
+];
+
+const OUTCOME_SKIP_WORDS: &[&str] = &[
+    "a", "an", "the", "is", "are", "was", "were", "be", "will", "would", "may", "might", "是",
+    "为", "一个", "一只",
+];
+
+const PRODUCTION_VERBS: &[&str] = &[
+    "produces", "produce", "produced", "gives", "give", "yields", "yield", "hatches", "hatch",
+];
+
 const NUMBER_WORDS: &[(&str, f64)] = &[
     ("zero", 0.0),
     ("one", 1.0),
@@ -775,77 +794,44 @@ fn numeric_claim_context_entities(
     claim: &NumericClaim,
     known_entity_names: &BTreeSet<String>,
 ) -> BTreeSet<String> {
-    let (sentence_start, sentence_end) = sentence_bounds(text, claim.start, claim.end);
+    let (_, sentence_end) = sentence_bounds(text, claim.start, claim.end);
     let tokens = word_tokens(text);
     let after_start = tokens
         .iter()
         .find(|token| token.start >= claim.end)
         .map(|token| token.start)
         .unwrap_or(claim.end);
+    let entity_phrases = known_entity_names
+        .iter()
+        .map(|name| normalized_words(name))
+        .filter(|phrase| !phrase.is_empty())
+        .collect::<Vec<_>>();
     let mut after_end = sentence_end;
+    let mut phrase_words = Vec::new();
     for token in tokens.iter().filter(|token| token.start >= after_start) {
         if token.start >= sentence_end {
             break;
         }
-        if is_numeric_context_boundary(&token.text) || punctuation_precedes(text, token.start) {
+        phrase_words.push(token.text.clone());
+        if !entity_phrases.iter().any(|phrase| {
+            phrase_words.len() <= phrase.len()
+                && phrase_words
+                    .iter()
+                    .zip(phrase.iter())
+                    .all(|(word, expected)| same_word(word, expected))
+        }) {
             after_end = token.start;
             break;
         }
     }
-    let before_end = tokens
-        .iter()
-        .rev()
-        .find(|token| token.end <= claim.start)
-        .map(|token| token.end)
-        .unwrap_or(claim.start);
-    let mut before_start = sentence_start;
-    for token in tokens.iter().rev().filter(|token| token.end <= claim.start) {
-        if is_numeric_context_boundary(&token.text) || punctuation_precedes(text, token.start) {
-            before_start = token.end;
-            break;
-        }
-    }
     let mut entities = BTreeSet::new();
-    let before = &text[before_start..before_end];
     let after = &text[after_start..after_end];
     for name in known_entity_names {
-        if contains_entity_phrase(before, name) || contains_entity_phrase(after, name) {
+        if contains_entity_phrase(after, name) {
             entities.insert(name.clone());
         }
     }
     entities
-}
-
-fn is_numeric_context_boundary(word: &str) -> bool {
-    matches!(
-        word,
-        "and"
-            | "or"
-            | "for"
-            | "from"
-            | "to"
-            | "of"
-            | "with"
-            | "in"
-            | "at"
-            | "by"
-            | "plus"
-            | "is"
-            | "are"
-            | "needs"
-            | "need"
-            | "has"
-            | "have"
-            | "short"
-    )
-}
-
-fn punctuation_precedes(text: &str, position: usize) -> bool {
-    position > 0
-        && matches!(
-            text.as_bytes()[position - 1],
-            b',' | b';' | b':' | b'|' | b'/' | b'(' | b')' | b'['
-        )
 }
 
 fn contains_entity_phrase(text: &str, entity: &str) -> bool {
@@ -1326,30 +1312,22 @@ fn unknown_breeding_asserts_offspring(
 ) -> bool {
     let words = normalized_words(answer_lower);
     for (index, word) in words.iter().enumerate() {
-        if !matches!(
-            word.as_str(),
-            "offspring" | "child" | "result" | "后代" | "孩子" | "结果"
-        ) {
+        if !OUTCOME_ASSERTION_KEYWORDS.contains(&word.as_str())
+            && !PRODUCTION_VERBS.contains(&word.as_str())
+        {
             continue;
         }
-        if !matches!(
-            words.get(index + 1).map(String::as_str),
-            Some("is" | "are" | "was" | "were" | "是" | "为")
-        ) {
-            continue;
-        }
-        let mut entity_index = index + 2;
-        if matches!(
-            words.get(entity_index).map(String::as_str),
-            Some("a" | "an" | "the" | "一个" | "一只")
-        ) {
+        let mut entity_index = index + 1;
+        while entity_index < words.len()
+            && OUTCOME_SKIP_WORDS.contains(&words[entity_index].as_str())
+        {
             entity_index += 1;
         }
         if permitted_entities.iter().any(|entity| {
             let entity_words = normalized_words(entity);
             !entity_words.is_empty()
                 && entity_index + entity_words.len() <= words.len()
-                && words[entity_index..]
+                && words[entity_index..entity_index + entity_words.len()]
                     .iter()
                     .zip(&entity_words)
                     .all(|(word, expected)| same_word(word, expected))

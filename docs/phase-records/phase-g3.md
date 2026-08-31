@@ -15,7 +15,7 @@
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
 - When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final prose must restate an exact result leaf in the question's numeric-word locale.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the fifth audit correction, numeric claims bind to the entity named in their immediate claim context rather than any same-sentence entity, and explicit unknown answers reject permitted parent entities in offspring-assertion position. The sixth audit found that comma-separated clauses still leak a prior entity into the next claim's context window, and that copula-less offspring assertions still pass after an explicit unknown.
+- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the sixth audit correction, a numeric claim is bound to the entity phrase immediately following the number: the gate takes the maximal run of adjacent words that form a prefix of a known entity name, so comma-separated clauses and trailing context can no longer leak a prior entity into the claim's evidence. Explicit unknown answers reject any permitted entity in result-assertion position, including copula-less (`the offspring Lamball`) and bare (`result: Lamball`) forms.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -220,10 +220,26 @@ The temporary test commands failed all three regressions with visible model answ
 
 Root cause: the numeric claim-context window is bounded by a connector-word list and punctuation checked only before scanned tokens, which is not a structural claim-to-entity binding; and the breeding unknown check is a copula-anchored pattern, which does not reject permitted entities in result-assertion position generally.
 
+## 2026-09-01 Sixth Completion Audit Correction
+
+The three audited bypasses were covered by permanent red regressions:
+
+- `comma_separated_values_cannot_reuse_the_previous_entity`
+- `unknown_breeding_answers_cannot_assert_offspring_without_a_copula`
+- `unknown_breeding_answers_cannot_assert_a_bare_offspring_entity`
+
+Correction:
+
+- Numeric claim-to-entity binding is now a structural adjacency check: the claim context is the maximal run of tokens immediately following the number that remains a prefix of a known entity's normalized name. No connector-word list is used, so commas, conjunctions, other numbers, and sentence ends all terminate the phrase naturally, and a value cannot be reused for an entity in a later clause of the same sentence.
+- Explicit unknown breeding answers now reject any permitted entity in result-assertion position: after an outcome keyword (`offspring`/`child`/`result`/`results` or Chinese equivalents), after a production verb (`produces`/`produce`/`gives`/`yields`/`hatches` and variants), with only articles and copulas allowed between. Copula-less (`Unknown result: the offspring Lamball.`) and bare (`Unknown result: Lamball.`) assertions are both rejected; permitted parent entities may appear only as uncertainty context.
+- Gate violations continue to suppress the model answer, return `error`, and retain tool records, provenance, and claim-specific diagnostics.
+
+Fresh gates after the sixth correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 109 tests, and `git diff --check` all passed.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The sixth audit found that comma-separated claim leakage and copula-less offspring assertions still require regression coverage.
+- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The fifth and sixth audit bypasses (same-sentence value reuse, comma-separated claim leakage, and copula-less or bare offspring assertions) now have permanent regression coverage.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.
