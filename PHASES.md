@@ -4,9 +4,9 @@ Last updated: 2026-08-31, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. Phase G1 is complete after an audit correction: the repository now has a Rust workspace, a typed and validated knowledge schema, strict provenance propagation, explicit conflict support, and a small reviewed JSONL seed dataset.
+Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
-No deterministic CLI, retrieval index, LLM agent, game adapter, or dynamic-state source exists yet. The next required phase is G2.
+Phase G2 is in progress. The phase is limited to deterministic identifier and alias resolution, exact lookups, recursive material and shortage calculations, craftable counts, reviewed breeding tools, and an offline CLI. No retrieval index, LLM, runtime advisor, game adapter, or dynamic-state source is in scope.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
@@ -20,7 +20,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 |---|---|---|
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
-| G2 | Not started | Build the deterministic offline guide CLI |
+| G2 | In progress | Build the deterministic offline guide CLI |
 | G3 | Not started | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
@@ -30,7 +30,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0–G1 complete, G2–G3 pending | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | G0–G1 complete, G2 in progress, G3 pending | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -66,22 +66,22 @@ None.
 
 Completed:
 
-- Selected Paldb `v1.0.3` as the first reviewed-secondary source for a deliberately small seed dataset.
-- Defined the Phase G1 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g1.md`.
-- Created the Rust workspace and `game-knowledge` crate.
-- Implemented typed schemas for sources, provenance, items, recipes, technologies, Pals, work suitability, drops, habitats, breeding rules, aliases, progression relationships, and conflicts.
-- Implemented JSONL loading plus provenance, identifier, locale, range, date, and reference-integrity validation.
-- Registered the reviewed Paldb source and normalized eight seed facts covering Wood acquisition, Wooden Club crafting, Technology Level 1, and Lamball work/drop data.
-- Added schema, reference-integrity, version, alias, conflict, and canonical-dataset regression tests.
-- Corrected the accepted audit findings: ingredient references are strict, typed references cannot fall back to unrelated fact IDs, dates are real Gregorian dates, recipe shape and crafting time are validated, and the source-log empty-state contradiction was removed.
+- Built the Rust workspace and validated `game-knowledge` schema.
+- Registered Paldb `v1.0.3` and normalized a small reviewed seed dataset.
+- Passed schema, provenance, reference-integrity, conflict, and canonical-data tests after audit correction.
+
+Detailed evidence remains in `docs/phase-records/phase-g1.md`.
+
+## Phase G2 Progress
+
+Completed:
+
+- Defined the Phase G2 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g2.md`.
 
 Remaining:
 
-None.
-
-### Verification
-
-Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` with eight tests after audit correction. Detailed evidence and source uncertainty are recorded in `docs/phase-records/phase-g1.md`.
+- Implement deterministic resolution, lookups, calculators, breeding tools, and CLI.
+- Run formatting, lint, test, and acceptance checks.
 
 ### Blockers
 
