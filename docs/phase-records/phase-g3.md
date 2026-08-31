@@ -15,7 +15,7 @@
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
 - When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final prose must restate an exact result leaf in the question's numeric-word locale.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities.
+- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. The fifth audit found that a numeric claim can still reuse a different entity's same-value result in the same sentence, and that a permitted parent entity can appear in offspring-assertion position after an explicit unknown.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -178,10 +178,23 @@ Correction:
 
 Fresh gates after the fourth correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 104 tests, and `git diff --check` all passed.
 
+## 2026-09-01 Fifth Completion Audit
+
+The fourth-correction repository passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 104 tests, and `git diff --check`.
+
+Two temporary regressions then tested the arithmetic and breeding acceptance boundary:
+
+- After a successful `calculate_shortage` for 3 Wooden Clubs with inventory Wood 5 and Wool 3 (Wood required 15, available 5, missing 10), `You are short 5 Wood and short 5 Wool for Wooden Clubs.` remained visible with `Ok` status. The value `5` is Wood's `available_quantity`, but the gate also authorized the fabricated `short 5 Wool` claim because the same sentence contains the word `Wood`.
+- After an unknown `calculate_breeding_result(parent_a="Lamball", parent_b="Lamball")` (no reviewed breeding rules in the seed set), `Unknown result: the offspring is Lamball.` remained visible with `Unknown` status. The word-level allowlist strips the permitted parent phrase `Lamball` and accepts the remaining connector words, so a permitted entity in offspring-assertion position passes the round-four fix that rejected `...fluffy`.
+
+The temporary test commands failed both regressions with visible model answers. The tests were removed after capturing the failures; a future correction must add equivalent permanent tests before changing the gate.
+
+Root cause: a numeric claim is supported by any same-value evidence whose entity appears anywhere in the claim's sentence rather than by the entity the claim names, and the breeding unknown check is word-level, so permitted parent entities can appear in assertion position instead of only as uncertainty context.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed.
+- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The fifth audit found that same-sentence value reuse and permitted-entity offspring assertions still require regression coverage.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.
