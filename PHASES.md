@@ -10,7 +10,7 @@ Phase G2 is complete after a fifth audit correction. Byproduct item provenance a
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-Phase G3 is in progress. The implementation plan adds a Tantivy knowledge index, a typed tool registry with budgets and envelopes, OpenAI-compatible and Ollama providers with a scripted mock, and a bounded agent loop that keeps exact lookup ahead of lexical retrieval and all facts grounded in tool results.
+Phase G3 is complete. The guide now answers natural-language questions through a bounded Rust agent loop: exact structured lookup and deterministic calculators run ahead of Tantivy lexical retrieval; the LLM sees only typed registry tools and cannot bypass validation, budgets, or envelopes; OpenAI-compatible, Ollama, and scripted mock providers share one chat contract; and every answer path records tool calls, provenance, versions, uncertainty, and errors. Semantic vector search remains deferred.
 
 The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
 
@@ -23,7 +23,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
-| G3 | In progress | Add hybrid retrieval and grounded LLM answers |
+| G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
@@ -32,7 +32,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0–G2 complete, G3 in progress | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | G0–G3 complete | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -107,22 +107,22 @@ None.
 
 ## Phase G3 Progress
 
-Started:
+Completed:
 
 - Defined the Phase G3 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g3.md`.
-- Scope covers the `knowledge-index`, `guide-tools`, `provider`, and `guide-agent` crates, bounded tool use, and grounded natural-language answers.
+- Added the `knowledge-index` crate with a Tantivy lexical index over deterministic structured summaries, aliases, provenance, versions, and unknown/stale envelopes.
+- Added the `guide-tools` crate with twelve typed tools, JSON schemas, argument validation, standard envelopes, budgets, and deadlines.
+- Added the `provider` crate with the `ChatProvider` contract, OpenAI-compatible and Ollama adapters, timeouts, an error taxonomy, and a scripted mock.
+- Added the `guide-agent` crate with a bounded grounded loop, cancellation, reply limits, provenance propagation, and an `ask` CLI.
+- Kept exact and structured lookup ahead of lexical retrieval and deferred semantic vector search.
 
 ### Verification
 
-Pending; implementation and phase gates have not run yet.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 84 tests, and `git diff --check` all passed. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
 
 ### Blockers
 
 None.
-
-### Next Required Action
-
-Complete Tasks 1–5 of the Phase G3 implementation plan and rerun the formatting, Clippy, test, and whitespace gates.
 
 ## Phase Boundaries
 
