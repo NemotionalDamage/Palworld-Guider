@@ -13,9 +13,9 @@
 ## Grounding And Safety Behavior
 
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
-- When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final calculation and breeding prose is not yet reliably gated to those tool families.
+- When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. The final gate authorizes numeric values and breeding entities only from claim-relevant successful tool evidence.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A first-pass deterministic grounding gate compares ASCII digit runs and reviewed entity names against a global pool of successful tool-result data and question arguments. It rejects many unsupported values, but the second completion audit found remaining calculation and breeding bypasses; it does not yet satisfy the final fact-grounding guarantee.
+- A deterministic grounding gate compares normalized numeric claims and reviewed entity names against claim-relevant successful tool evidence. Version metadata is never numeric evidence, unrelated lookups cannot authorize breeding conclusions, and violations suppress the model answer.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -63,7 +63,7 @@ The audited blocker was reproduced with four red regressions:
 Correction:
 
 - Added `ToolRegistry::known_entity_names` from reviewed item, Pal, technology, and alias names.
-- Added the deterministic grounding gate in `GuideAgent::finalize`: every numeric token in the final text must occur in successful tool data (version metadata included), and every known entity name must occur in successful tool data or the original tool arguments, which permits restating question entities without permitting new facts.
+- Added the deterministic grounding gate in `GuideAgent::finalize`: every numeric token in the final text must occur in successful tool data, and every known entity name must occur in successful tool data or the original tool arguments, which permits restating question entities without permitting new facts.
 - Gate violations suppress the model answer, return `error`, and list each unsupported claim while retaining the tool-call records and provenance.
 - No-tool answers now return `unknown` status in addition to the explicit no-evidence uncertainty.
 - Unknown breeding answers may restate only the parent entities supplied in tool arguments.
@@ -84,10 +84,30 @@ The temporary test command failed all three regressions with visible model answe
 
 Root cause: the gate authorizes tokens globally rather than validating claim type, relevant tool identity, and tool-result status. Version metadata must not be numeric evidence; number words and non-ASCII numerals require claim-aware normalization; and breeding conclusions must be authorized only by a successful deterministic breeding result.
 
+## 2026-08-31 Second Completion Audit Correction
+
+The three audited bypasses were converted into five permanent red regressions:
+
+- `version_digits_do_not_authorize_quantities`
+- `number_words_are_normalized_and_require_calculator_evidence`
+- `non_ascii_numerals_are_normalized_and_grounded`
+- `unrelated_lookup_cannot_wrap_unknown_breeding_result`
+- `breeding_entity_evidence_ignores_unrelated_arguments`
+
+Correction:
+
+- Numeric evidence now follows claim type. If any calculator tool was requested, only successful calculator-family result data can authorize visible quantities; otherwise successful non-calculator tool data remains usable for directly returned identifiers and counts. Serialized version metadata is excluded from numeric evidence.
+- Numeric claims are normalized from number words through ninety and fullwidth Unicode digits before comparison with deterministic evidence.
+- If any breeding calculator was requested, entity evidence is restricted to successful breeding-tool data plus breeding-tool arguments. Unrelated lookup results and arguments cannot wrap an unknown breeding result.
+- Calculation and breeding context violations independently require a successful calculator or breeding result, including the context-free breeding-entity case.
+- Gate violations continue to suppress the model answer, return `error`, and retain tool-call records, provenance, and explicit unsupported-claim diagnostics.
+
+Fresh gates after the second correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 93 tests, and `git diff --check` all passed.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate compares ASCII digit tokens and reviewed entity names, so number-word arithmetic, non-ASCII numerals, irrelevant-tool entity evidence, and fabricated names outside the reviewed entity vocabulary are not reliably rejected. Calculation and breeding claims require a stricter claim-type-aware gate before G3 can complete.
+- The grounding gate is deterministic lexical claim validation, not general natural-language inference. It covers reviewed numeric and entity vocabulary; unsupported claim taxonomy may need further expansion as new tools and answer patterns are added.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.

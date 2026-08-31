@@ -285,6 +285,105 @@ fn unsupported_calculation_claims_require_tool_evidence() {
 }
 
 #[test]
+fn version_digits_do_not_authorize_quantities() {
+    let (agent, _provider) = scripted_agent(
+        Some("1.0.3"),
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("You need 3 Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How much Wood do I need?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"3\"")
+            || error.contains("unsupported calculation claim")));
+}
+
+#[test]
+fn number_words_are_normalized_and_require_calculator_evidence() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![ChatResponse::text("You need twenty Wood.")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How much Wood do I need?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer.errors.iter().any(|error| error.contains("twenty")));
+}
+
+#[test]
+fn non_ascii_numerals_are_normalized_and_grounded() {
+    let (agent, _provider) =
+        scripted_agent(None, vec![ChatResponse::text("You need ３ Wood.")], 4, 1200);
+    let answer = agent.ask("How much Wood do I need?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"3\"")));
+}
+
+#[test]
+fn unrelated_lookup_cannot_wrap_unknown_breeding_result() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
+            ChatResponse::text("Lamball and Lamball produce Wool."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported entity claim \"Wool\"")
+            || error.contains("unsupported breeding claim \"Wool\"")));
+}
+
+#[test]
+fn breeding_entity_evidence_ignores_unrelated_arguments() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
+            ChatResponse::text("Lamball plus Lamball gives Wool."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball give?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported entity claim \"Wool\"")));
+}
+
+#[test]
 fn breeding_guesses_beyond_tool_evidence_are_rejected() {
     let (agent, _provider) = scripted_agent(
         None,
