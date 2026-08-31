@@ -33,7 +33,7 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 
 - `item`: localized names, description, rarity, and acquisition leads
 - `technology`: localized names and technology level
-- `recipe`: output, ingredients, crafting stations, optional technology, and optional crafting time
+- `recipe`: output, ingredients, optional by-products, crafting stations, optional technology, and optional crafting time
 - `pal`: names, optional stats, work suitability, drops, and habitat references
 - `habitat`: names and referenced Pals
 - `breeding_rule`: parent A, parent B, and child Pal references
@@ -48,7 +48,7 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 - Dates use a valid `YYYY-MM-DD` Gregorian calendar date; evidence URLs use HTTP or HTTPS.
 - Fact IDs are globally unique, and source IDs are unique.
 - Recipes require at least one ingredient and one crafting station.
-- Recipe ingredient, output, and technology references resolve to the exact required record type.
+- Recipe ingredient, output, by-product, and technology references resolve to the exact required record type.
 - Recipe and output quantities are greater than zero; present crafting time is finite and greater than zero.
 - Work-suitability levels are 1–5.
 - Drop quantities are positive, minimum does not exceed maximum, and probability is 0–100.

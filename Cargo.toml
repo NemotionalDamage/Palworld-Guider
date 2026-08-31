@@ -1,4 +1,3 @@
 [workspace]
-members = ["crates/game-knowledge"]
+members = ["crates/game-knowledge", "crates/guide-core"]
 resolver = "2"
-

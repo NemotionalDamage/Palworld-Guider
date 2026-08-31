@@ -168,6 +168,15 @@ impl KnowledgeStore {
                             ));
                         }
                     }
+                    for byproduct in &record.byproducts {
+                        if byproduct.quantity == 0 {
+                            errors.push(ValidationError::new(
+                                Some(record.id.clone()),
+                                "byproducts.quantity",
+                                "byproduct quantity must be greater than zero",
+                            ));
+                        }
+                    }
                     if record.output.quantity == 0 {
                         errors.push(ValidationError::new(
                             Some(record.id.clone()),
@@ -331,6 +340,37 @@ impl KnowledgeStore {
         self.conflicts.values().collect()
     }
 
+    pub fn items(&self) -> impl Iterator<Item = &crate::models::ItemRecord> {
+        self.items.values()
+    }
+
+    pub fn pals(&self) -> impl Iterator<Item = &crate::models::PalRecord> {
+        self.pals.values()
+    }
+
+    pub fn technologies(&self) -> impl Iterator<Item = &crate::models::TechnologyRecord> {
+        self.technologies.values()
+    }
+
+    pub fn recipes(&self) -> impl Iterator<Item = &crate::models::RecipeRecord> {
+        self.recipes.values()
+    }
+
+    pub fn aliases(&self) -> impl Iterator<Item = &crate::models::AliasRecord> {
+        self.aliases.values()
+    }
+
+    pub fn breeding_rules(&self) -> impl Iterator<Item = &crate::models::BreedingRuleRecord> {
+        self.breeding_rules.values()
+    }
+
+    pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {
+        self.conflicts
+            .values()
+            .filter(|record| record.subject_id == subject_id)
+            .collect()
+    }
+
     fn provenances(&self) -> Vec<(&String, &crate::models::Provenance)> {
         let mut result = Vec::new();
         for (id, record) in &self.items {
@@ -399,6 +439,15 @@ impl KnowledgeStore {
                     "technology_id",
                     technology_id,
                     self.technologies.keys(),
+                    errors,
+                );
+            }
+            for byproduct in &record.byproducts {
+                require_reference(
+                    &record.id,
+                    "byproducts.item_id",
+                    &byproduct.item_id,
+                    self.items.keys(),
                     errors,
                 );
             }

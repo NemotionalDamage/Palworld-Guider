@@ -83,6 +83,7 @@ fn valid_records() -> Vec<KnowledgeRecord> {
             crafting_stations: vec!["Primitive Workbench".to_string()],
             technology_id: Some("TECH_LEVEL_1".to_string()),
             crafting_seconds: None,
+            byproducts: Vec::new(),
             provenance: provenance(),
         }),
         KnowledgeRecord::ProgressionRelationship(ProgressionRelationshipRecord {
@@ -272,6 +273,10 @@ fn rejects_recipe_reference_and_shape_violations() {
         .expect("valid records contain recipe");
     recipe.output.item_id = "TECH_LEVEL_1".to_string();
     recipe.ingredients[0].item_id = "ITEM_MISSING".to_string();
+    recipe.byproducts = vec![RecipeItem {
+        item_id: "ITEM_MISSING".to_string(),
+        quantity: 0,
+    }];
 
     let errors = KnowledgeStore::from_records(records)
         .expect_err("wrong reference types and missing ingredients must fail");
@@ -279,6 +284,12 @@ fn rejects_recipe_reference_and_shape_violations() {
     assert!(errors
         .iter()
         .any(|error| error.field == "ingredients.item_id"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "byproducts.item_id"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "byproducts.quantity"));
 
     let mut records = valid_records();
     let recipe = records

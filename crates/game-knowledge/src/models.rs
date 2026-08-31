@@ -94,6 +94,8 @@ pub struct RecipeRecord {
     pub crafting_stations: Vec<String>,
     pub technology_id: Option<String>,
     pub crafting_seconds: Option<f32>,
+    #[serde(default)]
+    pub byproducts: Vec<RecipeItem>,
     pub provenance: Provenance,
 }
 

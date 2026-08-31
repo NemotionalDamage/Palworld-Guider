@@ -6,7 +6,7 @@ Last updated: 2026-08-31, Asia/Shanghai.
 
 Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
-Phase G2 is in progress. The phase is limited to deterministic identifier and alias resolution, exact lookups, recursive material and shortage calculations, craftable counts, reviewed breeding tools, and an offline CLI. No retrieval index, LLM, runtime advisor, game adapter, or dynamic-state source is in scope.
+Phase G2 is complete. Deterministic identifier and alias resolution, exact lookups, recursive material and shortage calculations, craftable counts, reviewed breeding tools, and an offline JSON CLI are implemented and tested. No retrieval index, LLM, runtime advisor, game adapter, or dynamic-state source exists.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
@@ -20,7 +20,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 |---|---|---|
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
-| G2 | In progress | Build the deterministic offline guide CLI |
+| G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Not started | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
@@ -30,7 +30,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0–G1 complete, G2 in progress, G3 pending | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | G0–G2 complete, G3 pending | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -77,15 +77,28 @@ Detailed evidence remains in `docs/phase-records/phase-g1.md`.
 Completed:
 
 - Defined the Phase G2 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g2.md`.
+- Added the `guide-core` library and offline JSON CLI.
+- Implemented deterministic IDs, normalized names, reviewed aliases, ambiguity handling, and unknown handling.
+- Implemented item, Pal, technology, and recipe lookups with provenance and configured-version warnings.
+- Implemented recursive material trees, duplicate aggregation, multiple-output scaling, by-products, shortages, craftable limits, checked arithmetic, alternative-recipe ambiguity, cycle detection, and depth limits.
+- Implemented order-insensitive breeding results and bounded shortest breeding-chain traversal.
+- Added CLI commands for lookup, recipe, materials, shortage, craftable, breeding, and chain operations.
 
 Remaining:
 
-- Implement deterministic resolution, lookups, calculators, breeding tools, and CLI.
-- Run formatting, lint, test, and acceptance checks.
+None.
+
+### Verification
+
+Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` with 23 tests. Detailed evidence and data limitations are recorded in `docs/phase-records/phase-g2.md`.
 
 ### Blockers
 
 None.
+
+### Next Required Action
+
+Start Phase G3 to add the reviewed-knowledge index, typed tool registry, and grounded natural-language guide.
 
 ### Next Required Action
 

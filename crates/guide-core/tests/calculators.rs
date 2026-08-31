@@ -1,0 +1,234 @@
+use game_knowledge::{
+    Confidence, KnowledgeRecord, KnowledgeStore, LocaleNames, Provenance, RecipeIngredient,
+    RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
+};
+use guide_core::{AnswerStatus, GuideEngine, InventoryEntry};
+
+fn source() -> SourceRecord {
+    SourceRecord {
+        id: "SRC-TEST".to_string(),
+        title: "Test source".to_string(),
+        supplier: "test".to_string(),
+        retrieved_on: "2026-01-01".to_string(),
+        evidence_urls: vec!["https://example.test/source".to_string()],
+        applicable_game_version: "1.0.0".to_string(),
+        reviewer: "test".to_string(),
+        review_status: ReviewStatus::Reviewed,
+        confidence: Confidence::Official,
+        notes: None,
+    }
+}
+
+fn provenance() -> Provenance {
+    Provenance {
+        source_id: "SRC-TEST".to_string(),
+        applicable_game_version: "1.0.0".to_string(),
+        retrieved_on: "2026-01-01".to_string(),
+        reviewer: "test".to_string(),
+        review_status: ReviewStatus::Reviewed,
+        confidence: Confidence::Official,
+        change_risk: None,
+    }
+}
+
+fn item(id: &str, name: &str) -> KnowledgeRecord {
+    KnowledgeRecord::Item(game_knowledge::ItemRecord {
+        id: id.to_string(),
+        names: LocaleNames {
+            en: name.to_string(),
+            zh_hans: None,
+        },
+        description: None,
+        rarity: "Common".to_string(),
+        acquisition_leads: vec![],
+        provenance: provenance(),
+    })
+}
+
+fn recipe(
+    id: &str,
+    output: (&str, u32),
+    ingredients: &[(&str, u32)],
+    byproducts: &[(&str, u32)],
+) -> KnowledgeRecord {
+    KnowledgeRecord::Recipe(RecipeRecord {
+        id: id.to_string(),
+        output: RecipeItem {
+            item_id: output.0.to_string(),
+            quantity: output.1,
+        },
+        ingredients: ingredients
+            .iter()
+            .map(|(item_id, quantity)| RecipeIngredient {
+                item_id: item_id.to_string(),
+                quantity: *quantity,
+            })
+            .collect(),
+        crafting_stations: vec!["Test Bench".to_string()],
+        technology_id: None,
+        crafting_seconds: None,
+        byproducts: byproducts
+            .iter()
+            .map(|(item_id, quantity)| RecipeItem {
+                item_id: item_id.to_string(),
+                quantity: *quantity,
+            })
+            .collect(),
+        provenance: provenance(),
+    })
+}
+
+fn test_store(records: Vec<KnowledgeRecord>) -> GuideEngine {
+    let mut all_records = vec![KnowledgeRecord::Source(source())];
+    all_records.extend(records);
+    let store = KnowledgeStore::from_records(all_records).expect("test records validate");
+    GuideEngine::new(store, None)
+}
+
+#[test]
+fn calculates_canonical_materials_shortage_and_craftable_count() {
+    let engine =
+        GuideEngine::load_directory("../../data/reviewed", None).expect("canonical dataset loads");
+
+    let answer = engine.calculate_materials("Wooden Club", 3);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let calculation = answer.data.expect("calculation exists");
+    assert_eq!(calculation.target_id, "ITEM_WOODEN_CLUB");
+    assert_eq!(calculation.requested_quantity, 3);
+    assert_eq!(calculation.recipe_id.as_deref(), Some("RECIPE_WOODEN_CLUB"));
+    let wood = calculation
+        .totals
+        .iter()
+        .find(|total| total.item_id == "ITEM_WOOD")
+        .expect("Wood total exists");
+    assert_eq!(wood.required_quantity, 15);
+    assert_eq!(calculation.tree.item_id, "ITEM_WOODEN_CLUB");
+    assert_eq!(calculation.tree.required_quantity, 3);
+
+    let answer = engine.calculate_shortage("Wooden Club", 3, &[InventoryEntry::new("Wood", 6)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let shortage = answer.data.expect("shortage exists");
+    assert_eq!(shortage.shortages.len(), 1);
+    assert_eq!(shortage.shortages[0].item_id, "ITEM_WOOD");
+    assert_eq!(shortage.shortages[0].required_quantity, 15);
+    assert_eq!(shortage.shortages[0].available_quantity, 6);
+    assert_eq!(shortage.shortages[0].missing_quantity, 9);
+
+    let answer =
+        engine.calculate_craftable_count("Wooden Club", &[InventoryEntry::new("Wood", 14)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 2);
+    assert_eq!(
+        craftable.limiting_material_ids,
+        vec!["ITEM_WOOD".to_string()]
+    );
+    assert_eq!(
+        craftable.material_calculation.tree.item_id,
+        "ITEM_WOODEN_CLUB"
+    );
+    assert_eq!(
+        craftable.material_calculation.totals[0].required_quantity,
+        5
+    );
+}
+
+#[test]
+fn scales_multiple_outputs_and_aggregates_duplicate_ingredients() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        item("ITEM_BONUS", "Bonus"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 2),
+            &[("ITEM_WOOD", 3), ("ITEM_WOOD", 4)],
+            &[("ITEM_BONUS", 2)],
+        ),
+    ]);
+
+    let answer = engine.calculate_materials("Result", 5);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let calculation = answer.data.expect("calculation exists");
+    assert_eq!(calculation.totals[0].item_id, "ITEM_WOOD");
+    assert_eq!(calculation.totals[0].required_quantity, 21);
+    assert_eq!(calculation.byproducts[0].item_id, "ITEM_BONUS");
+    assert_eq!(calculation.byproducts[0].quantity, 6);
+}
+
+#[test]
+fn detects_alternative_recipes_cycles_depth_and_invalid_quantities() {
+    let alternative_store = vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        recipe("RECIPE_A", ("ITEM_RESULT", 1), &[("ITEM_WOOD", 1)], &[]),
+        recipe("RECIPE_B", ("ITEM_RESULT", 1), &[("ITEM_WOOD", 2)], &[]),
+    ];
+    let engine = test_store(alternative_store);
+    let answer = engine.calculate_materials("Result", 1);
+    assert_eq!(answer.status, AnswerStatus::Ambiguous);
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("RECIPE_A") && message.contains("RECIPE_B")));
+
+    let cycle_store = vec![
+        item("ITEM_A", "A"),
+        item("ITEM_B", "B"),
+        recipe("RECIPE_A", ("ITEM_A", 1), &[("ITEM_B", 1)], &[]),
+        recipe("RECIPE_B", ("ITEM_B", 1), &[("ITEM_A", 1)], &[]),
+    ];
+    let engine = test_store(cycle_store);
+    let answer = engine.calculate_materials("A", 1);
+    assert_eq!(answer.status, AnswerStatus::Error);
+    assert!(answer.errors.iter().any(|error| error.contains("cycle")));
+
+    let mut deep_records = Vec::new();
+    deep_records.push(item("ITEM_FINAL", "Final"));
+    for level in 0..12 {
+        let id = format!("ITEM_L{level}");
+        let next_id = if level == 0 {
+            "ITEM_FINAL".to_string()
+        } else {
+            format!("ITEM_L{}", level - 1)
+        };
+        deep_records.push(item(&id, &id));
+        deep_records.push(recipe(
+            &format!("RECIPE_L{level}"),
+            (&next_id, 1),
+            &[(&id, 1)],
+            &[],
+        ));
+    }
+    let engine = test_store(deep_records);
+    let answer = engine.calculate_materials("Final", 1);
+    assert_eq!(answer.status, AnswerStatus::Error);
+    assert!(answer.errors.iter().any(|error| error.contains("depth")));
+
+    let engine = test_store(vec![item("ITEM_WOOD", "Wood")]);
+    let answer = engine.calculate_materials("Wood", 0);
+    assert_eq!(answer.status, AnswerStatus::Error);
+    assert!(answer.errors.iter().any(|error| error.contains("quantity")));
+}
+
+#[test]
+fn supports_raw_targets_and_rejects_unknown_inventory() {
+    let engine = test_store(vec![item("ITEM_WOOD", "Wood")]);
+
+    let answer = engine.calculate_materials("Wood", 7);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let calculation = answer.data.expect("raw calculation exists");
+    assert_eq!(calculation.recipe_id, None);
+    assert_eq!(calculation.totals[0].required_quantity, 7);
+
+    let answer = engine.calculate_craftable_count("Wood", &[InventoryEntry::new("Wood", 10)]);
+    assert_eq!(answer.status, AnswerStatus::Unknown);
+    assert!(answer.data.is_none());
+
+    let answer = engine.calculate_shortage("Wood", 10, &[InventoryEntry::new("Unknown", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unknown inventory item")));
+}
