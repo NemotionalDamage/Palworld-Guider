@@ -13,9 +13,9 @@
 ## Grounding And Safety Behavior
 
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
-- All numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data used for the answer.
+- When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final calculation and breeding prose is not yet reliably gated to those tool families.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic final-answer grounding gate compares every numeric token and every known entity name in the model text against successful tool-result data and question arguments. Unsupported calculation claims, breeding guesses, and tool-value contradictions reject the model text before it becomes the visible answer; the retained tool-call records still expose the verified facts.
+- A first-pass deterministic grounding gate compares ASCII digit runs and reviewed entity names against a global pool of successful tool-result data and question arguments. It rejects many unsupported values, but the second completion audit found remaining calculation and breeding bypasses; it does not yet satisfy the final fact-grounding guarantee.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -70,10 +70,24 @@ Correction:
 
 Fresh gates after the correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 88 tests, and `git diff --check` all passed.
 
+## 2026-08-31 Second Completion Audit
+
+The corrected repository again passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 88 tests, and `git diff --check`.
+
+Three temporary regressions were then run against the current agent to test the acceptance boundary directly:
+
+- A `get_item(Wood)` call followed by `You need 3 Wood to craft a club.` returned the text visibly. The digit `3` was authorized by the serialized `1.0.3` version metadata rather than a calculator result.
+- A `get_item(Wood)` call followed by `You need twenty Wood to craft a club.` returned the text visibly because `digit_runs` recognizes only ASCII digits and does not parse number words.
+- An unknown `calculate_breeding_result(Lamball, Lamball)` followed by successful `get_item(Wool)` and `Lamball plus Lamball produces Wool.` returned the text visibly because entity evidence from the unrelated item lookup was pooled with the failed breeding evidence.
+
+The temporary test command failed all three regressions with visible model answers. The temporary tests were removed after capturing the failures; a future correction must add equivalent permanent tests before changing the gate.
+
+Root cause: the gate authorizes tokens globally rather than validating claim type, relevant tool identity, and tool-result status. Version metadata must not be numeric evidence; number words and non-ASCII numerals require claim-aware normalization; and breeding conclusions must be authorized only by a successful deterministic breeding result.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate compares digit tokens and reviewed entity names, so number-word arithmetic and fabricated names outside the reviewed entity vocabulary remain detectable only at the phrase/semantic level; they are rejected when they contain unsupported digits or known entities, but a wholly invented non-reviewed name is not independently verifiable.
+- The grounding gate compares ASCII digit tokens and reviewed entity names, so number-word arithmetic, non-ASCII numerals, irrelevant-tool entity evidence, and fabricated names outside the reviewed entity vocabulary are not reliably rejected. Calculation and breeding claims require a stricter claim-type-aware gate before G3 can complete.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.
