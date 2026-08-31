@@ -120,6 +120,15 @@ struct Expansion {
     subject_ids: BTreeSet<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ShortageAccumulator {
+    item_id: String,
+    item_name: String,
+    required_quantity: u32,
+    initial_available_quantity: u32,
+    missing_quantity: u32,
+}
+
 impl GuideEngine {
     pub fn with_calculation_depth(mut self, limit: usize) -> Self {
         self.calculation_depth_limit = limit;
@@ -218,47 +227,55 @@ impl GuideEngine {
                 return answer;
             }
         };
-        self.calculate_materials(item_query, requested_quantity)
-            .map_data(|data| {
-                data.map(|material_calculation| {
-                    let shortages = material_calculation
-                        .totals
-                        .iter()
-                        .filter_map(|total| {
-                            let available_quantity =
-                                parsed_inventory.get(&total.item_id).copied().unwrap_or(0);
-                            (available_quantity < total.required_quantity).then(|| {
-                                ShortageMaterial {
-                                    item_id: total.item_id.clone(),
-                                    item_name: total.item_name.clone(),
-                                    required_quantity: total.required_quantity,
-                                    available_quantity,
-                                    missing_quantity: total.required_quantity - available_quantity,
-                                }
-                            })
-                        })
-                        .collect();
-                    let inventory = parsed_inventory
-                        .iter()
-                        .map(|(item_id, available_quantity)| InventoryAmount {
-                            item_id: item_id.clone(),
-                            item_name: self
-                                .store()
-                                .item(item_id)
-                                .expect("validated inventory item exists")
-                                .names
-                                .en
-                                .clone(),
-                            available_quantity: *available_quantity,
-                        })
-                        .collect();
-                    ShortageCalculation {
-                        material_calculation,
-                        inventory,
-                        shortages,
-                    }
-                })
+        let mut material_answer = self.calculate_materials(item_query, requested_quantity);
+        if material_answer.status != AnswerStatus::Ok {
+            return material_answer.map_data(|_| None);
+        }
+        let material_calculation = material_answer
+            .data
+            .take()
+            .expect("ok material calculation has data");
+        let mut remaining_inventory = parsed_inventory.clone();
+        let mut shortage_totals = BTreeMap::new();
+        if let Err(CalculationError::QuantityOverflow) = self.collect_shortages(
+            &material_calculation.tree,
+            true,
+            &mut remaining_inventory,
+            &mut shortage_totals,
+        ) {
+            return self.context().error("shortage calculation overflowed u32");
+        }
+        let shortages = shortage_totals
+            .into_values()
+            .filter(|total| total.missing_quantity > 0)
+            .map(|total| ShortageMaterial {
+                item_id: total.item_id,
+                item_name: total.item_name,
+                required_quantity: total.required_quantity,
+                available_quantity: total.initial_available_quantity,
+                missing_quantity: total.missing_quantity,
             })
+            .collect();
+        let inventory = parsed_inventory
+            .iter()
+            .map(|(item_id, available_quantity)| InventoryAmount {
+                item_id: item_id.clone(),
+                item_name: self
+                    .store()
+                    .item(item_id)
+                    .expect("validated inventory item exists")
+                    .names
+                    .en
+                    .clone(),
+                available_quantity: *available_quantity,
+            })
+            .collect();
+        let shortage = ShortageCalculation {
+            material_calculation,
+            inventory,
+            shortages,
+        };
+        material_answer.map_data(|_| Some(shortage))
     }
 
     pub fn calculate_craftable_count(
@@ -287,51 +304,214 @@ impl GuideEngine {
                 .context()
                 .unknown("unknown crafting recipe; raw acquisition is not reported as craftable");
         }
-        let root_output_quantity = match &material_calculation.tree.acquisition {
-            MaterialAcquisition::Recipe {
-                output_quantity, ..
-            } => *output_quantity,
-            MaterialAcquisition::Raw => {
-                return self.context().unknown(
-                    "unknown crafting recipe; raw acquisition is not reported as craftable",
-                )
+        let mut maximum_additional_count = 0_u32;
+        let mut high = u32::MAX;
+        while maximum_additional_count < high {
+            let mut candidate = maximum_additional_count + (high - maximum_additional_count) / 2;
+            if candidate == maximum_additional_count {
+                candidate = high;
             }
-        };
-        let craftable = {
-            let mut maximum_recipe_batches = u32::MAX;
-            for total in &material_calculation.totals {
-                let available_quantity = parsed_inventory.get(&total.item_id).copied().unwrap_or(0);
-                maximum_recipe_batches =
-                    maximum_recipe_batches.min(available_quantity / total.required_quantity);
+            let mut inventory = parsed_inventory.clone();
+            if self.can_fulfill_material(
+                &material_calculation.tree,
+                candidate,
+                &mut inventory,
+                false,
+            ) {
+                maximum_additional_count = candidate;
+            } else {
+                high = candidate - 1;
             }
-            let maximum_additional_count =
-                match maximum_recipe_batches.checked_mul(root_output_quantity) {
-                    Some(count) => count,
-                    None => {
-                        return self
-                            .context()
-                            .error("craftable count overflow; no result was calculated")
-                    }
-                };
-            let limiting_material_ids = material_calculation
-                .totals
-                .iter()
-                .filter(|total| {
-                    let available_quantity =
-                        parsed_inventory.get(&total.item_id).copied().unwrap_or(0);
-                    available_quantity / total.required_quantity == maximum_recipe_batches
-                })
-                .map(|total| total.item_id.clone())
-                .collect();
-            CraftableCalculation {
-                target_id: material_calculation.target_id.clone(),
-                recipe_id: material_calculation.recipe_id.clone(),
+        }
+
+        if maximum_additional_count > 0 {
+            let mut inventory = parsed_inventory.clone();
+            let fulfilled = self.can_fulfill_material(
+                &material_calculation.tree,
                 maximum_additional_count,
-                limiting_material_ids,
-                material_calculation,
+                &mut inventory,
+                false,
+            );
+            debug_assert!(fulfilled, "maximum craftable count must be fulfillable");
+            if self.fulfill_recipe_batches(
+                &material_calculation.tree.acquisition,
+                1,
+                &mut inventory,
+            ) {
+                return self
+                    .context()
+                    .error("craftable count overflow; no result was calculated");
             }
+        }
+
+        let limiting_material_ids = if maximum_additional_count < u32::MAX {
+            maximum_additional_count
+                .checked_add(1)
+                .and_then(|boundary_quantity| {
+                    let boundary_node = MaterialNode {
+                        required_quantity: boundary_quantity,
+                        ..material_calculation.tree.clone()
+                    };
+                    let mut inventory = parsed_inventory.clone();
+                    let mut shortages = BTreeMap::new();
+                    self.collect_shortages(&boundary_node, false, &mut inventory, &mut shortages)
+                        .ok()?;
+                    Some(
+                        shortages
+                            .into_values()
+                            .filter(|total| total.missing_quantity > 0)
+                            .map(|total| total.item_id)
+                            .collect::<Vec<_>>(),
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let craftable = CraftableCalculation {
+            target_id: material_calculation.target_id.clone(),
+            recipe_id: material_calculation.recipe_id.clone(),
+            maximum_additional_count,
+            limiting_material_ids,
+            material_calculation,
         };
         material_answer.map_data(|_| Some(craftable))
+    }
+
+    fn collect_shortages(
+        &self,
+        node: &MaterialNode,
+        consume_inventory: bool,
+        inventory: &mut BTreeMap<String, u32>,
+        shortages: &mut BTreeMap<String, ShortageAccumulator>,
+    ) -> Result<(), CalculationError> {
+        let available_before = if consume_inventory {
+            inventory.get(&node.item_id).copied().unwrap_or(0)
+        } else {
+            0
+        };
+        let consumed = available_before.min(node.required_quantity);
+        let missing_quantity = node.required_quantity - consumed;
+        if consume_inventory {
+            if let Some(quantity) = inventory.get_mut(&node.item_id) {
+                *quantity -= consumed;
+            }
+        }
+
+        match &node.acquisition {
+            MaterialAcquisition::Raw => {
+                let total =
+                    shortages
+                        .entry(node.item_id.clone())
+                        .or_insert_with(|| ShortageAccumulator {
+                            item_id: node.item_id.clone(),
+                            item_name: node.item_name.clone(),
+                            required_quantity: 0,
+                            initial_available_quantity: available_before,
+                            missing_quantity: 0,
+                        });
+                total.required_quantity = total
+                    .required_quantity
+                    .checked_add(node.required_quantity)
+                    .ok_or(CalculationError::QuantityOverflow)?;
+                total.missing_quantity = total
+                    .missing_quantity
+                    .checked_add(missing_quantity)
+                    .ok_or(CalculationError::QuantityOverflow)?;
+            }
+            MaterialAcquisition::Recipe {
+                output_quantity,
+                batches,
+                children,
+                ..
+            } => {
+                if missing_quantity == 0 {
+                    return Ok(());
+                }
+                let required_batches = batches_for(missing_quantity, *output_quantity)?;
+                for child in children {
+                    let child_quantity = scaled_child_quantity(child, *batches, required_batches)?;
+                    self.collect_shortages(
+                        &(MaterialNode {
+                            required_quantity: child_quantity,
+                            ..child.clone()
+                        }),
+                        true,
+                        inventory,
+                        shortages,
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn can_fulfill_material(
+        &self,
+        node: &MaterialNode,
+        required_quantity: u32,
+        inventory: &mut BTreeMap<String, u32>,
+        consume_inventory: bool,
+    ) -> bool {
+        let available_before = if consume_inventory {
+            inventory.get(&node.item_id).copied().unwrap_or(0)
+        } else {
+            0
+        };
+        let consumed = available_before.min(required_quantity);
+        let remaining_quantity = required_quantity - consumed;
+        if consume_inventory {
+            if let Some(quantity) = inventory.get_mut(&node.item_id) {
+                *quantity -= consumed;
+            }
+        }
+        if remaining_quantity == 0 {
+            return true;
+        }
+
+        match &node.acquisition {
+            MaterialAcquisition::Raw => false,
+            MaterialAcquisition::Recipe {
+                output_quantity, ..
+            } => {
+                let Some(required_batches) = batches_for(remaining_quantity, *output_quantity).ok()
+                else {
+                    return false;
+                };
+                self.fulfill_recipe_batches(&node.acquisition, required_batches, inventory)
+            }
+        }
+    }
+
+    fn fulfill_recipe_batches(
+        &self,
+        acquisition: &MaterialAcquisition,
+        required_batches: u32,
+        inventory: &mut BTreeMap<String, u32>,
+    ) -> bool {
+        let MaterialAcquisition::Recipe {
+            batches, children, ..
+        } = acquisition
+        else {
+            return false;
+        };
+        children.iter().all(|child| {
+            let Some(child_quantity) =
+                scaled_child_quantity(child, *batches, required_batches).ok()
+            else {
+                return false;
+            };
+            self.can_fulfill_material(
+                &(MaterialNode {
+                    required_quantity: child_quantity,
+                    ..child.clone()
+                }),
+                child_quantity,
+                inventory,
+                true,
+            )
+        })
     }
 
     fn parse_inventory(
@@ -510,6 +690,26 @@ fn batches_for(required_quantity: u32, output_quantity: u32) -> Result<u32, Calc
             .checked_add(1)
             .ok_or(CalculationError::QuantityOverflow)
     }
+}
+
+fn scaled_child_quantity(
+    child: &MaterialNode,
+    original_batches: u32,
+    required_batches: u32,
+) -> Result<u32, CalculationError> {
+    if original_batches == 0 {
+        return Err(CalculationError::QuantityOverflow);
+    }
+    let quantity_per_batch = child.required_quantity / original_batches;
+    if quantity_per_batch
+        .checked_mul(original_batches)
+        .is_none_or(|quantity| quantity != child.required_quantity)
+    {
+        return Err(CalculationError::QuantityOverflow);
+    }
+    quantity_per_batch
+        .checked_mul(required_batches)
+        .ok_or(CalculationError::QuantityOverflow)
 }
 
 fn raw_expansion(item: &ItemRecord, required_quantity: u32) -> Expansion {

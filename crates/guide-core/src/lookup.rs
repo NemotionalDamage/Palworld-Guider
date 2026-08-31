@@ -4,6 +4,7 @@ use game_knowledge::{
     AcquisitionLead, DropSource, LocaleNames, PalStats, Provenance, RecipeRecord, WorkSuitability,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecipeSummary {
@@ -82,6 +83,7 @@ impl GuideEngine {
             .item(&resolved.id)
             .expect("resolved item exists");
         let mut provenances = vec![&item.provenance];
+        let mut related_subject_ids = BTreeSet::from([item.id.clone()]);
 
         let mut produced_by = Vec::new();
         let mut used_as_ingredient = Vec::new();
@@ -93,6 +95,7 @@ impl GuideEngine {
                     output_quantity: recipe.output.quantity,
                 });
                 provenances.push(&recipe.provenance);
+                related_subject_ids.insert(recipe.id.clone());
             }
             if recipe
                 .ingredients
@@ -105,6 +108,7 @@ impl GuideEngine {
                     output_quantity: recipe.output.quantity,
                 });
                 provenances.push(&recipe.provenance);
+                related_subject_ids.insert(recipe.id.clone());
             }
         }
 
@@ -113,6 +117,7 @@ impl GuideEngine {
             if pal.drops.iter().any(|drop| drop.item_id == item.id) {
                 pal_drop_sources.push(pal.id.clone());
                 provenances.push(&pal.provenance);
+                related_subject_ids.insert(pal.id.clone());
             }
         }
 
@@ -127,7 +132,10 @@ impl GuideEngine {
             pal_drop_sources,
             provenance: item.provenance.clone(),
         };
-        let conflicts = self.store().conflicts_for_subject(&item.id);
+        let conflicts = related_subject_ids
+            .iter()
+            .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
         } else {

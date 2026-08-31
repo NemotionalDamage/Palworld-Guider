@@ -1,4 +1,4 @@
-use game_knowledge::{ConflictRecord, Provenance};
+use game_knowledge::{Confidence, ConflictRecord, Provenance, ReviewStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -29,10 +29,29 @@ impl ProvenanceSummary {
             applicable_game_version: provenance.applicable_game_version.clone(),
             retrieved_on: provenance.retrieved_on.clone(),
             reviewer: provenance.reviewer.clone(),
-            review_status: format!("{:?}", provenance.review_status).to_lowercase(),
-            confidence: format!("{:?}", provenance.confidence).to_lowercase(),
+            review_status: review_status_value(&provenance.review_status).to_string(),
+            confidence: confidence_value(&provenance.confidence).to_string(),
             change_risk: provenance.change_risk.clone(),
         }
+    }
+}
+
+fn review_status_value(status: &ReviewStatus) -> &'static str {
+    match status {
+        ReviewStatus::Candidate => "candidate",
+        ReviewStatus::Reviewed => "reviewed",
+        ReviewStatus::Retired => "retired",
+    }
+}
+
+fn confidence_value(confidence: &Confidence) -> &'static str {
+    match confidence {
+        Confidence::VerifiedTarget => "verified_target",
+        Confidence::Official => "official",
+        Confidence::ReviewedSecondary => "reviewed_secondary",
+        Confidence::Community => "community",
+        Confidence::Conflicted => "conflicted",
+        Confidence::Unknown => "unknown",
     }
 }
 

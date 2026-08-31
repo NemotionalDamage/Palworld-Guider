@@ -1,6 +1,6 @@
 use game_knowledge::{
-    Confidence, KnowledgeRecord, KnowledgeStore, LocaleNames, Provenance, ReviewStatus,
-    SourceRecord,
+    Confidence, ConflictRecord, ConflictResolution, KnowledgeRecord, KnowledgeStore, LocaleNames,
+    Provenance, ReviewStatus, SourceRecord,
 };
 use guide_core::{AnswerStatus, GuideEngine};
 
@@ -118,6 +118,125 @@ fn reports_ambiguous_and_unknown_names_without_guessing() {
 }
 
 #[test]
+fn preserves_unicode_aliases_and_rejects_empty_normalized_queries() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_WOOD".to_string(),
+            names: names("Wood"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Alias(game_knowledge::AliasRecord {
+            id: "ALIAS_WOOD_ZH".to_string(),
+            alias: "木头".to_string(),
+            target_id: "ITEM_WOOD".to_string(),
+            locale: "zh_hans".to_string(),
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("Unicode alias validates");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("木头");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    assert_eq!(
+        answer.data.as_ref().expect("Unicode alias resolves").id,
+        "ITEM_WOOD"
+    );
+
+    let answer = engine.lookup_item("!!!");
+    assert_eq!(answer.status, AnswerStatus::Unknown);
+    assert!(answer.data.is_none());
+}
+
+#[test]
+fn propagates_conflicts_from_item_relations() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_ALPHA".to_string(),
+            names: names("Alpha Stone"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_WOOD".to_string(),
+            names: names("Wood"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_ALPHA".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_ALPHA".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_WOOD".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            crafting_seconds: None,
+            byproducts: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Pal(game_knowledge::PalRecord {
+            id: "PAL_DROPPER".to_string(),
+            names: names("Dropper"),
+            stats: None,
+            work_suitability: vec![],
+            drops: vec![game_knowledge::DropSource {
+                item_id: "ITEM_ALPHA".to_string(),
+                min_quantity: 1,
+                max_quantity: 1,
+                probability_percent: 100.0,
+            }],
+            habitat_ids: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_RECIPE".to_string(),
+            subject_id: "RECIPE_ALPHA".to_string(),
+            field: "ingredients".to_string(),
+            values: vec!["1 Wood".to_string(), "2 Wood".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_PAL".to_string(),
+            subject_id: "PAL_DROPPER".to_string(),
+            field: "drops".to_string(),
+            values: vec!["always".to_string(), "sometimes".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("related records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("alpha stone");
+    assert_eq!(answer.status, AnswerStatus::Ambiguous);
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("RECIPE_ALPHA")));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("PAL_DROPPER")));
+}
+
+#[test]
 fn exact_canonical_lookups_include_facts_and_provenance() {
     let engine = GuideEngine::load_directory("../../data/reviewed", None)
         .expect("canonical dataset must load");
@@ -153,6 +272,26 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
     let technology = answer.data.expect("technology resolves");
     assert_eq!(technology.level, 1);
     assert_eq!(technology.unlocked_recipe_ids, vec!["RECIPE_WOODEN_CLUB"]);
+}
+
+#[test]
+fn serializes_provenance_enums_consistently() {
+    let engine =
+        GuideEngine::load_directory("../../data/reviewed", None).expect("canonical data loads");
+    let answer = engine.lookup_item("wood");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer.data.expect("Wood resolves");
+
+    assert_eq!(answer.provenance[0].review_status, "reviewed");
+    assert_eq!(answer.provenance[0].confidence, "reviewed_secondary");
+    assert_eq!(
+        item.provenance.review_status,
+        game_knowledge::ReviewStatus::Reviewed
+    );
+    assert_eq!(
+        item.provenance.confidence,
+        game_knowledge::Confidence::ReviewedSecondary
+    );
 }
 
 #[test]

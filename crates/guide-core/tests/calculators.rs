@@ -277,3 +277,49 @@ fn reports_craftable_count_overflow_for_multiple_outputs() {
         .iter()
         .any(|error| error.contains("craftable count overflow")));
 }
+
+#[test]
+fn consumes_intermediate_inventory_for_shortage() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_INGOT", "Ingot"),
+        item("ITEM_ORE", "Ore"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 1),
+            &[("ITEM_INGOT", 1)],
+            &[],
+        ),
+        recipe("RECIPE_INGOT", ("ITEM_INGOT", 1), &[("ITEM_ORE", 1)], &[]),
+    ]);
+
+    let answer = engine.calculate_shortage("Result", 1, &[InventoryEntry::new("Ingot", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let shortage = answer.data.expect("shortage result exists");
+    assert!(shortage.shortages.is_empty());
+}
+
+#[test]
+fn consumes_intermediate_inventory_for_craftable_count() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_INGOT", "Ingot"),
+        item("ITEM_ORE", "Ore"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 1),
+            &[("ITEM_INGOT", 1)],
+            &[],
+        ),
+        recipe("RECIPE_INGOT", ("ITEM_INGOT", 1), &[("ITEM_ORE", 1)], &[]),
+    ]);
+
+    let answer = engine.calculate_craftable_count("Result", &[InventoryEntry::new("Ingot", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 1);
+    assert_eq!(
+        craftable.limiting_material_ids,
+        vec!["ITEM_ORE".to_string()]
+    );
+}

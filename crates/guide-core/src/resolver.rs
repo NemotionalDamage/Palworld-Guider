@@ -31,7 +31,7 @@ pub(crate) enum Resolution {
 fn normalize(value: &str) -> String {
     value
         .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
+        .filter(|character| character.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
 }
@@ -78,6 +78,9 @@ impl GuideEngine {
         }
 
         let normalized = normalize(query);
+        if normalized.is_empty() {
+            return Resolution::Unknown;
+        }
         let mut matches = Vec::new();
         if kind == Some(EntityKind::Recipe) {
             let output_matches = self.recipe_output_matches(query, &normalized);

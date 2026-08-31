@@ -6,7 +6,7 @@ Last updated: 2026-08-31, Asia/Shanghai.
 
 Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
-Phase G2 is complete. Deterministic identifier and alias resolution, exact lookups, recursive material and shortage calculations, multi-output-aware craftable counts, ambiguous-name-safe breeding tools, and an offline JSON CLI are implemented and tested. No retrieval index, LLM, runtime advisor, game adapter, or dynamic-state source exists.
+Phase G2 is complete after two audit corrections. Deterministic identifier and Unicode-alias resolution, exact lookups with propagated related conflicts, recursive material and shortage calculations, intermediate-inventory-aware craftable counts, ambiguous-name-safe breeding tools, canonical provenance envelopes, and an offline JSON CLI are implemented and tested. No retrieval index, LLM, runtime advisor, game adapter, or dynamic-state source exists.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
@@ -78,9 +78,9 @@ Completed:
 
 - Defined the Phase G2 test-first implementation plan in `docs/superpowers/plans/2026-08-31-phase-g2.md`.
 - Added the `guide-core` library and offline JSON CLI.
-- Implemented deterministic IDs, normalized names, reviewed aliases, ambiguity handling, and unknown handling.
-- Implemented item, Pal, technology, and recipe lookups with provenance and configured-version warnings.
-- Implemented recursive material trees, duplicate aggregation, multiple-output scaling, by-products, shortages, multi-output-aware craftable limits, checked arithmetic, alternative-recipe ambiguity, cycle detection, and depth limits.
+- Implemented deterministic IDs, normalized names, Unicode aliases, ambiguity handling, and unknown handling.
+- Implemented item, Pal, technology, and recipe lookups with provenance, configured-version warnings, and related-record conflict propagation.
+- Implemented recursive material trees, duplicate aggregation, multiple-output scaling, by-products, intermediate-inventory-aware shortages and craftable limits, checked arithmetic, alternative-recipe ambiguity, cycle detection, and depth limits.
 - Implemented order-insensitive breeding results, bounded shortest breeding-chain traversal, and explicit ambiguous parent and endpoint candidates.
 - Added CLI commands for lookup, recipe, materials, shortage, craftable, breeding, and chain operations.
 
@@ -90,7 +90,7 @@ None.
 
 ### Verification
 
-Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `git diff --check` after audit correction; 27 tests passed. Detailed evidence and data limitations are recorded in `docs/phase-records/phase-g2.md`.
+Passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `git diff --check` after the second audit correction; 32 tests passed. Detailed evidence and data limitations are recorded in `docs/phase-records/phase-g2.md`.
 
 ### Blockers
 
