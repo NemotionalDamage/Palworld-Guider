@@ -4,5 +4,6 @@ members = [
     "crates/guide-core",
     "crates/knowledge-index",
     "crates/guide-tools",
+    "crates/provider",
 ]
 resolver = "2"
