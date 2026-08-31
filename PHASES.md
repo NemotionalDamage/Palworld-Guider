@@ -68,7 +68,8 @@ Completed:
 
 - Built the Rust workspace and validated `game-knowledge` schema.
 - Registered Paldb `v1.0.3` and normalized a small reviewed seed dataset.
-- Passed schema, provenance, reference-integrity, conflict, and canonical-data tests after audit correction.
+- Validated version format, ID charset, conflict shape, alias locale, dates, ranges, references, and provenance drift after two audit corrections.
+- Passed schema, provenance, reference-integrity, conflict, and canonical-data tests with nine `game-knowledge` tests.
 
 Detailed evidence remains in `docs/phase-records/phase-g1.md`.
 

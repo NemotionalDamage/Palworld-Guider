@@ -43,8 +43,10 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 
 ## Validation Rules
 
-- IDs are nonempty and use ASCII letters, digits, hyphen, or underscore.
+- IDs are nonempty, contain at least one ASCII letter or digit, and use only ASCII letters, digits, hyphen, or underscore.
 - English names are required; localized names cannot be blank when present.
+- `applicable_game_version` uses dot-separated numeric segments with at least two segments, for both sources and fact provenance.
+- Alias locales are restricted to `en` and `zh_hans`.
 - Dates use a valid `YYYY-MM-DD` Gregorian calendar date; evidence URLs use HTTP or HTTPS.
 - Fact IDs are globally unique, and source IDs are unique.
 - Recipes require at least one ingredient and one crafting station.
@@ -53,4 +55,5 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 - Work-suitability levels are 1–5.
 - Drop quantities are positive, minimum does not exceed maximum, and probability is 0–100.
 - Item, Pal, recipe, technology, habitat, breeding, and source references resolve to their required record types. Generic alias targets, progression endpoints, and conflict subjects may reference any fact.
+- Conflicts require at least two nonempty competing values and at least one registered evidence source.
 - Conflicts remain records and are never silently resolved by loading.

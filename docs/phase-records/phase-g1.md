@@ -53,3 +53,9 @@ An accepted audit reopened the phase because the initial validator allowed missi
 The correction adds regressions for missing recipe ingredient references, recipe output pointing to a non-item fact, empty ingredients or crafting stations, negative crafting time, impossible dates, and provenance drift from the registered source. Typed references now resolve only to their required record type; generic alias, progression, and conflict references use a separate any-fact check. Recipe ingredients, stations, and present crafting time are validated. Dates use real Gregorian calendar validation, and the stale source-log sentence was removed.
 
 No checks were intentionally skipped.
+
+## Second Audit Correction
+
+A second accepted audit reopened the phase because version format, conflict shape, identifier charset, and alias locale checks were incomplete. `nonsense-version` loaded as an applicable game version, a conflict with empty `values` loaded and mislabeled lookups as ambiguous, pure punctuation IDs such as `-` loaded, and arbitrary alias locales such as `xx` were accepted.
+
+The correction adds a dot-separated numeric version rule for sources and provenance, requires at least two nonempty conflict values and one evidence source per conflict, requires at least one ASCII letter or digit in every ID, and restricts alias locales to `en` and `zh_hans`. Regression tests cover all four cases. `cargo test -p game-knowledge` passes with nine tests across schema validation and the canonical dataset.

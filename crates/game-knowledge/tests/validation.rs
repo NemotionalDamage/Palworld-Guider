@@ -338,3 +338,77 @@ fn rejects_impossible_dates_and_provenance_drift() {
         .expect_err("fact provenance cannot drift from its source");
     assert!(errors.iter().any(|error| error.field == "provenance"));
 }
+
+#[test]
+fn rejects_malformed_versions_ids_conflict_values_and_alias_locales() {
+    let mut records = valid_records();
+    if let Some(KnowledgeRecord::Source(record)) = records.first_mut() {
+        record.applicable_game_version = "nonsense-version".to_string();
+    }
+    if let Some(KnowledgeRecord::Alias(record)) = records.last_mut() {
+        record.provenance.applicable_game_version = "nonsense-version".to_string();
+    }
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("versions must be dot-separated numeric segments");
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "applicable_game_version"));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "provenance.applicable_game_version"));
+
+    let mut records = valid_records();
+    let item = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Item(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain an item");
+    item.id = "-".to_string();
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("identifiers need at least one letter or digit");
+    assert!(errors.iter().any(|error| error.field == "item.id"));
+
+    let mut records = valid_records();
+    records.push(KnowledgeRecord::Conflict(ConflictRecord {
+        id: "CONFLICT_EMPTY".to_string(),
+        subject_id: "ITEM_WOOD".to_string(),
+        field: "description".to_string(),
+        values: vec![],
+        source_ids: vec![SOURCE_ID.to_string()],
+        resolution: ConflictResolution::Unresolved,
+        provenance: provenance(),
+    }));
+    let errors =
+        KnowledgeStore::from_records(records).expect_err("conflict with empty values must fail");
+    assert!(errors.iter().any(|error| error.field == "values"));
+
+    let mut records = valid_records();
+    records.push(KnowledgeRecord::Conflict(ConflictRecord {
+        id: "CONFLICT_BLANK".to_string(),
+        subject_id: "ITEM_WOOD".to_string(),
+        field: "description".to_string(),
+        values: vec!["one".to_string(), "  ".to_string()],
+        source_ids: vec![],
+        resolution: ConflictResolution::Unresolved,
+        provenance: provenance(),
+    }));
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("conflict with blank values or no sources must fail");
+    assert!(errors.iter().any(|error| error.field == "values"));
+    assert!(errors.iter().any(|error| error.field == "source_ids"));
+
+    let mut records = valid_records();
+    let alias = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Alias(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain an alias");
+    alias.locale = "xx".to_string();
+    let errors =
+        KnowledgeStore::from_records(records).expect_err("unsupported alias locale must fail");
+    assert!(errors.iter().any(|error| error.field == "locale"));
+}

@@ -244,12 +244,13 @@ impl KnowledgeStore {
                 KnowledgeRecord::Alias(record) => {
                     validate_id(&record.id, "alias.id", &record.id, &mut errors);
                     require_nonempty(Some(record.id.clone()), "alias", &record.alias, &mut errors);
-                    require_nonempty(
-                        Some(record.id.clone()),
-                        "locale",
-                        &record.locale,
-                        &mut errors,
-                    );
+                    if record.locale != "en" && record.locale != "zh_hans" {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "locale",
+                            "alias locale must be en or zh_hans",
+                        ));
+                    }
                     push_optional_error(
                         validate_provenance(&record.provenance, &record.id),
                         &mut errors,
@@ -286,6 +287,22 @@ impl KnowledgeStore {
                 KnowledgeRecord::Conflict(record) => {
                     validate_id(&record.id, "conflict.id", &record.id, &mut errors);
                     require_nonempty(Some(record.id.clone()), "field", &record.field, &mut errors);
+                    if record.values.len() < 2
+                        || record.values.iter().any(|value| value.trim().is_empty())
+                    {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "values",
+                            "conflict requires at least two nonempty values",
+                        ));
+                    }
+                    if record.source_ids.is_empty() {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "source_ids",
+                            "conflict requires at least one source",
+                        ));
+                    }
                     push_optional_error(
                         validate_provenance(&record.provenance, &record.id),
                         &mut errors,
@@ -627,11 +644,14 @@ fn validate_id(
         || !value.chars().all(|character| {
             character.is_ascii_alphanumeric() || character == '_' || character == '-'
         })
+        || !value
+            .chars()
+            .any(|character| character.is_ascii_alphanumeric())
     {
         errors.push(ValidationError::new(
             Some(record_id.to_string()),
             field,
-            "identifier must be nonempty ASCII letters, digits, hyphen, or underscore",
+            "identifier must contain at least one ASCII letter or digit and only ASCII letters, digits, hyphen, or underscore",
         ));
     }
 }
@@ -654,6 +674,13 @@ fn validate_source(record: &SourceRecord) -> Option<ValidationError> {
                 "source field must not be empty",
             ));
         }
+    }
+    if !is_valid_game_version(&record.applicable_game_version) {
+        return Some(ValidationError::new(
+            Some(record.id.clone()),
+            "applicable_game_version",
+            "version must be dot-separated numeric segments",
+        ));
     }
     if !is_iso_date(&record.retrieved_on) {
         return Some(ValidationError::new(
@@ -683,12 +710,18 @@ fn validate_provenance(
             "source ID must not be empty",
         ));
     }
-    if provenance.reviewer.trim().is_empty() || provenance.applicable_game_version.trim().is_empty()
-    {
+    if provenance.reviewer.trim().is_empty() {
         return Some(ValidationError::new(
             Some(record_id.to_string()),
             "provenance",
-            "reviewer and applicable game version are required",
+            "reviewer is required",
+        ));
+    }
+    if !is_valid_game_version(&provenance.applicable_game_version) {
+        return Some(ValidationError::new(
+            Some(record_id.to_string()),
+            "provenance.applicable_game_version",
+            "version must be dot-separated numeric segments",
         ));
     }
     if !is_iso_date(&provenance.retrieved_on) {
@@ -795,6 +828,20 @@ fn push_optional_error(error: Option<ValidationError>, errors: &mut Vec<Validati
     if let Some(error) = error {
         errors.push(error);
     }
+}
+
+fn is_valid_game_version(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    let mut segment_count = 0_usize;
+    for segment in value.split('.') {
+        segment_count += 1;
+        if segment.is_empty() || !segment.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+    }
+    segment_count >= 2
 }
 
 fn is_iso_date(value: &str) -> bool {
