@@ -3,5 +3,6 @@ members = [
     "crates/game-knowledge",
     "crates/guide-core",
     "crates/knowledge-index",
+    "crates/guide-tools",
 ]
 resolver = "2"

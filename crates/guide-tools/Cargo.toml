@@ -1,0 +1,11 @@
+[package]
+name = "guide-tools"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game-knowledge = { path = "../game-knowledge" }
+guide-core = { path = "../guide-core" }
+knowledge-index = { path = "../knowledge-index" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -13,7 +13,7 @@ pub use calculators::{
     MaterialCalculation, MaterialNode, MaterialTotal, ShortageCalculation, ShortageMaterial,
 };
 pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
-pub use resolver::{EntityKind, ResolvedEntity};
+pub use resolver::{EntityKind, Resolution, ResolvedEntity};
 
 use game_knowledge::KnowledgeStore;
 use std::path::Path;

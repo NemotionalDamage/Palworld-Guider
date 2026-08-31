@@ -250,6 +250,10 @@ impl KnowledgeIndex {
         }
     }
 
+    pub fn version(&self) -> IndexVersion {
+        self.version.clone()
+    }
+
     fn unknown_answer(&self, uncertainty: Vec<String>) -> IndexSearchAnswer {
         let mut uncertainty = uncertainty;
         self.push_version_warning(&mut uncertainty);

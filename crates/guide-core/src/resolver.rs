@@ -22,7 +22,7 @@ pub struct ResolvedEntity {
     pub matched_name: String,
 }
 
-pub(crate) enum Resolution {
+pub enum Resolution {
     Unique(ResolvedEntity),
     Ambiguous(Vec<ResolvedEntity>),
     Unknown,
@@ -37,7 +37,7 @@ fn normalize(value: &str) -> String {
 }
 
 impl GuideEngine {
-    pub(crate) fn resolve(&self, query: &str, kind: Option<EntityKind>) -> Resolution {
+    pub fn resolve(&self, query: &str, kind: Option<EntityKind>) -> Resolution {
         let store = self.store();
 
         let exact_id = |kind: EntityKind| {
