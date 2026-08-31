@@ -41,10 +41,18 @@ Final gates:
 
 No checks were intentionally skipped.
 
+## 2026-08-31 Completion Audit
+
+Fresh verification again passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 84 tests, and `git diff --check`. The repository was clean.
+
+The audit found one acceptance failure: `GuideAgent::finalize` returns model-authored prose directly. It only flags answers that used no tools; it does not detect or reject calculation/breeding claims without a corresponding calculator call, nor does it compare numeric or breeding values in the final prose with successful deterministic tool results. Therefore the prompt and tool evidence reduce fabrication risk but do not satisfy the guarantee that model-generated arithmetic and breeding guesses never become user-visible facts.
+
+G3 is not complete until a deterministic final-answer grounding gate and red/green regressions cover both unsupported model-authored calculation claims and tool-result contradictions.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The registry, budget, and envelope guarantee the capability boundary, while answer phrasing still depends on the configured model honoring the tool protocol; weaker models may produce less useful grounded prose without being able to bypass the registry.
+- The registry, budget, and envelope guarantee tool dispatch boundaries, but final-answer phrasing still depends on the configured model honoring the protocol. This is an acceptance blocker for calculation and breeding facts until a deterministic final-answer grounding gate is added.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.
