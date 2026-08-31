@@ -15,7 +15,7 @@
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
 - When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final prose must restate an exact result leaf in the question's numeric-word locale.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the fifth audit correction, numeric claims bind to the entity named in their immediate claim context rather than any same-sentence entity, and explicit unknown answers reject permitted parent entities in offspring-assertion position.
+- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the fifth audit correction, numeric claims bind to the entity named in their immediate claim context rather than any same-sentence entity, and explicit unknown answers reject permitted parent entities in offspring-assertion position. The sixth audit found that comma-separated clauses still leak a prior entity into the next claim's context window, and that copula-less offspring assertions still pass after an explicit unknown.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -206,10 +206,24 @@ Correction:
 
 Fresh gates after the fifth correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 106 tests, and `git diff --check` all passed.
 
+## 2026-09-01 Sixth Completion Audit
+
+The fifth-correction repository passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 106 tests, and `git diff --check`.
+
+Three temporary regressions then tested the corrected arithmetic and breeding acceptance boundary:
+
+- After a successful `calculate_shortage` for 3 Wooden Clubs with inventory Wood 5 and Wool 3, `You need 5 Wood, 5 Wool for Wooden Clubs.` remained visible with `Ok` status. The comma between clauses is not treated as a context boundary, so the claim-context window for the second `5` includes the preceding `5 Wood` clause and the fabricated `5 Wool` is authorized by Wood's available-quantity evidence.
+- After an unknown `calculate_breeding_result(parent_a="Lamball", parent_b="Lamball")`, `Unknown result: the offspring Lamball.` remained visible with `Unknown` status. The offspring-assertion check requires a copula (`is`/`are`), so the copula-less assertion passes the word-level allowlist.
+- The same unknown breeding call with `Unknown result: Lamball.` remained visible with `Unknown` status. A bare permitted entity in result position is accepted as uncertainty context even though it asserts the offspring identity.
+
+The temporary test commands failed all three regressions with visible model answers. The tests were removed after capturing the failures; a future correction must add equivalent permanent tests before changing the gate.
+
+Root cause: the numeric claim-context window is bounded by a connector-word list and punctuation checked only before scanned tokens, which is not a structural claim-to-entity binding; and the breeding unknown check is a copula-anchored pattern, which does not reject permitted entities in result-assertion position generally.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The fifth audit bypasses (same-sentence value reuse and permitted-entity offspring assertions) now have permanent regression coverage.
+- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The sixth audit found that comma-separated claim leakage and copula-less offspring assertions still require regression coverage.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.
