@@ -51,6 +51,6 @@ Provider configuration:
 - `ollama` uses `OLLAMA_BASE_URL` or defaults to `http://localhost:11434`.
 - `--max-tool-calls` (default 6) and `--timeout-seconds` (default 60) bound every run.
 
-Every answer records tool calls, provenance, knowledge versions, uncertainty, and errors. The model sees only registry-published tools; recipes, shortages, craftable counts, and breeding results always come from deterministic Rust functions. Tests use a scripted mock provider and stay offline.
+Every answer records tool calls, provenance, knowledge versions, uncertainty, and errors. The model sees only registry-published tools; recipes, shortages, craftable counts, and breeding results always come from deterministic Rust functions, and a final-answer grounding gate rejects model text whose numeric or known-entity claims are not supported by successful tool results. Tests use a scripted mock provider and stay offline.
 
 See `PHASES.md` for current progress and `AGENTS.md` for the governing specification.

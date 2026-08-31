@@ -10,7 +10,7 @@ Phase G2 is complete after a fifth audit correction. Byproduct item provenance a
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-Phase G3 requires an audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present, but the final-answer path does not yet technically prevent a model from presenting arithmetic or breeding claims that were not produced or verified by a deterministic tool. Semantic vector search remains deferred.
+Phase G3 is complete after an audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present, and a deterministic final-answer grounding gate now rejects model text containing numeric claims or known-entity claims that are not supported by successful tool results; unsupported calculation text and breeding guesses never become user-visible answers. Semantic vector search remains deferred.
 
 The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
 
@@ -23,7 +23,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
-| G3 | Audit correction required | Add hybrid retrieval and grounded LLM answers |
+| G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
@@ -32,7 +32,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0–G2 complete; G3 requires audit correction | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | G0–G3 complete | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -114,17 +114,16 @@ Completed:
 - Added the `guide-tools` crate with twelve typed tools, JSON schemas, argument validation, standard envelopes, budgets, and deadlines.
 - Added the `provider` crate with the `ChatProvider` contract, OpenAI-compatible and Ollama adapters, timeouts, an error taxonomy, and a scripted mock.
 - Added the `guide-agent` crate with a bounded grounded loop, cancellation, reply limits, provenance propagation, and an `ask` CLI.
+- Added a deterministic final-answer grounding gate that rejects unsupported numeric claims, known-entity claims beyond tool evidence, and tool-result contradictions before model text becomes visible.
 - Kept exact and structured lookup ahead of lexical retrieval and deferred semantic vector search.
 
 ### Verification
 
-`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 84 tests, and `git diff --check` all passed. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 88 tests, and `git diff --check` all passed before and after the completion-audit correction. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
 
 ### Blockers
 
-The final answer is model-authored prose without a deterministic grounding guard. A model can return a calculation or breeding claim without the corresponding calculator call, or alter a value after a tool result; the current path only adds an uncertainty flag when no tool evidence exists. This fails the G3 requirement that model-generated arithmetic and breeding guesses never become user-visible facts.
-
-Next required action: add a deterministic final-answer gate for calculation and breeding questions, with regression tests for unsupported model-authored quantities and values that conflict with successful tool results.
+None.
 
 ## Phase Boundaries
 

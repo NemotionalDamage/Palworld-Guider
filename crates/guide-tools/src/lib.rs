@@ -196,6 +196,33 @@ impl ToolRegistry {
         }
     }
 
+    pub fn known_entity_names(&self) -> std::collections::BTreeSet<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for item in self.engine.store().items() {
+            names.insert(item.names.en.clone());
+            if let Some(name) = &item.names.zh_hans {
+                names.insert(name.clone());
+            }
+        }
+        for pal in self.engine.store().pals() {
+            names.insert(pal.names.en.clone());
+            if let Some(name) = &pal.names.zh_hans {
+                names.insert(name.clone());
+            }
+        }
+        for technology in self.engine.store().technologies() {
+            names.insert(technology.names.en.clone());
+            if let Some(name) = &technology.names.zh_hans {
+                names.insert(name.clone());
+            }
+        }
+        for alias in self.engine.store().aliases() {
+            names.insert(alias.alias.clone());
+        }
+        names.retain(|name| name.chars().count() >= 3);
+        names
+    }
+
     fn execute(&self, name: &str, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         match name {
             "resolve_name" => self.resolve_name(arguments, version),

@@ -210,6 +210,18 @@ impl GuideAgent {
         {
             uncertainty.push("no deterministic tool evidence was used for this answer".to_string());
         }
+        if let Err(violations) = grounding_gate(
+            trimmed,
+            &records,
+            &self.registry.known_entity_names(),
+            &version,
+        ) {
+            let message = format!(
+                "grounding gate rejected the model answer: {}",
+                violations.join("; ")
+            );
+            return self.error_answer(records, provenance, uncertainty, version, message);
+        }
         let character_count = trimmed.chars().count();
         let answer = if character_count > self.config.max_reply_characters {
             uncertainty.push("reply truncated to the configured limit".to_string());
@@ -234,6 +246,7 @@ impl GuideAgent {
         } else if records
             .iter()
             .any(|record| record.status == ToolStatus::Unknown)
+            || records.is_empty()
         {
             AgentStatus::Unknown
         } else {
@@ -276,4 +289,56 @@ impl GuideAgent {
             errors: vec![message.into()],
         }
     }
+}
+
+fn grounding_gate(
+    answer: &str,
+    records: &[ToolCallRecord],
+    known_entity_names: &BTreeSet<String>,
+    version: &VersionInfo,
+) -> Result<(), Vec<String>> {
+    let mut evidence_text = serde_json::to_string(version).unwrap_or_default();
+    let mut argument_text = String::new();
+    for record in records {
+        if record.status == ToolStatus::Ok {
+            if let Some(data) = &record.data {
+                evidence_text.push_str(&serde_json::to_string(data).unwrap_or_default());
+            }
+        }
+        argument_text.push_str(&serde_json::to_string(&record.arguments).unwrap_or_default());
+    }
+
+    let evidence_numbers = digit_runs(&evidence_text);
+    let mut violations = Vec::new();
+    for number in digit_runs(answer) {
+        if !evidence_numbers.contains(&number) {
+            violations.push(format!("unsupported numeric claim \"{number}\""));
+        }
+    }
+
+    let answer_lower = answer.to_lowercase();
+    let evidence_lower = evidence_text.to_lowercase();
+    let arguments_lower = argument_text.to_lowercase();
+    for name in known_entity_names {
+        let name_lower = name.to_lowercase();
+        if answer_lower.contains(&name_lower)
+            && !evidence_lower.contains(&name_lower)
+            && !arguments_lower.contains(&name_lower)
+        {
+            violations.push(format!("unsupported entity claim \"{name}\""));
+        }
+    }
+
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(violations)
+    }
+}
+
+fn digit_runs(text: &str) -> BTreeSet<String> {
+    text.split(|character: char| !character.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .map(str::to_string)
+        .collect()
 }
