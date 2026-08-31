@@ -390,3 +390,49 @@ fn uses_different_item_byproducts_inside_recipe_tree() {
     assert_eq!(shortage.shortages[0].item_id, "ITEM_LOG");
     assert_eq!(shortage.shortages[0].required_quantity, 1);
 }
+
+#[test]
+fn cross_item_byproduct_offsets_are_order_independent() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT_A", "Result A"),
+        item("ITEM_RESULT_B", "Result B"),
+        item("ITEM_WOOD", "Wood"),
+        item("ITEM_FIBER", "Fiber"),
+        item("ITEM_LOG", "Log"),
+        recipe(
+            "RECIPE_RESULT_A",
+            ("ITEM_RESULT_A", 1),
+            &[("ITEM_WOOD", 1), ("ITEM_FIBER", 1)],
+            &[],
+        ),
+        recipe(
+            "RECIPE_RESULT_B",
+            ("ITEM_RESULT_B", 1),
+            &[("ITEM_FIBER", 1), ("ITEM_WOOD", 1)],
+            &[],
+        ),
+        recipe(
+            "RECIPE_WOOD",
+            ("ITEM_WOOD", 1),
+            &[("ITEM_LOG", 1)],
+            &[("ITEM_FIBER", 1)],
+        ),
+    ]);
+
+    // Fiber is covered by the Wood recipe byproduct; the answer must not depend
+    // on the ingredient declaration order of the target recipe.
+    for target in ["Result A", "Result B"] {
+        let answer = engine.calculate_shortage(target, 1, &[]);
+        assert_eq!(answer.status, AnswerStatus::Ok);
+        let shortage = answer.data.expect("shortage result exists");
+        assert_eq!(shortage.shortages.len(), 1);
+        assert_eq!(shortage.shortages[0].item_id, "ITEM_LOG");
+        assert_eq!(shortage.shortages[0].required_quantity, 1);
+        assert_eq!(shortage.shortages[0].missing_quantity, 1);
+
+        let answer = engine.calculate_craftable_count(target, &[InventoryEntry::new("Log", 1)]);
+        assert_eq!(answer.status, AnswerStatus::Ok);
+        let craftable = answer.data.expect("craftable result exists");
+        assert_eq!(craftable.maximum_additional_count, 1);
+    }
+}

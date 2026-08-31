@@ -454,7 +454,8 @@ impl GuideEngine {
                     missing_quantity,
                     inventory,
                 )?;
-                for child in children {
+                for &child_index in ordered_child_indices(children).iter() {
+                    let child = &children[child_index];
                     let child_quantity = scaled_child_quantity(child, *batches, required_batches)?;
                     self.collect_shortages(
                         &(MaterialNode {
@@ -545,7 +546,8 @@ impl GuideEngine {
         else {
             return false;
         };
-        children.iter().all(|child| {
+        ordered_child_indices(children).iter().all(|&child_index| {
+            let child = &children[child_index];
             let Some(child_quantity) =
                 scaled_child_quantity(child, *batches, required_batches).ok()
             else {
@@ -772,6 +774,80 @@ fn scaled_child_quantity(
     quantity_per_batch
         .checked_mul(required_batches)
         .ok_or(CalculationError::QuantityOverflow)
+}
+
+fn subtree_byproduct_items(node: &MaterialNode) -> BTreeSet<String> {
+    let mut items = BTreeSet::new();
+    if let MaterialAcquisition::Recipe {
+        byproducts,
+        children,
+        ..
+    } = &node.acquisition
+    {
+        for byproduct in byproducts {
+            items.insert(byproduct.item_id.clone());
+        }
+        for child in children {
+            items.extend(subtree_byproduct_items(child));
+        }
+    }
+    items
+}
+
+fn subtree_consumed_items(node: &MaterialNode) -> BTreeSet<String> {
+    let mut items = BTreeSet::new();
+    if let MaterialAcquisition::Recipe { children, .. } = &node.acquisition {
+        for child in children {
+            items.insert(child.item_id.clone());
+            items.extend(subtree_consumed_items(child));
+        }
+    }
+    items
+}
+
+fn ordered_child_indices(children: &[MaterialNode]) -> Vec<usize> {
+    let produced = children
+        .iter()
+        .map(subtree_byproduct_items)
+        .collect::<Vec<_>>();
+    let consumed = children
+        .iter()
+        .map(subtree_consumed_items)
+        .collect::<Vec<_>>();
+    let count = children.len();
+    let mut adjacency = vec![Vec::new(); count];
+    let mut indegree = vec![0_usize; count];
+    for producer in 0..count {
+        for consumer in 0..count {
+            if producer == consumer {
+                continue;
+            }
+            let supplies = produced[producer].contains(&children[consumer].item_id)
+                || produced[producer]
+                    .intersection(&consumed[consumer])
+                    .next()
+                    .is_some();
+            if supplies {
+                adjacency[producer].push(consumer);
+                indegree[consumer] += 1;
+            }
+        }
+    }
+    let mut remaining = (0..count).collect::<BTreeSet<_>>();
+    let mut order = Vec::with_capacity(count);
+    while !remaining.is_empty() {
+        let next = remaining
+            .iter()
+            .copied()
+            .find(|&index| indegree[index] == 0)
+            .unwrap_or_else(|| *remaining.iter().next().expect("remaining is not empty"));
+        remaining.remove(&next);
+        order.push(next);
+        for &successor in &adjacency[next] {
+            indegree[successor] = indegree[successor].saturating_sub(1);
+        }
+    }
+    order
 }
 
 fn byproducts_for_batches(

@@ -19,6 +19,7 @@ Phase G2 added the deterministic offline guide core:
 - byproduct item provenance and conflict propagation into material calculations
 - byproduct acquisition relationships in item lookup
 - same-item and cross-item byproduct offsets in shortage and craftable calculations
+- order-independent cross-item byproduct offsets via producer-before-consumer child ordering
 - order-insensitive breeding-result lookup
 - bounded shortest breeding-chain traversal
 - explicit ambiguous breeding parent and endpoint candidates
@@ -38,8 +39,8 @@ No LLM, retrieval index, provider, adapter, server, save reader, or dynamic-stat
 - Recipe cycles and depth-limit violations return `error`.
 - Quantities use checked `u32` arithmetic.
 - Raw acquisition targets are not reported as craftable.
-- Shortage calculations consume stocked target and intermediate items, credit same-item and cross-item byproducts, and then expand remaining missing quantities into raw-material shortages.
-- Craftable counts describe additional items, consume intermediate inventory through the dependency tree, credit recipe byproducts, report boundary-limiting materials, and reject representational overflow.
+- Shortage calculations consume stocked target and intermediate items, credit same-item and cross-item byproducts, and then expand remaining missing quantities into raw-material shortages; sibling subtrees are processed producer-before-consumer so credits apply regardless of ingredient declaration order.
+- Craftable counts describe additional items, consume intermediate inventory through the dependency tree, credit recipe byproducts with the same order-independent sibling processing, report boundary-limiting materials, and reject representational overflow.
 - Every lookup propagates conflicts from records actually included in its relation results, including byproduct and habitat relationships.
 - Provenance review status and confidence use the same snake_case values as canonical records.
 - Breeding rules match either parent order.
@@ -67,12 +68,13 @@ Red test checkpoints:
 - An item lookup regression initially omitted byproduct acquisition relationships.
 - A shortage and craftable regression initially ignored byproduct credits and over-required raw materials.
 - A related-conflict regression initially propagated conflicts only for item lookups, not Pal, technology, or recipe lookups.
+- An order-dependence regression initially reported an extra Fiber shortage and zero craftable count when the consuming ingredient was declared before the producing sibling; both ingredient orders now agree.
 
 Final gates:
 
 - `cargo fmt --all -- --check` passed.
 - `cargo clippy --all-targets -- -D warnings` passed.
-- `cargo test` passed with 37 tests.
+- `cargo test` passed with 38 tests.
 
 No checks were intentionally skipped.
 
