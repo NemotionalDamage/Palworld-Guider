@@ -6,7 +6,7 @@ Last updated: 2026-08-31, Asia/Shanghai.
 
 Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
-Phase G2 is complete after a fourth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, and related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
+Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
@@ -87,6 +87,7 @@ Completed:
 - Exposed byproduct acquisition relationships in item lookup.
 - Offset shortage and craftable requirements with same-item and cross-item byproduct production.
 - Made cross-item byproduct offsets order-independent for shortage and craftable calculations.
+- Credited recipe byproducts after ingredients are satisfied and applied a first-batch seed for self-consuming byproducts.
 - Propagated related-record conflicts through Pal, technology, and recipe lookups.
 
 Remaining:
@@ -95,7 +96,7 @@ None.
 
 ### Verification
 
-`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 38 tests, and `git diff --check` all passed after the fourth audit correction.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 40 tests, and `git diff --check` all passed after the fifth audit correction.
 
 ### Blockers
 

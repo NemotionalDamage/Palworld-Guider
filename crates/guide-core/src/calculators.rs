@@ -447,16 +447,14 @@ impl GuideEngine {
                     .checked_add(self_byproduct_per_batch)
                     .ok_or(CalculationError::QuantityOverflow)?;
                 let required_batches = batches_for(missing_quantity, effective_output_quantity)?;
-                apply_byproducts_to_inventory(
-                    &node.item_id,
-                    &node.acquisition,
-                    required_batches,
-                    missing_quantity,
-                    inventory,
-                )?;
                 for &child_index in ordered_child_indices(children).iter() {
                     let child = &children[child_index];
-                    let child_quantity = scaled_child_quantity(child, *batches, required_batches)?;
+                    let child_quantity = recipe_child_quantity(
+                        child,
+                        &node.acquisition,
+                        *batches,
+                        required_batches,
+                    )?;
                     self.collect_shortages(
                         &(MaterialNode {
                             required_quantity: child_quantity,
@@ -467,6 +465,13 @@ impl GuideEngine {
                         shortages,
                     )?;
                 }
+                apply_byproducts_to_inventory(
+                    &node.item_id,
+                    &node.acquisition,
+                    required_batches,
+                    missing_quantity,
+                    inventory,
+                )?;
             }
         }
         Ok(())
@@ -518,18 +523,17 @@ impl GuideEngine {
                 else {
                     return false;
                 };
-                if apply_byproducts_to_inventory(
+                if !self.fulfill_recipe_batches(&node.acquisition, required_batches, inventory) {
+                    return false;
+                }
+                apply_byproducts_to_inventory(
                     &node.item_id,
                     &node.acquisition,
                     required_batches,
                     remaining_quantity,
                     inventory,
                 )
-                .is_err()
-                {
-                    return false;
-                }
-                self.fulfill_recipe_batches(&node.acquisition, required_batches, inventory)
+                .is_ok()
             }
         }
     }
@@ -549,7 +553,7 @@ impl GuideEngine {
         ordered_child_indices(children).iter().all(|&child_index| {
             let child = &children[child_index];
             let Some(child_quantity) =
-                scaled_child_quantity(child, *batches, required_batches).ok()
+                recipe_child_quantity(child, acquisition, *batches, required_batches).ok()
             else {
                 return false;
             };
@@ -776,6 +780,46 @@ fn scaled_child_quantity(
         .ok_or(CalculationError::QuantityOverflow)
 }
 
+fn recipe_child_quantity(
+    child: &MaterialNode,
+    acquisition: &MaterialAcquisition,
+    original_batches: u32,
+    required_batches: u32,
+) -> Result<u32, CalculationError> {
+    let gross_quantity = scaled_child_quantity(child, original_batches, required_batches)?;
+    let MaterialAcquisition::Recipe {
+        batches,
+        byproducts,
+        ..
+    } = acquisition
+    else {
+        return Ok(gross_quantity);
+    };
+    let Some(byproduct) = byproducts
+        .iter()
+        .find(|byproduct| byproduct.item_id == child.item_id)
+    else {
+        return Ok(gross_quantity);
+    };
+    let ingredient_per_batch = child.required_quantity / original_batches;
+    let byproduct_per_batch = byproduct.quantity / *batches;
+    if byproduct_per_batch
+        .checked_mul(*batches)
+        .is_none_or(|quantity| quantity != byproduct.quantity)
+    {
+        return Err(CalculationError::QuantityOverflow);
+    }
+    let reuse_per_batch = ingredient_per_batch.saturating_sub(byproduct_per_batch);
+    ingredient_per_batch
+        .checked_add(
+            required_batches
+                .saturating_sub(1)
+                .checked_mul(reuse_per_batch)
+                .ok_or(CalculationError::QuantityOverflow)?,
+        )
+        .ok_or(CalculationError::QuantityOverflow)
+}
+
 fn subtree_byproduct_items(node: &MaterialNode) -> BTreeSet<String> {
     let mut items = BTreeSet::new();
     if let MaterialAcquisition::Recipe {
@@ -887,13 +931,14 @@ fn byproducts_for_batches(
         .collect()
 }
 
-fn all_byproducts_for_batches(
+fn byproduct_net_availability(
     acquisition: &MaterialAcquisition,
     required_batches: u32,
 ) -> Result<Vec<(String, u32)>, CalculationError> {
     let MaterialAcquisition::Recipe {
         batches,
         byproducts,
+        children,
         ..
     } = acquisition
     else {
@@ -905,19 +950,39 @@ fn all_byproducts_for_batches(
     byproducts
         .iter()
         .map(|byproduct| {
-            let quantity_per_batch = byproduct.quantity / *batches;
-            if quantity_per_batch
+            let byproduct_per_batch = byproduct.quantity / *batches;
+            if byproduct_per_batch
                 .checked_mul(*batches)
                 .is_none_or(|quantity| quantity != byproduct.quantity)
             {
                 return Err(CalculationError::QuantityOverflow);
             }
-            Ok((
-                byproduct.item_id.clone(),
-                quantity_per_batch
-                    .checked_mul(required_batches)
-                    .ok_or(CalculationError::QuantityOverflow)?,
-            ))
+            let ingredient_per_batch = children
+                .iter()
+                .find(|child| child.item_id == byproduct.item_id)
+                .map(|child| child.required_quantity / *batches)
+                .unwrap_or(0);
+            let seed_quantity = if ingredient_per_batch == 0 {
+                0
+            } else {
+                ingredient_per_batch
+                    .checked_add(
+                        required_batches
+                            .saturating_sub(1)
+                            .checked_mul(ingredient_per_batch.saturating_sub(byproduct_per_batch))
+                            .ok_or(CalculationError::QuantityOverflow)?,
+                    )
+                    .ok_or(CalculationError::QuantityOverflow)?
+            };
+            let internally_consumed = ingredient_per_batch
+                .checked_mul(required_batches)
+                .ok_or(CalculationError::QuantityOverflow)?
+                .saturating_sub(seed_quantity);
+            let available_quantity = byproduct_per_batch
+                .checked_mul(required_batches)
+                .ok_or(CalculationError::QuantityOverflow)?
+                .saturating_sub(internally_consumed);
+            Ok((byproduct.item_id.clone(), available_quantity))
         })
         .collect()
 }
@@ -935,8 +1000,8 @@ fn apply_byproducts_to_inventory(
     else {
         return Ok(());
     };
-    let byproducts = all_byproducts_for_batches(acquisition, required_batches)?;
-    let self_byproduct_quantity = byproducts
+    let availability = byproduct_net_availability(acquisition, required_batches)?;
+    let self_byproduct_quantity = availability
         .iter()
         .find(|(byproduct_item_id, _)| byproduct_item_id == item_id)
         .map(|(_, quantity)| *quantity)
@@ -953,7 +1018,7 @@ fn apply_byproducts_to_inventory(
             .checked_add(self_surplus)
             .ok_or(CalculationError::QuantityOverflow)?;
     }
-    for (byproduct_item_id, quantity) in byproducts {
+    for (byproduct_item_id, quantity) in availability {
         if byproduct_item_id == item_id {
             continue;
         }

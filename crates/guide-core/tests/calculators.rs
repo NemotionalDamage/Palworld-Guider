@@ -436,3 +436,127 @@ fn cross_item_byproduct_offsets_are_order_independent() {
         assert_eq!(craftable.maximum_additional_count, 1);
     }
 }
+
+#[test]
+fn does_not_pre_deduct_root_byproducts_from_own_ingredients() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        item("ITEM_BONUS", "Bonus"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 1),
+            &[("ITEM_WOOD", 1), ("ITEM_BONUS", 1)],
+            &[("ITEM_BONUS", 1)],
+        ),
+    ]);
+
+    // The Bonus byproduct is produced only after the craft completes, so the
+    // first Result needs a Bonus seed; later batches reuse the byproduct.
+    let answer = engine.calculate_shortage("Result", 1, &[]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let shortage = answer.data.expect("shortage result exists");
+    assert_eq!(shortage.shortages.len(), 2);
+    let wood = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_WOOD")
+        .expect("Wood shortage exists");
+    assert_eq!(wood.required_quantity, 1);
+    assert_eq!(wood.missing_quantity, 1);
+    let bonus = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_BONUS")
+        .expect("Bonus shortage exists");
+    assert_eq!(bonus.required_quantity, 1);
+
+    let answer = engine.calculate_shortage("Result", 2, &[]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let shortage = answer.data.expect("shortage result exists");
+    let wood = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_WOOD")
+        .expect("Wood shortage exists");
+    assert_eq!(wood.required_quantity, 2);
+    let bonus = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_BONUS")
+        .expect("Bonus shortage exists");
+    assert_eq!(bonus.required_quantity, 1);
+
+    let answer = engine.calculate_craftable_count("Result", &[InventoryEntry::new("Wood", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 0);
+
+    let answer = engine.calculate_craftable_count(
+        "Result",
+        &[
+            InventoryEntry::new("Wood", 2),
+            InventoryEntry::new("Bonus", 1),
+        ],
+    );
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 2);
+}
+
+#[test]
+fn does_not_pre_deduct_intermediate_byproducts_from_own_ingredients() {
+    let engine = test_store(vec![
+        item("ITEM_RESULT", "Result"),
+        item("ITEM_WOOD", "Wood"),
+        item("ITEM_LOG", "Log"),
+        item("ITEM_FIBER", "Fiber"),
+        recipe(
+            "RECIPE_RESULT",
+            ("ITEM_RESULT", 1),
+            &[("ITEM_WOOD", 1)],
+            &[],
+        ),
+        recipe(
+            "RECIPE_WOOD",
+            ("ITEM_WOOD", 1),
+            &[("ITEM_LOG", 1), ("ITEM_FIBER", 1)],
+            &[("ITEM_FIBER", 1)],
+        ),
+    ]);
+
+    // The Wood recipe consumes Fiber as an ingredient and also produces Fiber
+    // as a byproduct; the first batch still needs a Fiber seed.
+    let answer = engine.calculate_shortage("Result", 1, &[]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let shortage = answer.data.expect("shortage result exists");
+    assert_eq!(shortage.shortages.len(), 2);
+    let fiber = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_FIBER")
+        .expect("Fiber shortage exists");
+    assert_eq!(fiber.required_quantity, 1);
+    let log = shortage
+        .shortages
+        .iter()
+        .find(|entry| entry.item_id == "ITEM_LOG")
+        .expect("Log shortage exists");
+    assert_eq!(log.required_quantity, 1);
+
+    let answer = engine.calculate_craftable_count("Result", &[InventoryEntry::new("Log", 1)]);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 0);
+
+    let answer = engine.calculate_craftable_count(
+        "Result",
+        &[
+            InventoryEntry::new("Log", 2),
+            InventoryEntry::new("Fiber", 1),
+        ],
+    );
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let craftable = answer.data.expect("craftable result exists");
+    assert_eq!(craftable.maximum_additional_count, 2);
+}
