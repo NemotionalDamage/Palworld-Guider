@@ -10,7 +10,7 @@ Phase G2 is complete after a fifth audit correction. Byproduct item provenance a
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-Phase G3 is complete after a sixth audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present, and the sixth-correction regressions pass. Numeric claims bind to the entity phrase immediately following the number through a structural adjacency check with no connector-word list, and explicit unknown breeding answers reject any permitted entity in result-assertion position, including copula-less and bare offspring forms. Semantic vector search remains deferred.
+Phase G3 is complete after a seventh audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present, and the sixth-correction regressions pass. Numeric claims bind to the entity phrase immediately following the number through a structural adjacency check with no connector-word list; explicit unknown breeding answers allow permitted parent entities only as context, never in result-assertion position, including bare, copula-less, and keyword-preceded offspring forms in English and Chinese. Semantic vector search remains deferred.
 
 The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
 
@@ -114,12 +114,12 @@ Completed:
 - Added the `guide-tools` crate with twelve typed tools, JSON schemas, argument validation, standard envelopes, budgets, and deadlines.
 - Added the `provider` crate with the `ChatProvider` contract, OpenAI-compatible and Ollama adapters, timeouts, an error taxonomy, and a scripted mock.
 - Added the `guide-agent` crate with a bounded grounded loop, cancellation, reply limits, provenance propagation, and an `ask` CLI.
-- Expanded the final-answer grounding gate to parse complete scaled, fractional, scientific-notation, and question-locale Chinese quantity expressions, pair numeric values with their exact result entities, bind breeding conclusions or explicit unknowns to the requested parent pair and successful result, bind numeric claims to the entity phrase immediately following the number (structural adjacency, independent of connector-word lists), and reject any permitted entity in result-assertion position after explicit unknown breeding answers, including copula-less and bare forms.
+- Expanded the final-answer grounding gate to parse complete scaled, fractional, scientific-notation, and question-locale Chinese quantity expressions, pair numeric values with their exact result entities, bind breeding conclusions or explicit unknowns to the requested parent pair and successful result, bind numeric claims to the entity phrase immediately following the number (structural adjacency, independent of connector-word lists), and restrict explicit unknown breeding answers to uncertainty language with permitted parents only as context; a seventh audit replaced the keyword-anchored assertion check with a context-position rule.
 - Kept exact and structured lookup ahead of lexical retrieval and deferred semantic vector search.
 
 ### Verification
 
-`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 109 tests, and `git diff --check` all passed after the sixth audit correction. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 115 tests, and `git diff --check` all passed after the seventh audit correction. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
 
 ### Blockers
 

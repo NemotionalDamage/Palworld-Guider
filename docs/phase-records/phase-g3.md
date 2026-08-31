@@ -15,7 +15,7 @@
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
 - When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final prose must restate an exact result leaf in the question's numeric-word locale.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the sixth audit correction, a numeric claim is bound to the entity phrase immediately following the number: the gate takes the maximal run of adjacent words that form a prefix of a known entity name, so comma-separated clauses and trailing context can no longer leak a prior entity into the claim's evidence. Explicit unknown answers reject any permitted entity in result-assertion position, including copula-less (`the offspring Lamball`) and bare (`result: Lamball`) forms.
+- A deterministic grounding gate compares complete quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled, fractional, scientific-notation, and locale-mismatched expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair. Explicit unknown answers may contain only uncertainty language and the requested parent entities. After the sixth audit correction, a numeric claim is bound to the entity phrase immediately following the number: the gate takes the maximal run of adjacent words that form a prefix of a known entity name, so comma-separated clauses and trailing context can no longer leak a prior entity into the claim's evidence. After the seventh audit correction, explicit unknown breeding answers allow permitted parent entities only as context: each permitted entity must be preceded by a context marker (`for`/`of`/`between`/`and`/`requested pair`-style connectors) or stand at the answer start, and the remaining words come from a stricter uncertainty vocabulary that excludes offspring-assertion words.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -236,10 +236,31 @@ Correction:
 
 Fresh gates after the sixth correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 109 tests, and `git diff --check` all passed.
 
+## 2026-09-01 Seventh Completion Audit
+
+The sixth-correction repository passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 109 tests, and `git diff --check`.
+
+Two temporary regressions then tested the corrected breeding acceptance boundary:
+
+- After an unknown `calculate_breeding_result(parent_a="Lamball", parent_b="Lamball")`, `Unknown: Lamball.` remained visible with `Unknown` status. The keyword-anchored assertion check had no anchor after the word `unknown`, so a bare permitted entity in result position passed as uncertainty context.
+- The same unknown breeding call with `Unknown: Lamball is the offspring.` remained visible with `Unknown` status. The check only looked forward from outcome keywords and production verbs, so a permitted entity preceding the keyword (`Lamball is the offspring`) was not detected.
+
+The temporary test commands failed both regressions with visible model answers. Reversed-clause numeric probes (`You need 5 Wool and 5 Wood for Wooden Clubs.`) confirmed the structural adjacency binding holds in both clause orders, and positive probes (`No reviewed result for Lamball and Lamball.`, `Breeding Lamball and Lamball is unknown.`) confirmed the tightened rule still accepts legitimate context-only unknown answers. A Chinese bare-entity probe (`未知：Lamball。`) was rejected as expected.
+
+Root cause: the breeding unknown check anchored assertions on outcome keywords and production verbs, so assertions anchored only by the uncertainty marker or with the entity before the keyword escaped; the check needed to constrain permitted-entity positions structurally rather than pattern-match assertion vocabulary.
+
+Correction:
+
+- Explicit unknown breeding answers now allow permitted parent entities only as context. Each permitted entity occurrence must be preceded by a context marker (`for`, `of`, `between`, `with`, `and`, `plus`, `requested`, `pair`, `combination`, `matches`, `breeding`, `breed`, `from`, `to`, `parent`, `using`, and Chinese equivalents) or stand at the answer start; any other position is a result assertion and is rejected.
+- The unknown-mode vocabulary is stricter than the successful-mode vocabulary: `offspring`, `child`, `produces`, `produce`, `produced`, and their Chinese equivalents are no longer allowed in explicit-unknown answers, so outcome vocabulary cannot wrap an asserted entity.
+- The prior keyword-anchored check and its constants were removed; the shared permitted-phrase stripping was factored into a single helper used by both modes.
+
+Fresh gates after the seventh correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 115 tests, and `git diff --check` all passed.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The fifth and sixth audit bypasses (same-sentence value reuse, comma-separated claim leakage, and copula-less or bare offspring assertions) now have permanent regression coverage.
+- The grounding gate is deterministic claim validation, not general natural-language inference. Its numeric grammar and uncertainty connector vocabulary are intentionally conservative; additional languages and answer patterns require accompanying regressions before they are allowed. The fifth, sixth, and seventh audit bypasses (same-sentence value reuse, comma-separated claim leakage, copula-less or bare offspring assertions, and uncertainty-anchored or keyword-preceded offspring assertions) now have permanent regression coverage.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.

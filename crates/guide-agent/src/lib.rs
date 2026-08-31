@@ -427,8 +427,8 @@ fn grounding_gate(
                     "unsupported breeding claim; a successful breeding result is required"
                         .to_string(),
                 );
-            } else if !uses_permitted_language
-                || unknown_breeding_asserts_offspring(&answer_lower, &permitted_entities)
+            } else if !breeding_unknown_uses_permitted_language(&answer_lower, &permitted_entities)
+                || !breeding_unknown_entities_are_context_only(&answer_lower, &permitted_entities)
             {
                 push_violation(
                     &mut violations,
@@ -442,8 +442,8 @@ fn grounding_gate(
                     "unsupported breeding claim; no successful result matches the requested parent pair"
                         .to_string(),
                 );
-            } else if !uses_permitted_language
-                || unknown_breeding_asserts_offspring(&answer_lower, &permitted_entities)
+            } else if !breeding_unknown_uses_permitted_language(&answer_lower, &permitted_entities)
+                || !breeding_unknown_entities_are_context_only(&answer_lower, &permitted_entities)
             {
                 push_violation(
                     &mut violations,
@@ -581,23 +581,76 @@ const BREEDING_ALLOWED_WORDS: &[&str] = &[
     "对于",
 ];
 
-const OUTCOME_ASSERTION_KEYWORDS: &[&str] = &[
-    "offspring",
-    "child",
+const UNKNOWN_BREEDING_ALLOWED_WORDS: &[&str] = &[
+    "a",
+    "an",
+    "the",
+    "and",
+    "plus",
+    "for",
+    "is",
+    "are",
+    "was",
+    "were",
     "result",
     "results",
-    "后代",
-    "孩子",
+    "breeding",
+    "breed",
+    "breeds",
+    "no",
+    "reviewed",
+    "available",
+    "unknown",
+    "not",
+    "unavailable",
+    "cannot",
+    "determine",
+    "requested",
+    "pair",
+    "combination",
+    "matches",
+    "with",
+    "未知",
+    "未知结果",
+    "育种",
     "结果",
+    "无法",
+    "确定",
+    "没有",
+    "可用",
+    "不可用",
+    "是",
+    "和",
+    "与",
+    "对于",
 ];
 
-const OUTCOME_SKIP_WORDS: &[&str] = &[
-    "a", "an", "the", "is", "are", "was", "were", "be", "will", "would", "may", "might", "是",
-    "为", "一个", "一只",
-];
-
-const PRODUCTION_VERBS: &[&str] = &[
-    "produces", "produce", "produced", "gives", "give", "yields", "yield", "hatches", "hatch",
+const BREEDING_CONTEXT_PRECEDERS: &[&str] = &[
+    "for",
+    "of",
+    "between",
+    "with",
+    "and",
+    "plus",
+    "requested",
+    "pair",
+    "combination",
+    "matches",
+    "breeding",
+    "breed",
+    "breeds",
+    "from",
+    "to",
+    "parent",
+    "parents",
+    "using",
+    "和",
+    "与",
+    "对于",
+    "之间",
+    "父母",
+    "从",
+    "到",
 ];
 
 const NUMBER_WORDS: &[(&str, f64)] = &[
@@ -1273,6 +1326,24 @@ fn breeding_answer_uses_permitted_language(
     answer_lower: &str,
     permitted_entities: &BTreeSet<String>,
 ) -> bool {
+    breeding_retained_words(answer_lower, permitted_entities)
+        .iter()
+        .all(|word| BREEDING_ALLOWED_WORDS.contains(&word.as_str()))
+}
+
+fn breeding_unknown_uses_permitted_language(
+    answer_lower: &str,
+    permitted_entities: &BTreeSet<String>,
+) -> bool {
+    breeding_retained_words(answer_lower, permitted_entities)
+        .iter()
+        .all(|word| UNKNOWN_BREEDING_ALLOWED_WORDS.contains(&word.as_str()))
+}
+
+fn breeding_retained_words(
+    answer_lower: &str,
+    permitted_entities: &BTreeSet<String>,
+) -> Vec<String> {
     let words = normalized_words(answer_lower);
     let permitted_phrases = permitted_entities
         .iter()
@@ -1297,45 +1368,47 @@ fn breeding_answer_uses_permitted_language(
         if matched_length > 0 {
             index += matched_length;
         } else {
-            retained.push(words[index].as_str());
+            retained.push(words[index].clone());
             index += 1;
         }
     }
     retained
-        .iter()
-        .all(|word| BREEDING_ALLOWED_WORDS.contains(word))
 }
 
-fn unknown_breeding_asserts_offspring(
+fn breeding_unknown_entities_are_context_only(
     answer_lower: &str,
     permitted_entities: &BTreeSet<String>,
 ) -> bool {
     let words = normalized_words(answer_lower);
-    for (index, word) in words.iter().enumerate() {
-        if !OUTCOME_ASSERTION_KEYWORDS.contains(&word.as_str())
-            && !PRODUCTION_VERBS.contains(&word.as_str())
-        {
-            continue;
-        }
-        let mut entity_index = index + 1;
-        while entity_index < words.len()
-            && OUTCOME_SKIP_WORDS.contains(&words[entity_index].as_str())
-        {
-            entity_index += 1;
-        }
-        if permitted_entities.iter().any(|entity| {
-            let entity_words = normalized_words(entity);
-            !entity_words.is_empty()
-                && entity_index + entity_words.len() <= words.len()
-                && words[entity_index..entity_index + entity_words.len()]
+    let permitted_phrases = permitted_entities
+        .iter()
+        .map(|entity| normalized_words(entity))
+        .filter(|phrase| !phrase.is_empty())
+        .collect::<Vec<_>>();
+    let mut index = 0;
+    while index < words.len() {
+        let matched_length = permitted_phrases
+            .iter()
+            .filter(|phrase| index + phrase.len() <= words.len())
+            .filter(|phrase| {
+                words[index..index + phrase.len()]
                     .iter()
-                    .zip(&entity_words)
+                    .zip(phrase.iter())
                     .all(|(word, expected)| same_word(word, expected))
-        }) {
-            return true;
+            })
+            .map(|phrase| phrase.len())
+            .max()
+            .unwrap_or(0);
+        if matched_length > 0 {
+            if index > 0 && !BREEDING_CONTEXT_PRECEDERS.contains(&words[index - 1].as_str()) {
+                return false;
+            }
+            index += matched_length;
+        } else {
+            index += 1;
         }
     }
-    false
+    true
 }
 
 fn is_explicit_unknown(answer_lower: &str) -> bool {

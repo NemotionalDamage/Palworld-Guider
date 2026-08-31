@@ -831,3 +831,146 @@ fn reply_truncation_is_visible() {
         .iter()
         .any(|message| message.contains("truncated")));
 }
+
+#[test]
+fn unknown_breeding_answers_cannot_assert_a_bare_entity_after_unknown() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::text("Unknown: Lamball."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error
+            .contains("unsupported breeding claim after an explicit unknown statement")));
+}
+
+#[test]
+fn unknown_breeding_answers_cannot_assert_offspring_before_the_keyword() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::text("Unknown: Lamball is the offspring."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error
+            .contains("unsupported breeding claim after an explicit unknown statement")));
+}
+
+#[test]
+fn reversed_clause_entities_cannot_reuse_shared_values() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_shortage",
+                json!({
+                    "query": "Wooden Club",
+                    "quantity": 3,
+                    "inventory": [
+                        {"item": "Wood", "quantity": 5},
+                        {"item": "Wool", "quantity": 3}
+                    ]
+                }),
+            ),
+            ChatResponse::text("You need 5 Wool and 5 Wood for Wooden Clubs."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How short am I for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"5\"")));
+}
+
+#[test]
+fn chinese_unknown_answers_cannot_assert_a_bare_entity() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::text("未知：Lamball。"),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Lamball 和 Lamball 繁殖会得到什么？");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+}
+
+#[test]
+fn unknown_answers_accept_context_only_parent_entities() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::text("No reviewed result for Lamball and Lamball."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert!(answer.answer.is_some());
+    assert!(answer.errors.is_empty());
+}
+
+#[test]
+fn unknown_answers_accept_subject_position_parent_entities() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::text("Breeding Lamball and Lamball is unknown."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert!(answer.answer.is_some());
+    assert!(answer.errors.is_empty());
+}
