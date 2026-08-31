@@ -10,7 +10,7 @@ Phase G2 is complete after a fifth audit correction. Byproduct item provenance a
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
 
-Phase G3 requires a fourth audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present, and exact-result binding covers the prior audit cases. Remaining bypasses allow scientific notation, non-English number words, and speculative breeding prose after an explicit unknown. Semantic vector search remains deferred.
+Phase G3 is complete after a fourth audit correction. The bounded Rust agent loop, typed registry, deterministic calculators, Tantivy retrieval, provider adapters, provenance, and offline tests are present. Quantity validation covers complete decimal, scaled, fractional, scientific-notation, and question-locale Chinese expressions; breeding unknowns may state only uncertainty and the requested parents. Semantic vector search remains deferred.
 
 The product is split into three delivery stages. Release Stage 1, spanning G0–G3, produces a public static-information agent with no game-process, save, server-API, or adapter access. Release Stage 2 spans G4–G6 and adds explicit, consented dynamic-state sources for one configured user, such as imported snapshots, copied saves, private-server REST APIs, and verified UE4SS reads. Release Stage 3 is deferred until Stage 2 passes and will specify private multi-player identity, consent, authorization, routing, and data isolation.
 
@@ -23,7 +23,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
-| G3 | Audit correction required | Add hybrid retrieval and grounded LLM answers |
+| G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Not started | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
@@ -32,7 +32,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
-| Stage 1: Public Static-Information Agent | G0–G3 | G0–G2 complete; G3 requires audit correction | Answer public game-knowledge and calculation questions without a running game |
+| Stage 1: Public Static-Information Agent | G0–G3 | Complete | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
@@ -114,18 +114,16 @@ Completed:
 - Added the `guide-tools` crate with twelve typed tools, JSON schemas, argument validation, standard envelopes, budgets, and deadlines.
 - Added the `provider` crate with the `ChatProvider` contract, OpenAI-compatible and Ollama adapters, timeouts, an error taxonomy, and a scripted mock.
 - Added the `guide-agent` crate with a bounded grounded loop, cancellation, reply limits, provenance propagation, and an `ask` CLI.
-- Expanded the final-answer grounding gate to parse complete scaled and fractional quantity expressions, pair numeric values with their exact result entities, and bind breeding conclusions to the requested parent pair and successful result; a fourth audit found scientific-notation, non-English-number, and explicit-unknown breeding bypasses.
+- Expanded the final-answer grounding gate to parse complete scaled, fractional, scientific-notation, and question-locale Chinese quantity expressions, pair numeric values with their exact result entities, and bind breeding conclusions or explicit unknowns to the requested parent pair and successful result.
 - Kept exact and structured lookup ahead of lexical retrieval and deferred semantic vector search.
 
 ### Verification
 
-`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 100 tests, and `git diff --check` all passed during the fourth audit. Three additional temporary acceptance regressions reproduced grounding bypasses and were removed after their failure output was captured. Detailed evidence remains in `docs/phase-records/phase-g3.md`.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 104 tests, and `git diff --check` all passed after the fourth audit correction.
 
 ### Blockers
 
-The quantity parser does not treat scientific notation as one numeric expression and does not recognize non-English number words. The breeding gate also treats any explicit-unknown phrase as safe, allowing assertions such as “the offspring is fluffy” to follow it without successful breeding evidence. These fail the requirement that model-generated arithmetic and breeding guesses never become user-visible facts.
-
-Next required action: add permanent regressions for the three bypasses, parse complete locale-aware quantity expressions, and restrict successful-breeding answers to exact tool facts while limiting unknown-breeding answers to the requested parents plus an explicit uncertainty statement.
+None.
 
 ## Phase Boundaries
 

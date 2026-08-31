@@ -425,6 +425,95 @@ fn leading_decimal_fractions_require_exact_calculator_values() {
 }
 
 #[test]
+fn scientific_notation_is_one_exact_numeric_claim() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 15}),
+            ),
+            ChatResponse::text("You need 75e15 Wood for Wooden Clubs."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 15 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"75e15\"")));
+}
+
+#[test]
+fn chinese_number_words_require_matching_question_locale() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("You need 十五 Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"十五\"")));
+}
+
+#[test]
+fn chinese_number_words_restate_results_for_chinese_questions() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("需要十五 Wood。"),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("3 个 Wooden Club 需要什么材料？");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.errors.is_empty());
+}
+
+#[test]
+fn explicit_unknown_answers_cannot_append_breeding_guesses() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("Unknown result: the offspring is fluffy."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error
+            .contains("unsupported breeding claim after an explicit unknown statement")));
+}
+
+#[test]
 fn generic_breeding_conclusions_require_breeding_evidence() {
     let (agent, _provider) = scripted_agent(
         None,

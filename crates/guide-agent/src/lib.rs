@@ -358,10 +358,12 @@ fn grounding_gate(
     let mut violations = Vec::new();
     for claim in &numeric_claims {
         let sentence = sentence_around(&normalized_answer, claim.start, claim.end);
-        let supported = quantity_evidence.iter().any(|evidence| {
-            same_number(evidence.value, claim.value)
-                && contains_entity_phrase(sentence, &evidence.entity)
-        });
+        let locale_matches = !contains_cjk(&claim.display) || contains_cjk(question);
+        let supported = locale_matches
+            && quantity_evidence.iter().any(|evidence| {
+                same_number(evidence.value, claim.value)
+                    && contains_entity_phrase(sentence, &evidence.entity)
+            });
         if !supported {
             violations.push(format!("unsupported numeric claim \"{}\"", claim.display));
         }
@@ -412,6 +414,9 @@ fn grounding_gate(
         || question_indicates_breeding
         || !breeding_records.is_empty()
     {
+        let permitted_entities = matching_breeding_entities.clone();
+        let uses_permitted_language =
+            breeding_answer_uses_permitted_language(&answer_lower, &permitted_entities);
         if !has_successful_breeding && !has_successful_matching_breeding {
             if !is_explicit_unknown(&answer_lower) {
                 push_violation(
@@ -419,16 +424,32 @@ fn grounding_gate(
                     "unsupported breeding claim; a successful breeding result is required"
                         .to_string(),
                 );
+            } else if !uses_permitted_language {
+                push_violation(
+                    &mut violations,
+                    "unsupported breeding claim after an explicit unknown statement".to_string(),
+                );
             }
-        } else if !has_successful_matching_breeding && !is_explicit_unknown(&answer_lower) {
+        } else if !has_successful_matching_breeding {
+            if !is_explicit_unknown(&answer_lower) {
+                push_violation(
+                    &mut violations,
+                    "unsupported breeding claim; no successful result matches the requested parent pair"
+                        .to_string(),
+                );
+            } else if !uses_permitted_language {
+                push_violation(
+                    &mut violations,
+                    "unsupported breeding claim after an explicit unknown statement".to_string(),
+                );
+            }
+        } else if !uses_permitted_language {
             push_violation(
                 &mut violations,
-                "unsupported breeding claim; no successful result matches the requested parent pair"
-                    .to_string(),
+                "unsupported breeding claim beyond successful tool facts".to_string(),
             );
         }
 
-        let permitted_entities = matching_breeding_entities.clone();
         for name in known_entity_names {
             let name_permitted = permitted_entities.iter().any(|permitted| {
                 permitted.eq_ignore_ascii_case(name) || contains_entity_phrase(permitted, name)
@@ -502,6 +523,57 @@ const BREEDING_CONTEXT_WORDS: &[&str] = &[
     "child",
 ];
 
+const BREEDING_ALLOWED_WORDS: &[&str] = &[
+    "a",
+    "an",
+    "the",
+    "and",
+    "plus",
+    "for",
+    "is",
+    "are",
+    "was",
+    "were",
+    "produces",
+    "produce",
+    "produced",
+    "offspring",
+    "child",
+    "result",
+    "results",
+    "breeding",
+    "breed",
+    "breeds",
+    "no",
+    "reviewed",
+    "available",
+    "unknown",
+    "not",
+    "unavailable",
+    "cannot",
+    "determine",
+    "requested",
+    "pair",
+    "combination",
+    "matches",
+    "with",
+    "未知",
+    "未知结果",
+    "育种",
+    "结果",
+    "后代",
+    "孩子",
+    "无法",
+    "确定",
+    "没有",
+    "可用",
+    "不可用",
+    "是",
+    "和",
+    "与",
+    "对于",
+];
+
 const NUMBER_WORDS: &[(&str, f64)] = &[
     ("zero", 0.0),
     ("one", 1.0),
@@ -534,6 +606,37 @@ const NUMBER_WORDS: &[(&str, f64)] = &[
     ("hundred", 100.0),
     ("thousand", 1_000.0),
     ("million", 1_000_000.0),
+    ("零", 0.0),
+    ("〇", 0.0),
+    ("一", 1.0),
+    ("壹", 1.0),
+    ("二", 2.0),
+    ("贰", 2.0),
+    ("两", 2.0),
+    ("三", 3.0),
+    ("叁", 3.0),
+    ("四", 4.0),
+    ("肆", 4.0),
+    ("五", 5.0),
+    ("伍", 5.0),
+    ("六", 6.0),
+    ("陆", 6.0),
+    ("七", 7.0),
+    ("柒", 7.0),
+    ("八", 8.0),
+    ("捌", 8.0),
+    ("九", 9.0),
+    ("玖", 9.0),
+    ("十", 10.0),
+    ("拾", 10.0),
+    ("百", 100.0),
+    ("佰", 100.0),
+    ("千", 1_000.0),
+    ("仟", 1_000.0),
+    ("万", 10_000.0),
+    ("萬", 10_000.0),
+    ("亿", 100_000_000.0),
+    ("億", 100_000_000.0),
 ];
 
 fn numeric_claims(answer: &str) -> Vec<NumericClaim> {
@@ -682,6 +785,15 @@ fn normalized_words(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn contains_cjk(text: &str) -> bool {
+    text.chars().any(|character| {
+        matches!(
+            character as u32,
+            0x4E00..=0x9FFF | 0x3400..=0x4DBF | 0xF900..=0xFAFF
+        )
+    })
+}
+
 fn same_word(left: &str, right: &str) -> bool {
     left == right
         || singular_word(left) == singular_word(right)
@@ -701,6 +813,14 @@ fn word_tokens(text: &str) -> Vec<WordToken> {
     let mut tokens = Vec::new();
     let mut iterator = text.char_indices().peekable();
     while let Some((start, character)) = iterator.next() {
+        if is_chinese_number_character(character) {
+            tokens.push(WordToken {
+                text: character.to_string(),
+                start,
+                end: start + character.len_utf8(),
+            });
+            continue;
+        }
         if !character.is_alphanumeric() {
             continue;
         }
@@ -721,21 +841,67 @@ fn word_tokens(text: &str) -> Vec<WordToken> {
     tokens
 }
 
+fn is_chinese_number_character(character: char) -> bool {
+    matches!(
+        character,
+        '零' | '〇'
+            | '一'
+            | '壹'
+            | '二'
+            | '贰'
+            | '两'
+            | '三'
+            | '叁'
+            | '四'
+            | '肆'
+            | '五'
+            | '伍'
+            | '六'
+            | '陆'
+            | '七'
+            | '柒'
+            | '八'
+            | '捌'
+            | '九'
+            | '玖'
+            | '十'
+            | '拾'
+            | '百'
+            | '佰'
+            | '千'
+            | '仟'
+            | '万'
+            | '萬'
+            | '亿'
+            | '億'
+            | '点'
+            | '點'
+    )
+}
+
 fn numeric_literal_claims(text: &str) -> Vec<NumericClaim> {
     let mut claims = Vec::new();
     let characters = text.char_indices().collect::<Vec<_>>();
     let mut index = 0;
     while index < characters.len() {
+        let next_is_number = characters.get(index + 1).is_some_and(|(_, character)| {
+            character.is_ascii_digit()
+                || (*character == '.'
+                    && characters
+                        .get(index + 2)
+                        .is_some_and(|(_, character)| character.is_ascii_digit()))
+        });
         let starts_number = characters[index].1.is_ascii_digit()
-            || (characters[index].1 == '.'
-                && characters
-                    .get(index + 1)
-                    .is_some_and(|(_, character)| character.is_ascii_digit()));
+            || (characters[index].1 == '.' && next_is_number)
+            || (matches!(characters[index].1, '+' | '-') && next_is_number);
         if !starts_number {
             index += 1;
             continue;
         }
         let start = characters[index].0;
+        if matches!(characters[index].1, '+' | '-') {
+            index += 1;
+        }
         let mut end_index = index;
         let mut seen_decimal_point = false;
         while end_index + 1 < characters.len() {
@@ -747,6 +913,22 @@ fn numeric_literal_claims(text: &str) -> Vec<NumericClaim> {
                 end_index += 1;
             } else {
                 break;
+            }
+        }
+        if end_index + 2 < characters.len()
+            && matches!(characters[end_index + 1].1, 'e' | 'E')
+            && (characters[end_index + 2].1.is_ascii_digit()
+                || (matches!(characters[end_index + 2].1, '+' | '-')
+                    && characters
+                        .get(end_index + 3)
+                        .is_some_and(|(_, character)| character.is_ascii_digit())))
+        {
+            end_index += 2;
+            if matches!(characters[end_index].1, '+' | '-') {
+                end_index += 1;
+            }
+            while end_index + 1 < characters.len() && characters[end_index + 1].1.is_ascii_digit() {
+                end_index += 1;
             }
         }
         let end = characters[end_index].0 + characters[end_index].1.len_utf8();
@@ -812,6 +994,9 @@ fn word_number_claims(
 }
 
 fn parse_fraction_at(tokens: &[WordToken], index: usize) -> Option<(f64, usize)> {
+    if let Some(decimal) = parse_chinese_decimal_at(tokens, index) {
+        return Some(decimal);
+    }
     if let Some(denominator) = fraction_denominator(&tokens.get(index)?.text) {
         return Some((1.0 / denominator, 1));
     }
@@ -862,27 +1047,53 @@ fn parse_cardinal_at(tokens: &[WordToken], index: usize) -> Option<(f64, usize)>
     let mut current = 0.0;
     for token in &tokens[index..end] {
         let value = number_word_value(&token.text)?;
-        match token.text.as_str() {
-            "hundred" => {
-                current = if current == 0.0 {
-                    value
-                } else {
-                    current * value
-                }
-            }
-            "thousand" | "million" => {
-                total += if current == 0.0 {
-                    value
-                } else {
-                    current * value
-                };
-                current = 0.0;
-            }
-            _ if token.text != "and" => current += value,
-            _ => {}
+        if matches!(token.text.as_str(), "hundred" | "百" | "佰") {
+            current = if current == 0.0 {
+                value
+            } else {
+                current * value
+            };
+        } else if matches!(
+            token.text.as_str(),
+            "thousand" | "千" | "仟" | "万" | "萬" | "million" | "亿" | "億"
+        ) {
+            total += if current == 0.0 {
+                value
+            } else {
+                current * value
+            };
+            current = 0.0;
+        } else if token.text != "and" {
+            current += value;
         }
     }
     Some((total + current, end - index))
+}
+
+fn parse_chinese_decimal_at(tokens: &[WordToken], index: usize) -> Option<(f64, usize)> {
+    let (whole, length) = parse_cardinal_at(tokens, index)?;
+    if !matches!(tokens.get(index + length)?.text.as_str(), "点" | "點") {
+        return None;
+    }
+    let mut decimal_index = index + length + 1;
+    let mut decimal = 0.0;
+    let mut place = 10.0;
+    let mut decimal_length = 0;
+    while let Some(token) = tokens.get(decimal_index) {
+        let Some(digit) =
+            number_word_value(&token.text).filter(|value| *value >= 0.0 && *value < 10.0)
+        else {
+            break;
+        };
+        decimal += digit / place;
+        place *= 10.0;
+        decimal_index += 1;
+        decimal_length += 1;
+    }
+    if decimal_length == 0 {
+        return None;
+    }
+    Some((whole + decimal, length + decimal_length + 1))
 }
 
 fn number_word_value(word: &str) -> Option<f64> {
@@ -985,6 +1196,43 @@ fn collect_breeding_entities(
         }
         _ => {}
     }
+}
+
+fn breeding_answer_uses_permitted_language(
+    answer_lower: &str,
+    permitted_entities: &BTreeSet<String>,
+) -> bool {
+    let words = normalized_words(answer_lower);
+    let permitted_phrases = permitted_entities
+        .iter()
+        .map(|entity| normalized_words(entity))
+        .filter(|phrase| !phrase.is_empty())
+        .collect::<Vec<_>>();
+    let mut retained = Vec::new();
+    let mut index = 0;
+    while index < words.len() {
+        let matched_length = permitted_phrases
+            .iter()
+            .filter(|phrase| index + phrase.len() <= words.len())
+            .filter(|phrase| {
+                words[index..index + phrase.len()]
+                    .iter()
+                    .zip(phrase.iter())
+                    .all(|(word, expected)| same_word(word, expected))
+            })
+            .map(|phrase| phrase.len())
+            .max()
+            .unwrap_or(0);
+        if matched_length > 0 {
+            index += matched_length;
+        } else {
+            retained.push(words[index].as_str());
+            index += 1;
+        }
+    }
+    retained
+        .iter()
+        .all(|word| BREEDING_ALLOWED_WORDS.contains(word))
 }
 
 fn is_explicit_unknown(answer_lower: &str) -> bool {
