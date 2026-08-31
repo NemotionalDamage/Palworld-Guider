@@ -14,6 +14,13 @@ pub struct RecipeSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ByproductRecipeSummary {
+    pub id: String,
+    pub source_output_item_id: String,
+    pub byproduct_quantity: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemLookup {
     pub id: String,
     pub names: LocaleNames,
@@ -22,6 +29,7 @@ pub struct ItemLookup {
     pub acquisition_leads: Vec<AcquisitionLead>,
     pub produced_by: Vec<RecipeSummary>,
     pub used_as_ingredient: Vec<RecipeSummary>,
+    pub byproduct_of: Vec<ByproductRecipeSummary>,
     pub pal_drop_sources: Vec<String>,
     pub provenance: Provenance,
 }
@@ -87,6 +95,7 @@ impl GuideEngine {
 
         let mut produced_by = Vec::new();
         let mut used_as_ingredient = Vec::new();
+        let mut byproduct_of = Vec::new();
         for recipe in self.store().recipes() {
             if recipe.output.item_id == item.id {
                 produced_by.push(RecipeSummary {
@@ -110,6 +119,19 @@ impl GuideEngine {
                 provenances.push(&recipe.provenance);
                 related_subject_ids.insert(recipe.id.clone());
             }
+            if let Some(byproduct) = recipe
+                .byproducts
+                .iter()
+                .find(|byproduct| byproduct.item_id == item.id)
+            {
+                byproduct_of.push(ByproductRecipeSummary {
+                    id: recipe.id.clone(),
+                    source_output_item_id: recipe.output.item_id.clone(),
+                    byproduct_quantity: byproduct.quantity,
+                });
+                provenances.push(&recipe.provenance);
+                related_subject_ids.insert(recipe.id.clone());
+            }
         }
 
         let mut pal_drop_sources = Vec::new();
@@ -129,6 +151,7 @@ impl GuideEngine {
             acquisition_leads: item.acquisition_leads.clone(),
             produced_by,
             used_as_ingredient,
+            byproduct_of,
             pal_drop_sources,
             provenance: item.provenance.clone(),
         };
@@ -169,7 +192,16 @@ impl GuideEngine {
             habitat_ids: pal.habitat_ids.clone(),
             provenance: pal.provenance.clone(),
         };
-        let conflicts = self.store().conflicts_for_subject(&pal.id);
+        let related_subject_ids = pal
+            .drops
+            .iter()
+            .map(|drop| drop.item_id.clone())
+            .chain(pal.habitat_ids.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let conflicts = std::iter::once(&pal.id)
+            .chain(related_subject_ids.iter())
+            .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
         } else {
@@ -197,12 +229,13 @@ impl GuideEngine {
             .store()
             .technology(&resolved.id)
             .expect("resolved technology exists");
-        let unlocked_recipe_ids = self
+        let unlocked_recipe_ids: Vec<String> = self
             .store()
             .recipes()
             .filter(|recipe| recipe.technology_id.as_deref() == Some(technology.id.as_str()))
             .map(|recipe| recipe.id.clone())
             .collect();
+        let related_subject_ids = unlocked_recipe_ids.iter().cloned().collect::<BTreeSet<_>>();
         let lookup = TechnologyLookup {
             id: technology.id.clone(),
             names: technology.names.clone(),
@@ -210,7 +243,10 @@ impl GuideEngine {
             unlocked_recipe_ids,
             provenance: technology.provenance.clone(),
         };
-        let conflicts = self.store().conflicts_for_subject(&technology.id);
+        let conflicts = std::iter::once(&technology.id)
+            .chain(related_subject_ids.iter())
+            .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
         } else {
@@ -242,7 +278,23 @@ impl GuideEngine {
             .store()
             .recipe(&resolved.id)
             .expect("resolved recipe exists");
-        let conflicts = self.store().conflicts_for_subject(&recipe.id);
+        let related_subject_ids = recipe
+            .ingredients
+            .iter()
+            .map(|ingredient| ingredient.item_id.clone())
+            .chain(
+                recipe
+                    .byproducts
+                    .iter()
+                    .map(|byproduct| byproduct.item_id.clone()),
+            )
+            .chain(std::iter::once(recipe.output.item_id.clone()))
+            .chain(recipe.technology_id.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        let conflicts = std::iter::once(&recipe.id)
+            .chain(related_subject_ids.iter())
+            .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
         } else {

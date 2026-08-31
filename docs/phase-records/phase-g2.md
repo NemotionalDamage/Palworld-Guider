@@ -16,10 +16,13 @@ Phase G2 added the deterministic offline guide core:
 - inventory shortage calculation with intermediate-inventory consumption
 - additional craftable-count calculation with dependency-tree inventory consumption
 - checked arithmetic, cycle detection, depth limits, and alternative-recipe ambiguity
+- byproduct item provenance and conflict propagation into material calculations
+- byproduct acquisition relationships in item lookup
+- same-item and cross-item byproduct offsets in shortage and craftable calculations
 - order-insensitive breeding-result lookup
 - bounded shortest breeding-chain traversal
 - explicit ambiguous breeding parent and endpoint candidates
-- related recipe and Pal conflict propagation for item lookup
+- related recipe, Pal, habitat, ingredient, byproduct, and technology conflict propagation for all lookups
 - canonical snake_case provenance summary serialization
 - commands: `lookup`, `recipe`, `materials`, `shortage`, `craftable`, `breeding`, and `chain`
 
@@ -35,9 +38,9 @@ No LLM, retrieval index, provider, adapter, server, save reader, or dynamic-stat
 - Recipe cycles and depth-limit violations return `error`.
 - Quantities use checked `u32` arithmetic.
 - Raw acquisition targets are not reported as craftable.
-- Shortage calculations consume stocked target and intermediate items before expanding their missing quantities into raw-material shortages.
-- Craftable counts describe additional items, consume intermediate inventory through the dependency tree, report boundary-limiting materials, and reject representational overflow.
-- Item lookups propagate conflicts from recipe and Pal records actually included in relation results.
+- Shortage calculations consume stocked target and intermediate items, credit same-item and cross-item byproducts, and then expand remaining missing quantities into raw-material shortages.
+- Craftable counts describe additional items, consume intermediate inventory through the dependency tree, credit recipe byproducts, report boundary-limiting materials, and reject representational overflow.
+- Every lookup propagates conflicts from records actually included in its relation results, including byproduct and habitat relationships.
 - Provenance review status and confidence use the same snake_case values as canonical records.
 - Breeding rules match either parent order.
 - Breeding chains use bounded traversal and retain shortest-path ambiguity.
@@ -60,12 +63,16 @@ Red test checkpoints:
 - A Unicode-alias regression initially matched a punctuation-only query because both normalized to an empty string.
 - An item relation regression initially omitted unresolved recipe and Pal conflicts.
 - A provenance envelope regression initially rendered `reviewed_secondary` as `reviewedsecondary`.
+- A byproduct provenance regression initially omitted the byproduct item source and reported a single knowledge version.
+- An item lookup regression initially omitted byproduct acquisition relationships.
+- A shortage and craftable regression initially ignored byproduct credits and over-required raw materials.
+- A related-conflict regression initially propagated conflicts only for item lookups, not Pal, technology, or recipe lookups.
 
 Final gates:
 
 - `cargo fmt --all -- --check` passed.
 - `cargo clippy --all-targets -- -D warnings` passed.
-- `cargo test` passed with 32 tests.
+- `cargo test` passed with 37 tests.
 
 No checks were intentionally skipped.
 

@@ -333,11 +333,20 @@ impl GuideEngine {
                 false,
             );
             debug_assert!(fulfilled, "maximum craftable count must be fulfillable");
-            if self.fulfill_recipe_batches(
+            if apply_byproducts_to_inventory(
+                &material_calculation.tree.item_id,
                 &material_calculation.tree.acquisition,
                 1,
+                0,
                 &mut inventory,
-            ) {
+            )
+            .is_ok()
+                && self.fulfill_recipe_batches(
+                    &material_calculation.tree.acquisition,
+                    1,
+                    &mut inventory,
+                )
+            {
                 return self
                     .context()
                     .error("craftable count overflow; no result was calculated");
@@ -429,7 +438,22 @@ impl GuideEngine {
                 if missing_quantity == 0 {
                     return Ok(());
                 }
-                let required_batches = batches_for(missing_quantity, *output_quantity)?;
+                let self_byproduct_per_batch =
+                    byproducts_for_batches(&node.acquisition, &node.item_id, 1)?
+                        .first()
+                        .map(|(_, quantity)| *quantity)
+                        .unwrap_or(0);
+                let effective_output_quantity = output_quantity
+                    .checked_add(self_byproduct_per_batch)
+                    .ok_or(CalculationError::QuantityOverflow)?;
+                let required_batches = batches_for(missing_quantity, effective_output_quantity)?;
+                apply_byproducts_to_inventory(
+                    &node.item_id,
+                    &node.acquisition,
+                    required_batches,
+                    missing_quantity,
+                    inventory,
+                )?;
                 for child in children {
                     let child_quantity = scaled_child_quantity(child, *batches, required_batches)?;
                     self.collect_shortages(
@@ -475,10 +499,35 @@ impl GuideEngine {
             MaterialAcquisition::Recipe {
                 output_quantity, ..
             } => {
-                let Some(required_batches) = batches_for(remaining_quantity, *output_quantity).ok()
+                let Ok(byproducts) = byproducts_for_batches(&node.acquisition, &node.item_id, 1)
                 else {
                     return false;
                 };
+                let self_byproduct_per_batch = byproducts
+                    .first()
+                    .map(|(_, quantity)| *quantity)
+                    .unwrap_or(0);
+                let Some(effective_output_quantity) =
+                    output_quantity.checked_add(self_byproduct_per_batch)
+                else {
+                    return false;
+                };
+                let Some(required_batches) =
+                    batches_for(remaining_quantity, effective_output_quantity).ok()
+                else {
+                    return false;
+                };
+                if apply_byproducts_to_inventory(
+                    &node.item_id,
+                    &node.acquisition,
+                    required_batches,
+                    remaining_quantity,
+                    inventory,
+                )
+                .is_err()
+                {
+                    return false;
+                }
                 self.fulfill_recipe_batches(&node.acquisition, required_batches, inventory)
             }
         }
@@ -608,6 +657,7 @@ impl GuideEngine {
         let mut children = Vec::new();
         let mut totals = BTreeMap::new();
         let mut byproducts = BTreeMap::new();
+        let mut node_byproducts = BTreeMap::new();
         let mut provenances = vec![item.provenance.clone(), recipe.provenance.clone()];
         let mut subject_ids = BTreeSet::new();
         subject_ids.insert(item.id.clone());
@@ -631,26 +681,38 @@ impl GuideEngine {
                 .quantity
                 .checked_mul(batches)
                 .ok_or(CalculationError::QuantityOverflow)?;
+            let byproduct_item = self
+                .store()
+                .item(&byproduct.item_id)
+                .expect("byproduct item reference is validated");
+            provenances.push(byproduct_item.provenance.clone());
+            subject_ids.insert(byproduct_item.id.clone());
             let total = byproducts
                 .entry(byproduct.item_id.clone())
                 .or_insert_with(|| ByproductTotal {
                     item_id: byproduct.item_id.clone(),
-                    item_name: self
-                        .store()
-                        .item(&byproduct.item_id)
-                        .expect("byproduct item reference is validated")
-                        .names
-                        .en
-                        .clone(),
+                    item_name: byproduct_item.names.en.clone(),
                     quantity: 0,
                 });
             total.quantity = total
                 .quantity
                 .checked_add(quantity)
                 .ok_or(CalculationError::QuantityOverflow)?;
+            let node_total = node_byproducts
+                .entry(byproduct.item_id.clone())
+                .or_insert_with(|| ByproductTotal {
+                    item_id: byproduct.item_id.clone(),
+                    item_name: byproduct_item.names.en.clone(),
+                    quantity: 0,
+                });
+            node_total.quantity = node_total
+                .quantity
+                .checked_add(quantity)
+                .ok_or(CalculationError::QuantityOverflow)?;
         }
 
         let all_byproducts = byproducts.into_values().collect::<Vec<_>>();
+        let node_byproducts = node_byproducts.into_values().collect::<Vec<_>>();
         let node = MaterialNode {
             item_id: item.id.clone(),
             item_name: item.names.en.clone(),
@@ -660,7 +722,7 @@ impl GuideEngine {
                 output_quantity: recipe.output.quantity,
                 batches,
                 children,
-                byproducts: all_byproducts.clone(),
+                byproducts: node_byproducts,
             },
         };
         Ok(Expansion {
@@ -710,6 +772,121 @@ fn scaled_child_quantity(
     quantity_per_batch
         .checked_mul(required_batches)
         .ok_or(CalculationError::QuantityOverflow)
+}
+
+fn byproducts_for_batches(
+    acquisition: &MaterialAcquisition,
+    item_id: &str,
+    required_batches: u32,
+) -> Result<Vec<(String, u32)>, CalculationError> {
+    let MaterialAcquisition::Recipe {
+        batches,
+        byproducts,
+        ..
+    } = acquisition
+    else {
+        return Ok(Vec::new());
+    };
+    if *batches == 0 {
+        return Err(CalculationError::QuantityOverflow);
+    }
+    byproducts
+        .iter()
+        .filter(|byproduct| byproduct.item_id == item_id)
+        .map(|byproduct| {
+            let quantity_per_batch = byproduct.quantity / *batches;
+            if quantity_per_batch
+                .checked_mul(*batches)
+                .is_none_or(|quantity| quantity != byproduct.quantity)
+            {
+                return Err(CalculationError::QuantityOverflow);
+            }
+            Ok((
+                byproduct.item_id.clone(),
+                quantity_per_batch
+                    .checked_mul(required_batches)
+                    .ok_or(CalculationError::QuantityOverflow)?,
+            ))
+        })
+        .collect()
+}
+
+fn all_byproducts_for_batches(
+    acquisition: &MaterialAcquisition,
+    required_batches: u32,
+) -> Result<Vec<(String, u32)>, CalculationError> {
+    let MaterialAcquisition::Recipe {
+        batches,
+        byproducts,
+        ..
+    } = acquisition
+    else {
+        return Ok(Vec::new());
+    };
+    if *batches == 0 {
+        return Err(CalculationError::QuantityOverflow);
+    }
+    byproducts
+        .iter()
+        .map(|byproduct| {
+            let quantity_per_batch = byproduct.quantity / *batches;
+            if quantity_per_batch
+                .checked_mul(*batches)
+                .is_none_or(|quantity| quantity != byproduct.quantity)
+            {
+                return Err(CalculationError::QuantityOverflow);
+            }
+            Ok((
+                byproduct.item_id.clone(),
+                quantity_per_batch
+                    .checked_mul(required_batches)
+                    .ok_or(CalculationError::QuantityOverflow)?,
+            ))
+        })
+        .collect()
+}
+
+fn apply_byproducts_to_inventory(
+    item_id: &str,
+    acquisition: &MaterialAcquisition,
+    required_batches: u32,
+    missing_same_item: u32,
+    inventory: &mut BTreeMap<String, u32>,
+) -> Result<(), CalculationError> {
+    let MaterialAcquisition::Recipe {
+        output_quantity, ..
+    } = acquisition
+    else {
+        return Ok(());
+    };
+    let byproducts = all_byproducts_for_batches(acquisition, required_batches)?;
+    let self_byproduct_quantity = byproducts
+        .iter()
+        .find(|(byproduct_item_id, _)| byproduct_item_id == item_id)
+        .map(|(_, quantity)| *quantity)
+        .unwrap_or(0);
+    let self_produced_quantity = output_quantity
+        .checked_mul(required_batches)
+        .ok_or(CalculationError::QuantityOverflow)?
+        .checked_add(self_byproduct_quantity)
+        .ok_or(CalculationError::QuantityOverflow)?;
+    let self_surplus = self_produced_quantity.saturating_sub(missing_same_item);
+    if self_surplus > 0 {
+        let quantity = inventory.entry(item_id.to_string()).or_insert(0);
+        *quantity = quantity
+            .checked_add(self_surplus)
+            .ok_or(CalculationError::QuantityOverflow)?;
+    }
+    for (byproduct_item_id, quantity) in byproducts {
+        if byproduct_item_id == item_id {
+            continue;
+        }
+        let total = inventory.entry(byproduct_item_id).or_insert(0);
+        *total = total
+            .checked_add(quantity)
+            .ok_or(CalculationError::QuantityOverflow)?;
+    }
+    Ok(())
 }
 
 fn raw_expansion(item: &ItemRecord, required_quantity: u32) -> Expansion {

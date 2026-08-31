@@ -31,6 +31,33 @@ fn provenance() -> Provenance {
     }
 }
 
+fn provenance_with(source_id: &str, version: &str) -> Provenance {
+    Provenance {
+        source_id: source_id.to_string(),
+        applicable_game_version: version.to_string(),
+        retrieved_on: "2026-01-03".to_string(),
+        reviewer: "test".to_string(),
+        review_status: ReviewStatus::Reviewed,
+        confidence: Confidence::Official,
+        change_risk: None,
+    }
+}
+
+fn source_with(id: &str, version: &str) -> SourceRecord {
+    SourceRecord {
+        id: id.to_string(),
+        title: "Test source".to_string(),
+        supplier: "test".to_string(),
+        retrieved_on: "2026-01-03".to_string(),
+        evidence_urls: vec!["https://example.test/source".to_string()],
+        applicable_game_version: version.to_string(),
+        reviewer: "test".to_string(),
+        review_status: ReviewStatus::Reviewed,
+        confidence: Confidence::Official,
+        notes: None,
+    }
+}
+
 fn names(english: &str) -> LocaleNames {
     LocaleNames {
         en: english.to_string(),
@@ -305,4 +332,247 @@ fn exposes_configured_version_mismatch() {
         .uncertainty
         .iter()
         .any(|message| message.contains("does not match configured game version")));
+}
+
+#[test]
+fn propagates_byproduct_provenance_and_conflicts_into_materials() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Source(source_with("SRC-C", "1.0.2")),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_RESULT".to_string(),
+            names: names("Result"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_WOOD".to_string(),
+            names: names("Wood"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_BONUS".to_string(),
+            names: names("Bonus"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance_with("SRC-C", "1.0.2"),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_RESULT".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_RESULT".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_WOOD".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            crafting_seconds: None,
+            byproducts: vec![game_knowledge::RecipeItem {
+                item_id: "ITEM_BONUS".to_string(),
+                quantity: 2,
+            }],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_BONUS".to_string(),
+            subject_id: "ITEM_BONUS".to_string(),
+            field: "description".to_string(),
+            values: vec!["one".to_string(), "two".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("byproduct records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.calculate_materials("Result", 1);
+    assert_eq!(answer.status, AnswerStatus::Ambiguous);
+    assert!(answer
+        .provenance
+        .iter()
+        .any(|summary| summary.source_id == "SRC-C"));
+    assert_eq!(answer.version.knowledge_version, "mixed");
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("ITEM_BONUS")));
+}
+
+#[test]
+fn lists_byproduct_acquisition_in_item_lookup() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_RESULT".to_string(),
+            names: names("Result"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_WOOD".to_string(),
+            names: names("Wood"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_BONUS".to_string(),
+            names: names("Bonus"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_RESULT".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_RESULT".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_WOOD".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            crafting_seconds: None,
+            byproducts: vec![game_knowledge::RecipeItem {
+                item_id: "ITEM_BONUS".to_string(),
+                quantity: 2,
+            }],
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("byproduct lookup records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("Bonus");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer.data.expect("Bonus lookup exists");
+    assert_eq!(item.byproduct_of.len(), 1);
+    assert_eq!(item.byproduct_of[0].id, "RECIPE_RESULT");
+    assert_eq!(item.byproduct_of[0].source_output_item_id, "ITEM_RESULT");
+    assert_eq!(item.byproduct_of[0].byproduct_quantity, 2);
+}
+
+#[test]
+fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_ALPHA".to_string(),
+            names: names("Alpha Stone"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_WOOD".to_string(),
+            names: names("Wood"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Pal(game_knowledge::PalRecord {
+            id: "PAL_DROPPER".to_string(),
+            names: names("Dropper"),
+            stats: None,
+            work_suitability: vec![],
+            drops: vec![game_knowledge::DropSource {
+                item_id: "ITEM_ALPHA".to_string(),
+                min_quantity: 1,
+                max_quantity: 1,
+                probability_percent: 100.0,
+            }],
+            habitat_ids: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Technology(game_knowledge::TechnologyRecord {
+            id: "TECH_ONE".to_string(),
+            names: names("Tech One"),
+            level: 1,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_ALPHA".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_ALPHA".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_WOOD".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: Some("TECH_ONE".to_string()),
+            crafting_seconds: None,
+            byproducts: vec![],
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_DROP_ITEM".to_string(),
+            subject_id: "ITEM_ALPHA".to_string(),
+            field: "description".to_string(),
+            values: vec!["a".to_string(), "b".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_RECIPE".to_string(),
+            subject_id: "RECIPE_ALPHA".to_string(),
+            field: "ingredients".to_string(),
+            values: vec!["1".to_string(), "2".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Conflict(ConflictRecord {
+            id: "CONFLICT_INGREDIENT".to_string(),
+            subject_id: "ITEM_WOOD".to_string(),
+            field: "rarity".to_string(),
+            values: vec!["common".to_string(), "rare".to_string()],
+            source_ids: vec!["SRC-TEST".to_string()],
+            resolution: ConflictResolution::Unresolved,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("related lookup records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let pal_answer = engine.lookup_pal("PAL_DROPPER");
+    assert_eq!(pal_answer.status, AnswerStatus::Ambiguous);
+    assert!(pal_answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("ITEM_ALPHA")));
+
+    let technology_answer = engine.lookup_technology("Tech One");
+    assert_eq!(technology_answer.status, AnswerStatus::Ambiguous);
+    assert!(technology_answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("RECIPE_ALPHA")));
+
+    let recipe_answer = engine.lookup_recipe("RECIPE_ALPHA");
+    assert_eq!(recipe_answer.status, AnswerStatus::Ambiguous);
+    assert!(recipe_answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("ITEM_WOOD")));
 }

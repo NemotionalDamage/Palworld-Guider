@@ -12,7 +12,7 @@ pub use calculators::{
     ByproductTotal, CraftableCalculation, InventoryAmount, InventoryEntry, MaterialAcquisition,
     MaterialCalculation, MaterialNode, MaterialTotal, ShortageCalculation, ShortageMaterial,
 };
-pub use lookup::{ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
+pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
 pub use resolver::{EntityKind, ResolvedEntity};
 
 use game_knowledge::KnowledgeStore;
