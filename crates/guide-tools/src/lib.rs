@@ -223,6 +223,20 @@ impl ToolRegistry {
         names
     }
 
+    pub fn canonical_entity_names(&self) -> std::collections::BTreeMap<String, String> {
+        let mut names = std::collections::BTreeMap::new();
+        for item in self.engine.store().items() {
+            names.insert(item.id.clone(), item.names.en.clone());
+        }
+        for pal in self.engine.store().pals() {
+            names.insert(pal.id.clone(), pal.names.en.clone());
+        }
+        for technology in self.engine.store().technologies() {
+            names.insert(technology.id.clone(), technology.names.en.clone());
+        }
+        names
+    }
+
     fn execute(&self, name: &str, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         match name {
             "resolve_name" => self.resolve_name(arguments, version),

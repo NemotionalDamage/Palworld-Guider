@@ -333,6 +333,163 @@ fn non_ascii_numerals_are_normalized_and_grounded() {
 }
 
 #[test]
+fn scaled_number_words_require_exact_calculator_values() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("You need fifteen thousand Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"fifteen thousand\"")));
+}
+
+#[test]
+fn complete_number_words_can_restate_exact_calculator_results() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("You need fifteen Wood for three Wooden Clubs."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.errors.is_empty());
+}
+
+#[test]
+fn fractional_number_words_require_exact_calculator_values() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("You need one and a half Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"one and a half\"")));
+}
+
+#[test]
+fn leading_decimal_fractions_require_exact_calculator_values() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 1}),
+            ),
+            ChatResponse::text("You need .5 Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 1 Wooden Club?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \".5\"")));
+}
+
+#[test]
+fn generic_breeding_conclusions_require_breeding_evidence() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("Their offspring is fluffy."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer.errors.iter().any(|error| error
+        .contains("unsupported breeding claim; a successful breeding result is required")));
+}
+
+#[test]
+fn breeding_questions_reject_context_free_generic_claims() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("It is fluffy."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer.errors.iter().any(|error| error
+        .contains("unsupported breeding claim; a successful breeding result is required")));
+}
+
+#[test]
+fn breeding_evidence_is_bound_to_the_answered_parent_pair() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_breeding_result",
+                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+            ),
+            ChatResponse::tool(
+                "call_2",
+                "calculate_breeding_result",
+                json!({"parent_a": "Wool", "parent_b": "Wool"}),
+            ),
+            ChatResponse::text("Lamball plus Lamball produces Wool."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What does Lamball plus Lamball produce?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported breeding claim \"Wool\"")));
+}
+
+#[test]
 fn unrelated_lookup_cannot_wrap_unknown_breeding_result() {
     let (agent, _provider) = scripted_agent(
         None,

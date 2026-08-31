@@ -13,9 +13,9 @@
 ## Grounding And Safety Behavior
 
 - The model sees only registry-published tool names, descriptions, and schemas; unknown tools and invalid arguments return error envelopes instead of executing.
-- When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. The third audit found that final numeric and breeding prose is not yet bound tightly enough to those exact results.
+- When calculator tools are invoked, numerical recipes, shortages, craftable counts, and breeding results come from the existing deterministic Rust functions; tool-call records retain the envelope data. Final numeric claims are bound to exact numeric result leaves and their result entity, and breeding conclusions are bound to the successful result for the requested parent pair.
 - Tool results are appended verbatim as JSON envelopes so the model phrases answers from returned facts rather than replacing them.
-- A deterministic grounding gate compares normalized numeric claims and reviewed entity names against tool-family evidence. It blocks the first audited version-metadata, number-word, fullwidth-numeral, and unrelated-lookup bypasses, but the third audit found remaining scaled-number, fraction, generic-breeding-context, and unrelated-breeding-argument bypasses.
+- A deterministic grounding gate compares complete normalized quantity expressions and reviewed entity claims against claim-specific successful evidence. It blocks serialized version digits, subset number words, scaled and fractional expressions, unrelated lookups, generic breeding conclusions without a tool result, and breeding arguments from a different parent pair.
 - Missing knowledge returns `unknown`; stale versions, conflicts, and uncertainty propagate into the final answer envelope.
 - Provider failures, malformed tool calls, budget exhaustion, timeouts, and cancellation return clear non-fatal envelopes.
 - Answers with no tool evidence carry an explicit `no deterministic tool evidence` uncertainty flag.
@@ -119,10 +119,35 @@ The temporary test command failed those four regressions with visible model answ
 
 Root cause: the gate authorizes fragments of numeric expressions and pools evidence by tool family rather than binding each visible calculation or breeding claim to the exact successful result and requested inputs. A list of context words cannot prove claim type, and numeric token subset matching cannot prove quantity equality.
 
+## 2026-09-01 Third Completion Audit Correction
+
+The four audited bypass categories were covered by permanent red regressions:
+
+- `scaled_number_words_require_exact_calculator_values`
+- `fractional_number_words_require_exact_calculator_values`
+- `leading_decimal_fractions_require_exact_calculator_values`
+- `generic_breeding_conclusions_require_breeding_evidence`
+- `breeding_questions_reject_context_free_generic_claims`
+- `breeding_evidence_is_bound_to_the_answered_parent_pair`
+
+A positive regression, `complete_number_words_can_restate_exact_calculator_results`, also verifies that legitimate full number-word restatements remain usable.
+
+Correction:
+
+- Numeric parsing now treats a quantity as one complete expression, including cardinals, `hundred`/`thousand`/`million` scales, fractions such as `one and a half`, decimal literals, and fullwidth digits. It no longer authorizes one fragment of a larger expression independently.
+- Numeric evidence is extracted only from JSON number leaves in successful claim-relevant records and paired with its nearest result entity, such as `item_name`, `target_name`, or the calculator query. Digits embedded in serialized version strings or identifiers are not evidence, and an unrelated entity cannot authorize a value.
+- When a calculator was requested, failed calculator calls do not contribute evidence. A visible value must equal a successful result leaf and name the entity whose result contains that exact value.
+- The user question is passed to the final gate. A breeding conclusion requires a successful breeding call whose parent arguments identify the pair requested by the user; arguments from other breeding calls, unrelated lookups, and unknown results cannot authorize an offspring.
+- Successful breeding result IDs are mapped to reviewed canonical entity names, while unknown or ambiguous results may only restate the requested parent entities and an explicit unknown condition.
+- Generic breeding prose is rejected when the user asked a breeding question or the answer claims breeding, even when it contains no reviewed entity name or breeding keyword.
+- Gate violations continue to suppress the model answer, return `error`, and retain tool records, provenance, and claim-specific diagnostics.
+
+Fresh gates after the third correction: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 100 tests, and `git diff --check` all passed.
+
 ## Durable Uncertainty
 
 - The canonical dataset remains a deliberately small G1 seed set, so retrieval coverage and natural-language answer breadth are intentionally limited until further reviewed intake.
 - Real OpenAI-compatible and Ollama endpoints were not exercised; provider correctness is covered by offline request builders, response parsers, and the scripted mock. Live provider validation remains outstanding.
 - Retrieval is lexical only. Chinese matching relies on exact alias tokenization because no semantic or language-specific vector index was added.
-- The grounding gate is deterministic lexical claim validation, not general natural-language inference. It does not reliably parse scaled or fractional number expressions, generic breeding conclusions without reviewed entity names, or claim identity across multiple tool calls. Calculation and breeding answers require exact result binding before G3 can complete.
+- The grounding gate is deterministic claim validation, not general natural-language inference. Its covered quantity grammar and breeding claim binding are intentionally conservative; new answer patterns and tool result shapes require accompanying regressions before they are allowed.
 - No running game, save file, server API, or dynamic player state was used, matching the Stage 1 boundary.

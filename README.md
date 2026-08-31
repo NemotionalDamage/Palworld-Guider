@@ -51,6 +51,6 @@ Provider configuration:
 - `ollama` uses `OLLAMA_BASE_URL` or defaults to `http://localhost:11434`.
 - `--max-tool-calls` (default 6) and `--timeout-seconds` (default 60) bound every run.
 
-Every answer records tool calls, provenance, knowledge versions, uncertainty, and errors. The model sees only registry-published tools, and deterministic Rust functions are the intended source for calculations. G3 is currently undergoing an audit correction because final-answer grounding can still be bypassed by scaled or fractional number words and some breeding claims; see `PHASES.md`. Tests use a scripted mock provider and stay offline.
+Every answer records tool calls, provenance, knowledge versions, uncertainty, and errors. The model sees only registry-published tools, deterministic Rust functions are the intended source for calculations, and final numeric or breeding claims must match exact claim-relevant successful tool evidence. Tests use a scripted mock provider and stay offline.
 
 See `PHASES.md` for current progress and `AGENTS.md` for the governing specification.
