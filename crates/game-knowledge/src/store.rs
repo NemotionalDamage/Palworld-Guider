@@ -349,6 +349,10 @@ impl KnowledgeStore {
         self.technologies.get(id)
     }
 
+    pub fn habitat(&self, id: &str) -> Option<&crate::models::HabitatRecord> {
+        self.habitats.get(id)
+    }
+
     pub fn recipe(&self, id: &str) -> Option<&crate::models::RecipeRecord> {
         self.recipes.get(id)
     }
@@ -367,6 +371,10 @@ impl KnowledgeStore {
 
     pub fn technologies(&self) -> impl Iterator<Item = &crate::models::TechnologyRecord> {
         self.technologies.values()
+    }
+
+    pub fn habitats(&self) -> impl Iterator<Item = &crate::models::HabitatRecord> {
+        self.habitats.values()
     }
 
     pub fn recipes(&self) -> impl Iterator<Item = &crate::models::RecipeRecord> {
