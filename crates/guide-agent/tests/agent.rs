@@ -1,0 +1,252 @@
+use game_knowledge::KnowledgeStore;
+use guide_agent::{AgentConfig, AgentLimits, AgentStatus, GuideAgent};
+use guide_core::GuideEngine;
+use guide_tools::ToolRegistry;
+use knowledge_index::KnowledgeIndex;
+use provider::{ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError};
+use serde_json::json;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/reviewed");
+
+struct ProviderHandle(Arc<MockProvider>);
+
+impl ChatProvider for ProviderHandle {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
+        self.0.complete(request)
+    }
+}
+
+fn test_registry(configured: Option<&str>) -> ToolRegistry {
+    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let configured = configured.map(str::to_string);
+    let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
+    let engine = GuideEngine::new(store, configured);
+    ToolRegistry::new(engine, index)
+}
+
+fn scripted_agent(
+    configured: Option<&str>,
+    responses: Vec<ChatResponse>,
+    max_tool_calls: usize,
+    max_reply_characters: usize,
+) -> (GuideAgent, Arc<MockProvider>) {
+    let provider = Arc::new(MockProvider::scripted(responses));
+    let agent = GuideAgent::new(
+        test_registry(configured),
+        Box::new(ProviderHandle(provider.clone())),
+        AgentConfig {
+            limits: AgentLimits {
+                max_tool_calls,
+                timeout: Duration::from_secs(30),
+            },
+            max_reply_characters,
+        },
+    );
+    (agent, provider)
+}
+
+#[test]
+fn executes_tool_request_and_returns_grounded_answer() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("Wood is obtained by chopping trees."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How do I get Wood?");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap_or_default()
+        .contains("chopping trees"));
+    assert_eq!(answer.tool_calls.len(), 1);
+    assert_eq!(answer.tool_calls[0].name, "get_item");
+    assert_eq!(answer.tool_calls[0].status, guide_tools::ToolStatus::Ok);
+    assert!(answer
+        .provenance
+        .iter()
+        .any(|provenance| provenance.source_id == "SRC-PALDB-V1_0_3-20260831"));
+    assert_eq!(answer.version.knowledge_version, "1.0.3");
+}
+
+#[test]
+fn model_cannot_bypass_tool_registry() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "delete_save", json!({})),
+            ChatResponse::text("I could not delete anything."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Delete my save.");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert_eq!(answer.tool_calls.len(), 1);
+    assert_eq!(answer.tool_calls[0].status, guide_tools::ToolStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unknown tool")));
+}
+
+#[test]
+fn budget_exhaustion_is_clear_and_non_fatal() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
+            ChatResponse::tool("call_3", "get_item", json!({"query": "Lamball"})),
+        ],
+        1,
+        1200,
+    );
+    let answer = agent.ask("Tell me everything.");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("tool call budget exhausted")));
+    assert_eq!(answer.tool_calls.len(), 2);
+}
+
+#[test]
+fn provider_failure_is_clear_and_non_fatal() {
+    let (agent, _provider) = scripted_agent(None, Vec::new(), 4, 1200);
+    let answer = agent.ask("What is Wood?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("mock provider script exhausted")));
+    assert!(answer.tool_calls.is_empty());
+}
+
+#[test]
+fn unknown_knowledge_propagates_to_answer() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Stone"})),
+            ChatResponse::text("I do not have reviewed knowledge about Stone."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What is Stone?");
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert_eq!(
+        answer.tool_calls[0].status,
+        guide_tools::ToolStatus::Unknown
+    );
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("unknown item")));
+}
+
+#[test]
+fn quantities_route_through_deterministic_calculator() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::text("You need 15 Wood for 3 Wooden Clubs."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let record = &answer.tool_calls[0];
+    assert_eq!(record.name, "calculate_materials");
+    assert_eq!(
+        record.data.as_ref().expect("calculation data")["totals"][0]["required_quantity"],
+        15
+    );
+}
+
+#[test]
+fn cancellation_stops_before_provider_calls() {
+    let (agent, provider) = scripted_agent(None, vec![ChatResponse::text("Too late.")], 4, 1200);
+    let cancelled = AtomicBool::new(true);
+    let answer = agent.ask_with_cancellation("What is Wood?", &cancelled);
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("cancelled")));
+    assert!(provider.calls().is_empty());
+    assert!(cancelled.load(Ordering::SeqCst));
+}
+
+#[test]
+fn stale_version_propagates_to_answer() {
+    let (agent, _provider) = scripted_agent(
+        Some("0.9"),
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("Wood is obtained by chopping trees, but the data may be stale."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How do I get Wood?");
+    assert!(!answer.version.matches);
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("does not match configured game version 0.9")));
+}
+
+#[test]
+fn empty_final_answer_is_rejected() {
+    let (agent, _provider) = scripted_agent(None, vec![ChatResponse::text("   ")], 4, 1200);
+    let answer = agent.ask("What is Wood?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.errors.iter().any(|error| error.contains("empty")));
+}
+
+#[test]
+fn answers_without_tool_evidence_are_flagged() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![ChatResponse::text("Generic advice without facts.")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Any tips?");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("no deterministic tool evidence")));
+}
+
+#[test]
+fn reply_truncation_is_visible() {
+    let (agent, _provider) =
+        scripted_agent(None, vec![ChatResponse::text("1234567890ABCDEF")], 4, 10);
+    let answer = agent.ask("Long answer?");
+    assert_eq!(answer.answer.as_deref().map(str::len), Some(10));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("truncated")));
+}

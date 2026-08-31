@@ -187,7 +187,7 @@ impl ToolRegistry {
         self.execute(name, arguments, version)
     }
 
-    fn base_version(&self) -> VersionInfo {
+    pub fn base_version(&self) -> VersionInfo {
         let version = self.index.version();
         VersionInfo {
             knowledge_version: version.knowledge_version,

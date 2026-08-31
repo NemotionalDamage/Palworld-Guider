@@ -1,0 +1,13 @@
+[package]
+name = "guide-agent"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game-knowledge = { path = "../game-knowledge" }
+guide-core = { path = "../guide-core" }
+guide-tools = { path = "../guide-tools" }
+knowledge-index = { path = "../knowledge-index" }
+provider = { path = "../provider" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
