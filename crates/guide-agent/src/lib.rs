@@ -357,12 +357,15 @@ fn grounding_gate(
     let numeric_claims = numeric_claims(&normalized_answer);
     let mut violations = Vec::new();
     for claim in &numeric_claims {
-        let sentence = sentence_around(&normalized_answer, claim.start, claim.end);
+        let claim_entities =
+            numeric_claim_context_entities(&normalized_answer, claim, known_entity_names);
         let locale_matches = !contains_cjk(&claim.display) || contains_cjk(question);
         let supported = locale_matches
             && quantity_evidence.iter().any(|evidence| {
                 same_number(evidence.value, claim.value)
-                    && contains_entity_phrase(sentence, &evidence.entity)
+                    && claim_entities
+                        .iter()
+                        .any(|name| normalized_words(name) == normalized_words(&evidence.entity))
             });
         if !supported {
             violations.push(format!("unsupported numeric claim \"{}\"", claim.display));
@@ -424,7 +427,9 @@ fn grounding_gate(
                     "unsupported breeding claim; a successful breeding result is required"
                         .to_string(),
                 );
-            } else if !uses_permitted_language {
+            } else if !uses_permitted_language
+                || unknown_breeding_asserts_offspring(&answer_lower, &permitted_entities)
+            {
                 push_violation(
                     &mut violations,
                     "unsupported breeding claim after an explicit unknown statement".to_string(),
@@ -437,7 +442,9 @@ fn grounding_gate(
                     "unsupported breeding claim; no successful result matches the requested parent pair"
                         .to_string(),
                 );
-            } else if !uses_permitted_language {
+            } else if !uses_permitted_language
+                || unknown_breeding_asserts_offspring(&answer_lower, &permitted_entities)
+            {
                 push_violation(
                     &mut violations,
                     "unsupported breeding claim after an explicit unknown statement".to_string(),
@@ -751,7 +758,7 @@ fn collect_quantity_evidence(
     }
 }
 
-fn sentence_around(text: &str, start: usize, end: usize) -> &str {
+fn sentence_bounds(text: &str, start: usize, end: usize) -> (usize, usize) {
     let sentence_start = text[..start]
         .rfind(['.', '!', '?', ';'])
         .map(|index| index + 1)
@@ -760,7 +767,85 @@ fn sentence_around(text: &str, start: usize, end: usize) -> &str {
         .find(['.', '!', '?', ';'])
         .map(|offset| end + offset)
         .unwrap_or(text.len());
-    text[sentence_start..sentence_end].trim()
+    (sentence_start, sentence_end)
+}
+
+fn numeric_claim_context_entities(
+    text: &str,
+    claim: &NumericClaim,
+    known_entity_names: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let (sentence_start, sentence_end) = sentence_bounds(text, claim.start, claim.end);
+    let tokens = word_tokens(text);
+    let after_start = tokens
+        .iter()
+        .find(|token| token.start >= claim.end)
+        .map(|token| token.start)
+        .unwrap_or(claim.end);
+    let mut after_end = sentence_end;
+    for token in tokens.iter().filter(|token| token.start >= after_start) {
+        if token.start >= sentence_end {
+            break;
+        }
+        if is_numeric_context_boundary(&token.text) || punctuation_precedes(text, token.start) {
+            after_end = token.start;
+            break;
+        }
+    }
+    let before_end = tokens
+        .iter()
+        .rev()
+        .find(|token| token.end <= claim.start)
+        .map(|token| token.end)
+        .unwrap_or(claim.start);
+    let mut before_start = sentence_start;
+    for token in tokens.iter().rev().filter(|token| token.end <= claim.start) {
+        if is_numeric_context_boundary(&token.text) || punctuation_precedes(text, token.start) {
+            before_start = token.end;
+            break;
+        }
+    }
+    let mut entities = BTreeSet::new();
+    let before = &text[before_start..before_end];
+    let after = &text[after_start..after_end];
+    for name in known_entity_names {
+        if contains_entity_phrase(before, name) || contains_entity_phrase(after, name) {
+            entities.insert(name.clone());
+        }
+    }
+    entities
+}
+
+fn is_numeric_context_boundary(word: &str) -> bool {
+    matches!(
+        word,
+        "and"
+            | "or"
+            | "for"
+            | "from"
+            | "to"
+            | "of"
+            | "with"
+            | "in"
+            | "at"
+            | "by"
+            | "plus"
+            | "is"
+            | "are"
+            | "needs"
+            | "need"
+            | "has"
+            | "have"
+            | "short"
+    )
+}
+
+fn punctuation_precedes(text: &str, position: usize) -> bool {
+    position > 0
+        && matches!(
+            text.as_bytes()[position - 1],
+            b',' | b';' | b':' | b'|' | b'/' | b'(' | b')' | b'['
+        )
 }
 
 fn contains_entity_phrase(text: &str, entity: &str) -> bool {
@@ -1233,6 +1318,46 @@ fn breeding_answer_uses_permitted_language(
     retained
         .iter()
         .all(|word| BREEDING_ALLOWED_WORDS.contains(word))
+}
+
+fn unknown_breeding_asserts_offspring(
+    answer_lower: &str,
+    permitted_entities: &BTreeSet<String>,
+) -> bool {
+    let words = normalized_words(answer_lower);
+    for (index, word) in words.iter().enumerate() {
+        if !matches!(
+            word.as_str(),
+            "offspring" | "child" | "result" | "后代" | "孩子" | "结果"
+        ) {
+            continue;
+        }
+        if !matches!(
+            words.get(index + 1).map(String::as_str),
+            Some("is" | "are" | "was" | "were" | "是" | "为")
+        ) {
+            continue;
+        }
+        let mut entity_index = index + 2;
+        if matches!(
+            words.get(entity_index).map(String::as_str),
+            Some("a" | "an" | "the" | "一个" | "一只")
+        ) {
+            entity_index += 1;
+        }
+        if permitted_entities.iter().any(|entity| {
+            let entity_words = normalized_words(entity);
+            !entity_words.is_empty()
+                && entity_index + entity_words.len() <= words.len()
+                && words[entity_index..]
+                    .iter()
+                    .zip(&entity_words)
+                    .all(|(word, expected)| same_word(word, expected))
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_explicit_unknown(answer_lower: &str) -> bool {
