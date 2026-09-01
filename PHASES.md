@@ -8,6 +8,8 @@ Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bear
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
+Phase G5 is in progress. The approved architecture starts with a loopback-only Axum Web API and minimal browser UI that reuse the existing Rust guide core, preserve bounded in-memory sessions, and expose provenance and uncertainty. Runtime private-server REST, UE4SS, and in-game chat adapters remain blocked until the Web path is stable and the user records the exact live target constraints.
+
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
@@ -27,7 +29,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Complete | Add state-aware advice and progression planning |
-| G5 | Not started | Build Web and read-only in-game interfaces |
+| G5 | In progress | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
 
 ## Release Stage Summary
@@ -152,6 +154,27 @@ None.
 ### Blockers
 
 None.
+
+## Phase G5 Progress
+
+Completed:
+
+- Approved the Web-first integrated-interface architecture.
+
+Remaining:
+
+- Define the Web API, session, snapshot, rate-limit, timeout, cancellation, redaction, and browser-UI contract.
+- Implement the Web path test-first and pass offline verification.
+- Record the exact Palworld target version, platform, load mode, ownership, backup, and adapter constraints.
+- Add only the explicitly configured read-only retrieval and thin in-game chat paths validated for that target.
+
+### Verification
+
+Pending.
+
+### Blockers
+
+- The live adapter target definition has not yet been supplied; no runtime game, private-server REST, or UE4SS integration may begin before it is recorded.
 
 ## Phase Boundaries
 
