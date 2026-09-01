@@ -53,29 +53,84 @@ Any other tool name returns `unsupported` with
 
 ## Build
 
+Prerequisites: VS 2022 Build Tools (bundled CMake and Ninja). The packaged
+build, backup, install, and uninstall scripts live in `scripts/` at the
+repository root.
+
 ```powershell
-$vsdev = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat'
-$cmake = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-$build = "$PWD\.local\build\g5-ue4ss-ninja"
-cmd /c "call `"$vsdev`" -arch=x64 && `"$cmake`" -S adapter\read-only\ue4ss\native -B `"$build`" -G Ninja -DUE4SS_DLL=`"$PWD\.local\vendor\UE4SS_v3.0.1\UE4SS.dll`" && `"$cmake`" --build `"$build`""
+.\scripts\Build-G5Ue4ss.ps1 -Ue4ssDll "C:\Users\41699\Desktop\Pal\.local\vendor\UE4SS_v3.0.1\UE4SS.dll"
 ```
 
-The CMake build verifies the UE4SS DLL SHA256
+The script verifies the UE4SS DLL SHA256
 (`8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26`),
-derives the UE4SS import library from the verified DLL, links only the
-UE4SS import library and `winhttp`, and stages
-`PalworldGuider/dlls/main.dll` plus the three `Scripts` files.
+builds the native MSVC x64 shim, stages `PalworldGuider/` under
+`.local\build\g5-ue4ss-ninja` (or `-OutputDirectory`), and writes and
+verifies a `PalworldGuider.sha256` manifest of the staged package. It
+never writes to the game directory. The staged package contains:
+
+```text
+PalworldGuider/dlls/main.dll
+PalworldGuider/Scripts/main.lua
+PalworldGuider/Scripts/pal_transport.lua
+PalworldGuider/Scripts/pal_json.lua
+```
+
+## Backup (required before install)
+
+Always back up the world save before installing or updating the adapter:
+
+```powershell
+.\scripts\Backup-G5Save.ps1 `
+  -SourceDirectory "$env:LOCALAPPDATA\Pal\Saved\SaveGames\76561198694570145\3C2BA10146F65256FD1B889FBF5F854F" `
+  -DestinationDirectory "$PWD\.local\backups\g5\3C2BA10146F65256FD1B889FBF5F854F"
+```
+
+The script refuses to run while a `Palworld*` process is running, refuses
+a source without `Level.sav`, refuses to overwrite a non-empty
+destination, and refuses destinations outside the repo `.local\` tree. It
+copies the world directory with `-LiteralPath`, verifies file count and
+total byte length against the source, and writes `backup-manifest.json`
+recording the completion time and a 30-day retention window. The source
+save is never modified.
 
 ## Install
 
-1. Close Palworld and back up the save.
-2. Copy the built `PalworldGuider` package into the UE4SS `Mods`
-   directory.
-3. Confirm `Mods/PalworldGuider/Scripts/main.lua` and
-   `Mods/PalworldGuider/dlls/main.dll` exist.
+1. Close Palworld and confirm no `Palworld*` process is running
+   (`Palworld-Win64-Shipping` or `Palworld`).
+2. Build the package and create a verified backup with the scripts above.
+3. Install:
+
+```powershell
+.\scripts\Install-G5Ue4ss.ps1 `
+  -PackageDirectory "$PWD\.local\build\g5-ue4ss-ninja\PalworldGuider" `
+  -ModsDirectory "D:\Steam\steamapps\common\Palworld\Pal\Binaries\Win64\Mods" `
+  -BackupDirectory "$PWD\.local\backups\g5\3C2BA10146F65256FD1B889FBF5F854F"
+```
+
+The installer requires the game to be stopped, verifies the backup
+manifest before any write to the game directory, verifies the staged files
+against `PalworldGuider.sha256`, installs only into
+`Mods\PalworldGuider`, and updates `mods.txt` to enable only the
+`PalworldGuider : 1` line while preserving every other mod's line and
+folder. On any failure before completion it rolls back what it added.
+
 4. Start the Rust gateway with matching port and token.
 5. Start the supported single-player or private-server session and type
    `!g <question>` in chat.
+
+## Uninstall
+
+1. Close Palworld and confirm no `Palworld*` process is running.
+2. Run:
+
+```powershell
+.\scripts\Uninstall-G5Ue4ss.ps1 -ModsDirectory "D:\Steam\steamapps\common\Palworld\Pal\Binaries\Win64\Mods"
+```
+
+The uninstaller removes only `Mods\PalworldGuider` and the
+`PalworldGuider` line from `mods.txt`. It never deletes other mod
+folders, never modifies other mods.txt entries, and leaves UE4SS itself
+untouched. It reports exactly what it removed.
 
 Live validation remains a separately gated action: only one Guider
 adapter may be enabled, and hashes of the staged files must match the
