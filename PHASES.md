@@ -172,7 +172,7 @@ Remaining:
 
 ### Verification
 
-The Web milestone passed `cargo test -p guide-server` with 29 tests, `cargo clippy -p guide-server --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and `git diff --check`. Full-workspace final gates remain pending until the phase record is prepared.
+The Web milestone passed full-workspace `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 166 tests, and `git diff --check`. Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 
