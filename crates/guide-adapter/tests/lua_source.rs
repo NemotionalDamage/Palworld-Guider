@@ -77,6 +77,21 @@ fn transport_uses_guider_env_names_and_default_port() {
 }
 
 #[test]
+fn lua_chat_prefix_is_exactly_guide() {
+    let main = main_lua();
+    assert_contains(
+        &main,
+        "COMMAND_PREFIX = \"!guide \"",
+        "chat command prefix must be exactly `!guide `",
+    );
+    assert_not_contains(
+        &main,
+        "COMMAND_PREFIX = \"!g \"",
+        "legacy `!g ` prefix must not be used",
+    );
+}
+
+#[test]
 fn manifest_contains_exactly_four_guider_tools() {
     let transport = transport_lua();
     for tool in [

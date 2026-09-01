@@ -10,7 +10,7 @@ local UEHelpers = require("UEHelpers")
 
 local SCHEMA_VERSION = 2
 local TAG = "[PalworldGuider]"
-local COMMAND_PREFIX = "!g "
+local COMMAND_PREFIX = "!guide "
 local MAX_CHAT_MESSAGE_CHARS = 500
 local EVENT_NONCE = tostring(os.clock()):gsub("%.", "-", 1)
 local EVENT_SEQUENCE = 0
