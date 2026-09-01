@@ -161,16 +161,17 @@ Completed:
 
 - Approved the Web-first integrated-interface architecture.
 - Defined the test-first Web milestone plan in `docs/superpowers/plans/2026-09-01-phase-g5-web.md`.
+- Approved the UE4SS read-only in-game chat design in `docs/superpowers/specs/2026-09-01-phase-g5-ue4ss-design.md`.
+- Completed the test-first UE4SS implementation plan in `docs/superpowers/plans/2026-09-01-phase-g5-ue4ss.md`.
 - Added the loopback-only `guide-server` crate with health, session, snapshot, ask, history, cancellation, and browser-UI routes.
 - Added bounded in-memory history, rolling ask and snapshot rate limits, payload and JSON-depth limits, redacted snapshot metadata, provider-failure propagation, server deadlines, cancellation, and blocking-pool agent execution.
 - Added explicit environment-only provider startup for OpenAI-compatible and Ollama providers and documented the local Web interface.
 
 Remaining:
 
-- Confirm and approve the target definition for the discovered local Steam Windows Palworld build.
-- Choose the save backup location and retention policy.
-- Select the adapter path and target-build-verified read-only fields.
-- Add only the explicitly configured read-only retrieval and thin in-game chat paths validated for that target.
+- Execute the approved UE4SS implementation plan: gateway, runtime composition, adapter bridge, observation grounding, server adapter mode, Lua/native transport, and safety scripts.
+- Pass the full offline gates with the built native package.
+- Complete the approved save backup, adapter install, and local single-player read-only chat validation for world `3C2BA10146F65256FD1B889FBF5F854F`.
 
 ### Verification
 
@@ -178,7 +179,7 @@ The Web milestone passed full-workspace `cargo fmt --all -- --check`, `cargo cli
 
 ### Blockers
 
-- The live target is only partially defined. A read-only local audit identified Steam Windows Palworld build `24575825`, UE4SS `3.0.1 Beta #0`, local save data, and existing backups. The enabled legacy `PalAgentPhase1` mod and its load entry were removed while preserving UE4SS and the other disabled legacy entries. The owner approved the UE4SS path for a local single-player session, the chat input/output consent scope, and both verified reads: player position plus active-Otomo identity and position. The save directory, backup location, and retention policy remain unrecorded, so no runtime game integration or live validation may begin.
+- The offline target definition and implementation plan are complete, but no adapter code or runtime integration exists yet. The approved target is local single-player Steam Windows Palworld build `24575825` with UE4SS `3.0.1 Beta #0`; reads are limited to player position and active-Otomo identity/position. Validation world `3C2BA10146F65256FD1B889FBF5F854F` must be backed up to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` and retained 30 days before installation. Runtime integration remains blocked behind the approved test-first implementation plan and passing offline gates.
 
 ## Phase Boundaries
 

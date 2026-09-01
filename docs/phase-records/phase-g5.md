@@ -62,4 +62,6 @@ Local save data and backup directories exist. No game process was launched, no s
 
 ### Approved Target Decisions
 
-The project owner approved the UE4SS local-client path on 2026-09-01. The live validation target is the local single-player Steam client. The owner consented to capture `!guide ` chat input, send system-chat replies, and read both target-build-verified field families: player position and active-Otomo identity/position. No other client fields are approved. The exact save directory, backup destination, and retention policy remain to be recorded before adapter installation or game launch.
+The project owner approved the UE4SS local-client path on 2026-09-01. The live validation target is the local single-player Steam client. The owner consented to capture `!guide ` chat input, send system-chat replies, and read both target-build-verified field families: player position and active-Otomo identity/position. No other client fields are approved. The validation world is `3C2BA10146F65256FD1B889FBF5F854F`. Before adapter installation, its complete save directory must be copied to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` and retained for 30 days.
+
+The approved UE4SS design is recorded in `docs/superpowers/specs/2026-09-01-phase-g5-ue4ss-design.md` and its nine-task, test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g5-ue4ss.md`. No adapter code has been written and no runtime integration has begun.
