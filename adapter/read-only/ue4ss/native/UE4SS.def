@@ -1,0 +1,4 @@
+LIBRARY main
+EXPORTS
+    start_mod
+    uninstall_mod
