@@ -5,6 +5,7 @@ use guide_tools::{ToolBudget, ToolRegistry, ToolStatus};
 use provider::{ChatMessage, ChatProvider, ChatRequest, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use state_snapshot::PlayerStateSnapshot;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -69,6 +70,10 @@ impl GuideAgent {
             provider,
             config,
         }
+    }
+
+    pub fn set_state_snapshot(&mut self, snapshot: PlayerStateSnapshot) {
+        self.registry.set_state_snapshot(snapshot);
     }
 
     pub fn ask(&self, question: &str) -> AgentAnswer {

@@ -1,0 +1,13 @@
+[package]
+name = "guide-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+guide-agent = { path = "../guide-agent" }
+guide-core = { path = "../guide-core" }
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+state-snapshot = { path = "../state-snapshot" }

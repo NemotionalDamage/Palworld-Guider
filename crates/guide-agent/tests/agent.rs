@@ -126,6 +126,55 @@ fn agent_never_receives_raw_snapshot_state() {
 }
 
 #[test]
+fn agent_can_attach_a_snapshot_after_construction() {
+    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let index = KnowledgeIndex::from_store(&store, None).expect("index builds");
+    let engine = GuideEngine::new(store, None);
+    let registry = ToolRegistry::new(engine, index);
+    let snapshot = json!({
+        "schema_version": "state_snapshot_v1",
+        "source": {
+            "kind": "user_entered",
+            "captured_at": chrono::Utc::now() - chrono::Duration::seconds(1),
+            "game_version": "1.0.3",
+            "time_to_live_seconds": 60,
+            "consent": {
+                "id": "operator-local-session",
+                "scope": ["guide_advice"],
+                "granted_at": chrono::Utc::now() - chrono::Duration::seconds(1)
+            }
+        }
+    });
+    let parsed = serde_json::from_value::<state_snapshot::PlayerStateSnapshot>(snapshot.clone())
+        .expect("snapshot deserializes");
+    let provider = Arc::new(MockProvider::scripted(vec![
+        ChatResponse::tool(
+            "state_call",
+            "import_player_snapshot",
+            json!({"confirmation": "user_entered"}),
+        ),
+        ChatResponse::text("Snapshot received."),
+    ]));
+    let mut agent = GuideAgent::new(
+        registry,
+        Box::new(ProviderHandle(provider.clone())),
+        AgentConfig {
+            limits: AgentLimits {
+                max_tool_calls: 4,
+                timeout: Duration::from_secs(30),
+            },
+            max_reply_characters: 1200,
+        },
+    );
+
+    agent.set_state_snapshot(parsed);
+    let answer = agent.ask("What state do you see?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(provider.calls().len(), 2);
+}
+
+#[test]
 fn executes_tool_request_and_returns_grounded_answer() {
     let (agent, _provider) = scripted_agent(
         None,

@@ -8,5 +8,6 @@ members = [
     "crates/guide-agent",
     "crates/state-snapshot",
     "crates/guide-planner",
+    "crates/guide-server",
 ]
 resolver = "2"

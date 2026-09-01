@@ -197,6 +197,10 @@ impl ToolRegistry {
         self
     }
 
+    pub fn set_state_snapshot(&mut self, snapshot: PlayerStateSnapshot) {
+        self.state_snapshot = Some(snapshot);
+    }
+
     pub fn with_state_snapshot_json(mut self, value: &Value) -> Result<Self, String> {
         let snapshot = PlayerStateSnapshot::from_json(value)?;
         let validation = SnapshotValidator.validate(&snapshot, chrono::Utc::now());
