@@ -157,6 +157,52 @@ fn analyzes_progression_goals_through_reviewed_relationships() {
 }
 
 #[test]
+fn long_horizon_and_spoiler_preferences_control_advice() {
+    let mut minimal = snapshot_json();
+    minimal["preferences"]["long_horizon"] = json!(true);
+    minimal["preferences"]["spoiler_level"] = json!("minimal");
+    let minimal_snapshot =
+        state_snapshot::PlayerStateSnapshot::from_json(&minimal).expect("snapshot is valid");
+    let minimal_recommendations = GuidePlanner::new(engine())
+        .recommend(&minimal_snapshot, now())
+        .data
+        .expect("recommendations are present");
+    assert!(minimal_recommendations
+        .iter()
+        .any(|recommendation| recommendation.action == "Review only your immediate next unlock"));
+    assert!(!minimal_recommendations
+        .iter()
+        .any(|recommendation| recommendation.action == "Review the next technology stage"));
+
+    let mut progression = minimal;
+    progression["preferences"]["spoiler_level"] = json!("progression");
+    let progression_snapshot =
+        state_snapshot::PlayerStateSnapshot::from_json(&progression).expect("snapshot is valid");
+    let progression_recommendations = GuidePlanner::new(engine())
+        .recommend(&progression_snapshot, now())
+        .data
+        .expect("recommendations are present");
+    assert!(progression_recommendations
+        .iter()
+        .any(|recommendation| { recommendation.action == "Review the next technology stage" }));
+
+    let mut disabled = progression;
+    disabled["preferences"]["long_horizon"] = json!(false);
+    let disabled_snapshot =
+        state_snapshot::PlayerStateSnapshot::from_json(&disabled).expect("snapshot is valid");
+    let disabled_recommendations = GuidePlanner::new(engine())
+        .recommend(&disabled_snapshot, now())
+        .data
+        .expect("recommendations are present");
+    assert!(!disabled_recommendations.iter().any(|recommendation| {
+        recommendation.action.contains("Review") && recommendation.action.contains("unlock")
+    }));
+    assert!(!disabled_recommendations
+        .iter()
+        .any(|recommendation| { recommendation.action == "Review the next technology stage" }));
+}
+
+#[test]
 fn missing_state_degrades_to_three_general_guidance_steps() {
     let mut value = snapshot_source_only();
     value["goals"] = json!([]);

@@ -137,6 +137,7 @@ Completed:
 - Added inclusive freshness evaluation, completeness reporting, deterministic field ordering, and question-relevant summaries that omit consent and raw source metadata.
 - Added deterministic inventory-gap, party-work-gap, craftable-now, craft- and progression-goal readiness analyses.
 - Added stable relevance, effort, benefit, risk, and uncertainty ranking for three to five explained recommendations, with missing-state fallback and reviewed unlock-relationship propagation.
+- Added preference-gated long-horizon and spoiler-sensitive lookahead advice.
 - Added typed snapshot confirmation, inventory, party, and next-goal tools with explicit Rust-side attachment, redacted summaries, provenance, version, uncertainty, and errors.
 - Verified the bounded agent request path never serializes consent IDs, consent objects, or raw capture metadata into provider requests.
 

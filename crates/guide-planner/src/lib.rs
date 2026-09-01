@@ -584,6 +584,46 @@ impl GuidePlanner {
                 },
             });
         }
+        if let Some(preferences) = &snapshot.preferences {
+            if preferences.long_horizon {
+                let action = if matches!(
+                    preferences.spoiler_level.as_str(),
+                    "mechanics" | "progression"
+                ) {
+                    "Review the next technology stage"
+                } else {
+                    "Review only your immediate next unlock"
+                };
+                recommendations.push(PlannerRecommendation {
+                    id: "review-long-horizon".to_string(),
+                    action: action.to_string(),
+                    reason: "Your preferences allow one stage of lookahead".to_string(),
+                    requirements: vec!["Keep later spoilers hidden until requested".to_string()],
+                    alternatives: vec!["Stay on the current goal".to_string()],
+                    expected_benefit: "Prepares the next unlock without oversharing".to_string(),
+                    risk: "Low; lookahead is preference-gated".to_string(),
+                    uncertainty: String::new(),
+                    score: RecommendationScore {
+                        relevance: 2,
+                        effort: 1,
+                        benefit: 3,
+                        risk: 1,
+                        uncertainty: 2,
+                    },
+                    basis: RecommendationBasis {
+                        knowledge_record_ids: self
+                            .engine
+                            .store()
+                            .technologies()
+                            .map(|technology| technology.id.clone())
+                            .collect::<Vec<_>>(),
+                        state_fields: state_fields.clone(),
+                        evidence_kinds: evidence_kinds.clone(),
+                        assumptions: Vec::new(),
+                    },
+                });
+            }
+        }
         while recommendations.len() < 3 {
             let index = recommendations.len();
             let (id, action, reason, requirement, benefit) = match index {
