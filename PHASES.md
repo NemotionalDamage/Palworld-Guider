@@ -167,7 +167,9 @@ Completed:
 
 Remaining:
 
-- Record the exact Palworld target version, platform, load mode, ownership, backup, and adapter constraints.
+- Confirm and approve the target definition for the discovered local Steam Windows Palworld build.
+- Choose the save backup location and retention policy.
+- Select the adapter path and target-build-verified read-only fields.
 - Add only the explicitly configured read-only retrieval and thin in-game chat paths validated for that target.
 
 ### Verification
@@ -176,7 +178,7 @@ The Web milestone passed full-workspace `cargo fmt --all -- --check`, `cargo cli
 
 ### Blockers
 
-- The live adapter target definition has not yet been supplied; no runtime game, private-server REST, or UE4SS integration may begin before it is recorded.
+- The live target is only partially defined. A read-only local audit identified Steam Windows Palworld build `24575825`, UE4SS `3.0.1 Beta #0`, local save data, and existing backups. The load is not yet a clean target because a legacy `PalAgentPhase1` mod is enabled and reports unavailable websocket transport configuration. The project owner has not approved ownership/consent scope, save backup handling, adapter path, or verified read-only fields, so no runtime game, private-server REST, or UE4SS integration may begin.
 
 ## Phase Boundaries
 

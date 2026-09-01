@@ -51,3 +51,11 @@ G5 is not complete. The final private local read-only in-game chat validation ca
 - UE4SS target-build-verified fields, if applicable
 
 No runtime game-process access, save reader, private-server REST client, UE4SS adapter, or in-game chat adapter is enabled. Live OpenAI-compatible and Ollama endpoints and the real browser flow were not exercised in this milestone.
+
+## Read-Only Local Target Audit
+
+On 2026-09-01, a filesystem-only audit identified the local game as Steam Windows Palworld App `1623730`, installed build `24575825`. The offline manifest did not expose a semantic game-version label, so the immutable Steam build ID is the current exact-build identity.
+
+UE4SS `3.0.1 Beta #0` (Git SHA `d935b5b`) is installed and its existing log shows successful loading against the shipping Windows executable and Unreal Engine `5.1`. This does not verify any Palworld Guider field: the currently enabled `PalAgentPhase1` mod belongs to the older project, and its websocket transport configuration is unavailable. It must be disabled or separately reviewed before this game installation can be the clean G5 validation target.
+
+Local save data and backup directories exist. No game process was launched, no save file was read, and no game state was accessed. The project owner still needs to approve the ownership and consent scope, choose backup retention, select UE4SS versus another thin adapter path, and define the exact-build field allowlist.
