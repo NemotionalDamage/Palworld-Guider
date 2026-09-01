@@ -119,6 +119,107 @@ pub struct PlayerStateSnapshot {
     pub preferences: Option<PlayerPreferences>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SnapshotFreshness {
+    Fresh,
+    Stale,
+    UnknownTtl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotCompleteness {
+    pub missing_fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InventorySummary {
+    pub item: String,
+    pub quantity: u32,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartyMemberSummary {
+    pub slot: u8,
+    pub pal: String,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlockedTechnologySummary {
+    pub technology: String,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapturedPalSummary {
+    pub pal: String,
+    pub level: u8,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlayerLevelSummary {
+    pub value: u8,
+    pub evidence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalSummary {
+    pub kind: String,
+    pub target: String,
+    pub quantity: u32,
+    pub priority: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreferenceSummary {
+    pub spoiler_level: String,
+    pub long_horizon: bool,
+    pub preferred_activities: Vec<String>,
+    pub avoided_activities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotSummary {
+    pub schema_version: String,
+    pub source_kind: String,
+    pub game_version: String,
+    pub evidence_kinds: BTreeSet<String>,
+    pub freshness: SnapshotFreshness,
+    pub missing_fields: Vec<String>,
+    pub inventory: Option<Vec<InventorySummary>>,
+    pub party: Option<Vec<PartyMemberSummary>>,
+    pub unlocked_technologies: Option<Vec<UnlockedTechnologySummary>>,
+    pub captured_pals: Option<Vec<CapturedPalSummary>>,
+    pub player_level: Option<PlayerLevelSummary>,
+    pub goals: Option<Vec<GoalSummary>>,
+    pub preferences: Option<PreferenceSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotSummaryOptions {
+    question: String,
+    include_all: bool,
+}
+
+impl SnapshotSummaryOptions {
+    pub fn for_question(question: &str) -> Self {
+        Self {
+            question: question.trim().to_lowercase(),
+            include_all: false,
+        }
+    }
+
+    pub fn include_all() -> Self {
+        Self {
+            question: String::new(),
+            include_all: true,
+        }
+    }
+}
+
 impl PlayerStateSnapshot {
     pub fn from_json(value: &Value) -> Result<Self, String> {
         let mut snapshot: Self = serde_json::from_value(value.clone())
@@ -131,6 +232,159 @@ impl PlayerStateSnapshot {
         }
         snapshot.normalize();
         Ok(snapshot)
+    }
+
+    pub fn freshness(&self, now: DateTime<Utc>) -> SnapshotFreshness {
+        let Some(ttl) = self.source.time_to_live_seconds else {
+            return SnapshotFreshness::UnknownTtl;
+        };
+        let age = now
+            .signed_duration_since(self.source.captured_at)
+            .num_seconds();
+        if age >= 0 && age <= ttl as i64 {
+            SnapshotFreshness::Fresh
+        } else {
+            SnapshotFreshness::Stale
+        }
+    }
+
+    pub fn completeness(&self) -> SnapshotCompleteness {
+        SnapshotCompleteness {
+            missing_fields: missing_state_fields(self),
+        }
+    }
+
+    pub fn summarize(
+        &self,
+        _question: &str,
+        options: &SnapshotSummaryOptions,
+        now: DateTime<Utc>,
+    ) -> SnapshotSummary {
+        let mut evidence_kinds = BTreeSet::new();
+        let inventory = self.inventory.as_ref().and_then(|inventory| {
+            if !options.include_all && !question_needs_inventory(options) {
+                return None;
+            }
+            let mut summaries = inventory
+                .iter()
+                .map(|entry| {
+                    evidence_kinds.insert(entry.evidence.clone());
+                    InventorySummary {
+                        item: entry.item.clone(),
+                        quantity: entry.quantity,
+                        evidence: entry.evidence.clone(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            summaries.sort_by(|left, right| left.item.cmp(&right.item));
+            Some(summaries)
+        });
+        let party = self.party.as_ref().and_then(|party| {
+            if !options.include_all && !question_needs_party(options, party) {
+                return None;
+            }
+            let mut summaries = party
+                .iter()
+                .map(|member| {
+                    evidence_kinds.insert(member.evidence.clone());
+                    PartyMemberSummary {
+                        slot: member.slot,
+                        pal: member.pal.clone(),
+                        evidence: member.evidence.clone(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            summaries.sort_by_key(|member| member.slot);
+            Some(summaries)
+        });
+        let unlocked_technologies = self.unlocked_technologies.as_ref().and_then(|entries| {
+            if !options.include_all && !question_needs_technologies(options) {
+                return None;
+            }
+            let mut summaries = entries
+                .iter()
+                .map(|entry| {
+                    evidence_kinds.insert(entry.evidence.clone());
+                    UnlockedTechnologySummary {
+                        technology: entry.technology.clone(),
+                        evidence: entry.evidence.clone(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            summaries.sort_by(|left, right| left.technology.cmp(&right.technology));
+            Some(summaries)
+        });
+        let captured_pals = self.captured_pals.as_ref().and_then(|pals| {
+            if !options.include_all && !question_needs_captured_pals(options, pals) {
+                return None;
+            }
+            let mut summaries = pals
+                .iter()
+                .map(|pal| {
+                    evidence_kinds.insert(pal.evidence.clone());
+                    CapturedPalSummary {
+                        pal: pal.pal.clone(),
+                        level: pal.level,
+                        evidence: pal.evidence.clone(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            summaries.sort_by(|left, right| left.pal.cmp(&right.pal));
+            Some(summaries)
+        });
+        let player_level = self.player_level.as_ref().and_then(|level| {
+            if !options.include_all && !question_needs_player_level(options) {
+                return None;
+            }
+            evidence_kinds.insert(level.evidence.clone());
+            Some(PlayerLevelSummary {
+                value: level.value,
+                evidence: level.evidence.clone(),
+            })
+        });
+        let goals = self.goals.as_ref().and_then(|goals| {
+            if !options.include_all && !question_needs_goals(options) {
+                return None;
+            }
+            Some(
+                goals
+                    .iter()
+                    .map(|goal| GoalSummary {
+                        kind: goal.kind.clone(),
+                        target: goal.target.clone(),
+                        quantity: goal.quantity,
+                        priority: goal.priority,
+                    })
+                    .collect(),
+            )
+        });
+        let preferences = self.preferences.as_ref().and_then(|preferences| {
+            if !options.include_all && !question_needs_preferences(options) {
+                return None;
+            }
+            Some(PreferenceSummary {
+                spoiler_level: preferences.spoiler_level.clone(),
+                long_horizon: preferences.long_horizon,
+                preferred_activities: preferences.preferred_activities.clone(),
+                avoided_activities: preferences.avoided_activities.clone(),
+            })
+        });
+
+        SnapshotSummary {
+            schema_version: self.schema_version.clone(),
+            source_kind: self.source.kind.clone(),
+            game_version: self.source.game_version.clone(),
+            evidence_kinds,
+            freshness: self.freshness(now),
+            missing_fields: missing_state_fields(self),
+            inventory,
+            party,
+            unlocked_technologies,
+            captured_pals,
+            player_level,
+            goals,
+            preferences,
+        }
     }
 
     fn normalize(&mut self) {
@@ -178,6 +432,77 @@ impl PlayerStateSnapshot {
             normalize_strings(preferences.avoided_activities.iter_mut());
         }
     }
+}
+
+fn missing_state_fields(snapshot: &PlayerStateSnapshot) -> Vec<String> {
+    let mut fields = Vec::new();
+    if snapshot.inventory.is_none() {
+        fields.push("inventory".to_string());
+    }
+    if snapshot.party.is_none() {
+        fields.push("party".to_string());
+    }
+    if snapshot.unlocked_technologies.is_none() {
+        fields.push("unlocked_technologies".to_string());
+    }
+    if snapshot.captured_pals.is_none() {
+        fields.push("captured_pals".to_string());
+    }
+    if snapshot.player_level.is_none() {
+        fields.push("player_level".to_string());
+    }
+    if snapshot.goals.is_none() {
+        fields.push("goals".to_string());
+    }
+    if snapshot.preferences.is_none() {
+        fields.push("preferences".to_string());
+    }
+    fields.sort_unstable();
+    fields
+}
+
+fn question_needs_inventory(options: &SnapshotSummaryOptions) -> bool {
+    options.question.contains("inventory")
+        || options.question.contains("have")
+        || options.question.contains("craft")
+        || options.question.contains("material")
+        || options.question.contains("wood")
+}
+
+fn question_needs_party(options: &SnapshotSummaryOptions, party: &[PartyMemberState]) -> bool {
+    options.question.contains("party")
+        || options.question.contains("work")
+        || options.question.contains("pal")
+        || party
+            .iter()
+            .any(|member| options.question.contains(&member.pal.to_lowercase()))
+}
+
+fn question_needs_technologies(options: &SnapshotSummaryOptions) -> bool {
+    options.question.contains("unlock") || options.question.contains("technology")
+}
+
+fn question_needs_captured_pals(
+    options: &SnapshotSummaryOptions,
+    pals: &[CapturedPalState],
+) -> bool {
+    options.question.contains("roster")
+        || options.question.contains("captured")
+        || pals
+            .iter()
+            .any(|pal| options.question.contains(&pal.pal.to_lowercase()))
+}
+
+fn question_needs_player_level(options: &SnapshotSummaryOptions) -> bool {
+    options.question.contains("player level") || options.question.contains("my level")
+}
+
+fn question_needs_goals(options: &SnapshotSummaryOptions) -> bool {
+    options.question.contains("goal") || options.question.contains("next")
+}
+
+fn question_needs_preferences(options: &SnapshotSummaryOptions) -> bool {
+    options.question.contains("preference") || options.question.contains("spoiler")
 }
 
 fn normalize_strings<'a>(values: impl Iterator<Item = &'a mut String>) {
