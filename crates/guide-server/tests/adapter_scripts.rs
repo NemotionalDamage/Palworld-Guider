@@ -165,6 +165,10 @@ fn install_script_requires_verified_backup_before_any_mods_write() {
         "install must require the package hash manifest"
     );
     assert!(
+        content.contains("Count -eq 0") && content.contains("no verifiable entries"),
+        "install must fail closed when the package hash manifest has no verifiable entries"
+    );
+    assert!(
         content.contains("Get-FileHash") && content.contains("SHA256"),
         "install must verify staged files against the package hash manifest"
     );

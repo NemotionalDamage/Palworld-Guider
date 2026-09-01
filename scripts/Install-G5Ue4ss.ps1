@@ -64,6 +64,9 @@ foreach ($manifestLine in @(Get-Content -LiteralPath $PackageManifestPath)) {
         $ExpectedHashes[$parts[1]] = $parts[0].ToLowerInvariant()
     }
 }
+if ($ExpectedHashes.Count -eq 0) {
+    throw "refusing to install: package manifest contains no verifiable entries: $PackageManifestPath"
+}
 foreach ($relativePath in $ExpectedHashes.Keys) {
     $stagedFile = Join-Path $PackageDirectory $relativePath
     if (-not (Test-Path -LiteralPath $stagedFile)) {
