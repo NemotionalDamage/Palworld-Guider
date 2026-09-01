@@ -178,7 +178,7 @@ The Web milestone passed full-workspace `cargo fmt --all -- --check`, `cargo cli
 
 ### Blockers
 
-- The live target is only partially defined. A read-only local audit identified Steam Windows Palworld build `24575825`, UE4SS `3.0.1 Beta #0`, local save data, and existing backups. The enabled legacy `PalAgentPhase1` mod and its load entry were removed while preserving UE4SS and the other disabled legacy entries. This filesystem-only change does not verify any read field. The project owner has not approved ownership/consent scope, save backup handling, adapter path, or verified read-only fields, so no runtime game, private-server REST, or UE4SS integration may begin.
+- The live target is only partially defined. A read-only local audit identified Steam Windows Palworld build `24575825`, UE4SS `3.0.1 Beta #0`, local save data, and existing backups. The enabled legacy `PalAgentPhase1` mod and its load entry were removed while preserving UE4SS and the other disabled legacy entries. The owner approved the UE4SS path for a local single-player session, the chat input/output consent scope, and both verified reads: player position plus active-Otomo identity and position. The save directory, backup location, and retention policy remain unrecorded, so no runtime game integration or live validation may begin.
 
 ## Phase Boundaries
 

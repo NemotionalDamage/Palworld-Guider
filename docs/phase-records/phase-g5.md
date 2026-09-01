@@ -59,3 +59,7 @@ On 2026-09-01, a filesystem-only audit identified the local game as Steam Window
 UE4SS `3.0.1 Beta #0` (Git SHA `d935b5b`) is installed and its existing log shows successful loading against the shipping Windows executable and Unreal Engine `5.1`. This does not verify any Palworld Guider field. The historical log also showed the older project's `PalAgentPhase1` mod enabled with unavailable websocket transport configuration. On 2026-09-01, while Palworld was not running, that mod directory and its load entry were removed while preserving UE4SS and the disabled `PalAgentPhase0`, `PalAgentStageB`, and shared directories. Palworld was not relaunched after the removal, so a fresh UE4SS load still needs validation.
 
 Local save data and backup directories exist. No game process was launched, no save file was read, and no game state was accessed. The project owner still needs to approve the ownership and consent scope, choose backup retention, select UE4SS versus another thin adapter path, and define the exact-build field allowlist.
+
+### Approved Target Decisions
+
+The project owner approved the UE4SS local-client path on 2026-09-01. The live validation target is the local single-player Steam client. The owner consented to capture `!guide ` chat input, send system-chat replies, and read both target-build-verified field families: player position and active-Otomo identity/position. No other client fields are approved. The exact save directory, backup destination, and retention policy remain to be recorded before adapter installation or game launch.
