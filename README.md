@@ -9,7 +9,7 @@ The project is guide-first and keeps the player in control. It will provide:
 - concise next-step recommendations
 - an in-game chat interface once the offline guide is reliable
 
-The current repository contains the project charter, reference-data policy, validated Rust knowledge schema, a small reviewed seed dataset, the Phase G2 deterministic offline CLI, and the Phase G3 grounded natural-language guide.
+The current repository contains the project charter, reference-data policy, validated Rust knowledge schema, a small reviewed seed dataset, the Phase G2 deterministic offline CLI, the Phase G3 grounded natural-language guide, and the Phase G4 state-aware planner.
 
 ## Development Path
 
@@ -52,5 +52,18 @@ Provider configuration:
 - `--max-tool-calls` (default 6) and `--timeout-seconds` (default 60) bound every run.
 
 Every answer records tool calls, provenance, knowledge versions, uncertainty, and errors. The model sees only registry-published tools, deterministic Rust functions are the intended source for calculations, and final quantities and breeding claims require exact claim-relevant tool evidence. Tests use a scripted mock provider and stay offline.
+
+## State-Aware Advisor
+
+G4 supports explicit user-entered JSON snapshots attached directly in Rust:
+
+```rust
+let registry = ToolRegistry::new(engine, index)
+    .with_state_snapshot_json(&snapshot_json)?;
+```
+
+The snapshot is optional and off by default. It is validated for schema version, source, consent metadata, freshness, evidence kind, quantities, party slots, goals, and preferences before planner tools expose redacted inventory-gap, party-work, and next-goal results. The model never receives the raw snapshot; `import_player_snapshot` returns only source, version, freshness, and missing-field metadata.
+
+There is no save parser, server API, game-process reader, UE4SS adapter, file watcher, or mutation path in this phase.
 
 See `PHASES.md` for current progress and `AGENTS.md` for the governing specification.

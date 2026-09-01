@@ -6,7 +6,7 @@ Last updated: 2026-09-01, Asia/Shanghai.
 
 Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
-Phase G4 is in progress after G0–G3 completed. The approved G4 design adds explicit user-entered read-only snapshots, deterministic state analysis, and bounded model-facing summaries without game I/O or save parsing.
+Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
@@ -26,7 +26,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
-| G4 | In progress | Add state-aware advice and progression planning |
+| G4 | Complete | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
 
@@ -35,7 +35,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
 | Stage 1: Public Static-Information Agent | G0–G3 | Complete | Answer public game-knowledge and calculation questions without a running game |
-| Stage 2: Single-User Dynamic-State Guide | G4–G6 | Deferred until Stage 1 passes | Add consented player and world snapshots for one configured user |
+| Stage 2: Single-User Dynamic-State Guide | G4–G6 | In progress; G4 complete, G5 next | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
 ## Phase G0 Progress
@@ -141,13 +141,17 @@ Completed:
 - Added typed snapshot confirmation, inventory, party, and next-goal tools with explicit Rust-side attachment, redacted summaries, provenance, version, uncertainty, and errors.
 - Verified the bounded agent request path never serializes consent IDs, consent objects, or raw capture metadata into provider requests.
 
-In progress:
+Verification:
 
-- Final workspace gates and Phase G4 evidence records.
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 136 tests, and `git diff --check` all passed after the final import-boundary correction. Detailed evidence remains in `docs/phase-records/phase-g4.md`.
 
-Next required action:
+Remaining:
 
-- Execute Task 5 final verification and documentation.
+None.
+
+### Blockers
+
+None.
 
 ## Phase Boundaries
 
