@@ -71,9 +71,12 @@ fn state_tools_use_attached_snapshot_without_exposing_raw_state() {
         imported.data.as_ref().expect("summary exists")["source_kind"],
         "user_entered"
     );
+    assert!(imported.data.as_ref().expect("summary exists")["inventory"].is_null());
+    assert!(imported.data.as_ref().expect("summary exists")["party"].is_null());
     let serialized = serde_json::to_string(&imported).expect("envelope serializes");
     assert!(!serialized.contains("operator-local-session"));
     assert!(!serialized.contains("consent"));
+    assert!(!serialized.contains("\"inventory\""));
 
     let inventory = registry.dispatch("analyze_inventory", &json!({}), &mut budget);
     assert_eq!(inventory.status, ToolStatus::Ok);

@@ -8,9 +8,7 @@ use guide_planner::{GuidePlanner, PlannerAnswer, PlannerStatus};
 use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, ProvenanceBrief};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use state_snapshot::{
-    PlayerStateSnapshot, SnapshotFreshness, SnapshotSummaryOptions, SnapshotValidator,
-};
+use state_snapshot::{PlayerStateSnapshot, SnapshotFreshness, SnapshotValidator};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -358,16 +356,18 @@ impl ToolRegistry {
         let Some(snapshot) = &self.state_snapshot else {
             return ToolEnvelope::unknown("no player state snapshot is configured", version);
         };
-        let summary = snapshot.summarize(
-            "player state summary",
-            &SnapshotSummaryOptions::include_all(),
-            chrono::Utc::now(),
-        );
+        let now = chrono::Utc::now();
+        let freshness = snapshot.freshness(now);
         let mut envelope = ToolEnvelope::ok(
-            serde_json::to_value(summary).unwrap_or(Value::Null),
+            json!({
+                "source_kind": snapshot.source.kind,
+                "game_version": snapshot.source.game_version,
+                "freshness": freshness,
+                "missing_fields": snapshot.completeness().missing_fields
+            }),
             version,
         );
-        if snapshot.freshness(chrono::Utc::now()) != SnapshotFreshness::Fresh {
+        if freshness != SnapshotFreshness::Fresh {
             envelope.status = ToolStatus::Unknown;
             envelope.uncertainty.push("snapshot is stale".to_string());
         }
