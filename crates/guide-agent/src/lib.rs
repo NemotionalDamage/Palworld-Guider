@@ -319,6 +319,12 @@ struct QuantityEvidence {
 }
 
 #[derive(Debug, Clone)]
+struct ObservationEvidence {
+    axis: String,
+    value: f64,
+}
+
+#[derive(Debug, Clone)]
 struct WordToken {
     text: String,
     start: usize,
@@ -357,6 +363,7 @@ fn grounding_gate(
     } else {
         quantity_evidence_records(&calculator_records, true)
     };
+    let observation_evidence = observation_evidence_records(&records.iter().collect::<Vec<_>>());
     let normalized_answer = normalize_numerals(answer);
     let numeric_claims = numeric_claims(&normalized_answer);
     let mut violations = Vec::new();
@@ -365,12 +372,15 @@ fn grounding_gate(
             numeric_claim_context_entities(&normalized_answer, claim, known_entity_names);
         let locale_matches = !contains_cjk(&claim.display) || contains_cjk(question);
         let supported = locale_matches
-            && quantity_evidence.iter().any(|evidence| {
+            && (quantity_evidence.iter().any(|evidence| {
                 same_number(evidence.value, claim.value)
                     && claim_entities
                         .iter()
                         .any(|name| normalized_words(name) == normalized_words(&evidence.entity))
-            });
+            }) || observation_evidence.iter().any(|evidence| {
+                same_number(evidence.value, claim.value)
+                    && axis_label_precedes_claim(&normalized_answer, claim, &evidence.axis)
+            }));
         if !supported {
             violations.push(format!("unsupported numeric claim \"{}\"", claim.display));
         }
@@ -499,6 +509,10 @@ fn is_calculator_tool(name: &str) -> bool {
 
 fn is_breeding_tool(name: &str) -> bool {
     name.starts_with("calculate_breeding")
+}
+
+fn is_observation_tool(name: &str) -> bool {
+    matches!(name, "get_player_status" | "get_active_pal_status")
 }
 
 const CALCULATION_CONTEXT_WORDS: &[&str] = &[
@@ -754,6 +768,68 @@ fn successful_calculator_records<'a>(records: &'a [&'a ToolCallRecord]) -> Vec<&
         .copied()
         .filter(|record| record.status == ToolStatus::Ok)
         .collect()
+}
+
+fn observation_evidence_records(records: &[&ToolCallRecord]) -> Vec<ObservationEvidence> {
+    let mut evidence = Vec::new();
+    for record in records
+        .iter()
+        .copied()
+        .filter(|record| is_observation_tool(&record.name) && record.status == ToolStatus::Ok)
+    {
+        if let Some(data) = &record.data {
+            collect_observation_evidence(data, &mut evidence);
+        }
+    }
+    evidence
+}
+
+fn collect_observation_evidence(value: &Value, evidence: &mut Vec<ObservationEvidence>) {
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                if matches!(key.as_str(), "x" | "y" | "z") {
+                    if let Some(number) = field.as_f64() {
+                        evidence.push(ObservationEvidence {
+                            axis: key.clone(),
+                            value: number,
+                        });
+                    }
+                }
+                collect_observation_evidence(field, evidence);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_observation_evidence(value, evidence);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn axis_label_precedes_claim(text: &str, claim: &NumericClaim, axis: &str) -> bool {
+    let (sentence_start, _) = sentence_bounds(text, claim.start, claim.end);
+    let prefix = &text[sentence_start..claim.start];
+    let mut index = prefix.len();
+    while index > 0 {
+        let character = prefix[..index].chars().next_back().expect("index > 0");
+        if character.is_whitespace() || matches!(character, '=' | ':') {
+            index -= character.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if index < axis.len() || &prefix[index - axis.len()..index] != axis {
+        return false;
+    }
+    if index == axis.len() {
+        return true;
+    }
+    !prefix[..index - axis.len()]
+        .chars()
+        .next_back()
+        .is_some_and(|character| character.is_alphanumeric())
 }
 
 fn quantity_evidence_records(

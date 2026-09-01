@@ -1,7 +1,7 @@
 use game_knowledge::KnowledgeStore;
 use guide_agent::{AgentConfig, AgentLimits, AgentStatus, GuideAgent};
 use guide_core::GuideEngine;
-use guide_tools::ToolRegistry;
+use guide_tools::{RuntimeToolResult, RuntimeToolSource, ToolDefinition, ToolRegistry, ToolStatus};
 use knowledge_index::KnowledgeIndex;
 use provider::{ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError};
 use serde_json::json;
@@ -40,6 +40,56 @@ fn scripted_agent(
     let provider = Arc::new(MockProvider::scripted(responses));
     let agent = GuideAgent::new(
         test_registry(configured),
+        Box::new(ProviderHandle(provider.clone())),
+        AgentConfig {
+            limits: AgentLimits {
+                max_tool_calls,
+                timeout: Duration::from_secs(30),
+            },
+            max_reply_characters,
+        },
+    );
+    (agent, provider)
+}
+
+struct ScriptedRuntimeTools {
+    data: serde_json::Value,
+}
+
+impl RuntimeToolSource for ScriptedRuntimeTools {
+    fn definitions(&self) -> Vec<ToolDefinition> {
+        ["get_player_status", "get_active_pal_status"]
+            .into_iter()
+            .map(|name| ToolDefinition {
+                name: name.to_string(),
+                description: "observed player and active Pal status".to_string(),
+                parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
+            })
+            .collect()
+    }
+
+    fn dispatch(&self, _name: &str, _arguments: &serde_json::Value) -> RuntimeToolResult {
+        RuntimeToolResult {
+            status: ToolStatus::Ok,
+            data: Some(self.data.clone()),
+            uncertainty: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+}
+
+fn scripted_agent_with_runtime(
+    runtime_data: serde_json::Value,
+    responses: Vec<ChatResponse>,
+    max_tool_calls: usize,
+    max_reply_characters: usize,
+) -> (GuideAgent, Arc<MockProvider>) {
+    let registry = test_registry(None)
+        .try_with_runtime_tools(Arc::new(ScriptedRuntimeTools { data: runtime_data }))
+        .expect("runtime tools attach");
+    let provider = Arc::new(MockProvider::scripted(responses));
+    let agent = GuideAgent::new(
+        registry,
         Box::new(ProviderHandle(provider.clone())),
         AgentConfig {
             limits: AgentLimits {
@@ -387,6 +437,66 @@ fn numeric_tampering_is_rejected_by_grounding_gate() {
         answer.tool_calls[0].data.as_ref().expect("tool data")["totals"][0]["required_quantity"],
         15
     );
+}
+
+#[test]
+fn player_position_numbers_may_restate_exact_runtime_observation() {
+    let (agent, _provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
+        vec![
+            ChatResponse::tool("call_1", "get_player_status", json!({})),
+            ChatResponse::text("Position: x=-1.5, y=2.25, z=3."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Where is my player?");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.errors.is_empty());
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Position: x=-1.5, y=2.25, z=3.")
+    );
+}
+
+#[test]
+fn runtime_position_tampering_is_rejected() {
+    let (agent, _provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
+        vec![
+            ChatResponse::tool("call_1", "get_player_status", json!({})),
+            ChatResponse::text("Position: x=-1.5, y=2.25, z=4."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Where is my player?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("unsupported numeric claim \"4")));
+}
+
+#[test]
+fn runtime_observation_does_not_authorize_material_quantities() {
+    let (agent, _provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
+        vec![
+            ChatResponse::tool("call_1", "get_player_status", json!({})),
+            ChatResponse::text("You need 5 Wood."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How much Wood do I need?");
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer.answer.is_none());
+    assert!(answer.errors.iter().any(|error| {
+        error.contains("unsupported numeric claim \"5\"")
+            || error.contains("unsupported calculation claim")
+    }));
 }
 
 #[test]
