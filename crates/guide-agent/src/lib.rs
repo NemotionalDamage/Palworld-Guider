@@ -83,9 +83,8 @@ impl GuideAgent {
     pub fn ask_with_cancellation(&self, question: &str, cancelled: &AtomicBool) -> AgentAnswer {
         let deadline = Instant::now() + self.config.limits.timeout;
         let mut budget = ToolBudget::new(self.config.limits.max_tool_calls, deadline);
-        let tools = self
-            .registry
-            .definitions()
+        let definitions = self.registry.definitions();
+        let tools = definitions
             .iter()
             .map(|definition| ToolSpec {
                 name: definition.name.clone(),

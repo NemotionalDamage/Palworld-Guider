@@ -9,6 +9,7 @@ use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, Provenance
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state_snapshot::{PlayerStateSnapshot, SnapshotFreshness, SnapshotValidator};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +109,17 @@ impl ToolEnvelope {
         }
     }
 
+    fn from_runtime(result: RuntimeToolResult, version: VersionInfo) -> Self {
+        Self {
+            status: result.status,
+            data: result.data,
+            provenance: Vec::new(),
+            version,
+            uncertainty: result.uncertainty,
+            errors: result.errors,
+        }
+    }
+
     fn from_planner<T: Serialize>(answer: PlannerAnswer<T>) -> Self {
         let status = match answer.status {
             PlannerStatus::Ok => ToolStatus::Ok,
@@ -148,6 +160,19 @@ pub struct ToolDefinition {
     pub parameters_schema: Value,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeToolResult {
+    pub status: ToolStatus,
+    pub data: Option<Value>,
+    pub uncertainty: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+pub trait RuntimeToolSource: Send + Sync {
+    fn definitions(&self) -> Vec<ToolDefinition>;
+    fn dispatch(&self, name: &str, arguments: &Value) -> RuntimeToolResult;
+}
+
 pub struct ToolBudget {
     max_calls: usize,
     deadline: Instant,
@@ -180,6 +205,7 @@ pub struct ToolRegistry {
     index: KnowledgeIndex,
     state_snapshot: Option<PlayerStateSnapshot>,
     definitions: Vec<ToolDefinition>,
+    runtime_tools: Option<Arc<dyn RuntimeToolSource>>,
 }
 
 impl ToolRegistry {
@@ -189,6 +215,7 @@ impl ToolRegistry {
             index,
             state_snapshot: None,
             definitions: build_definitions(),
+            runtime_tools: None,
         }
     }
 
@@ -211,12 +238,45 @@ impl ToolRegistry {
         Ok(self)
     }
 
-    pub fn definitions(&self) -> &[ToolDefinition] {
-        &self.definitions
+    pub fn definitions(&self) -> Vec<ToolDefinition> {
+        let mut definitions = self.definitions.clone();
+        if let Some(runtime) = &self.runtime_tools {
+            definitions.extend(runtime.definitions());
+        }
+        definitions
+    }
+
+    pub fn try_with_runtime_tools(
+        mut self,
+        runtime: Arc<dyn RuntimeToolSource>,
+    ) -> Result<Self, String> {
+        for definition in runtime.definitions() {
+            if self
+                .definitions
+                .iter()
+                .any(|static_definition| static_definition.name == definition.name)
+            {
+                return Err(format!("duplicate runtime tool: {}", definition.name));
+            }
+        }
+        self.runtime_tools = Some(runtime);
+        Ok(self)
     }
 
     pub fn dispatch(&self, name: &str, arguments: &Value, budget: &mut ToolBudget) -> ToolEnvelope {
         let version = self.base_version();
+        if let Some(runtime) = &self.runtime_tools {
+            if runtime
+                .definitions()
+                .iter()
+                .any(|definition| definition.name == name)
+            {
+                if let Err(message) = budget.consume() {
+                    return ToolEnvelope::error(message, version);
+                }
+                return ToolEnvelope::from_runtime(runtime.dispatch(name, arguments), version);
+            }
+        }
         if !self
             .definitions
             .iter()
