@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 guide-agent = { path = "../guide-agent" }
 guide-core = { path = "../guide-core" }
@@ -11,3 +12,12 @@ rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 state-snapshot = { path = "../state-snapshot" }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["limit"] }
+
+[dev-dependencies]
+game-knowledge = { path = "../game-knowledge" }
+guide-tools = { path = "../guide-tools" }
+knowledge-index = { path = "../knowledge-index" }
+provider = { path = "../provider" }
+tokio = { version = "1", features = ["macros", "rt"] }

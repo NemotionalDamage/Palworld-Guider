@@ -54,7 +54,7 @@ impl SnapshotMetadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ExchangeRecord {
     pub question: String,
     pub answer: AgentAnswer,
