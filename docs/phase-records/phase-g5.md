@@ -64,4 +64,37 @@ Local save data and backup directories exist. No game process was launched, no s
 
 The project owner approved the UE4SS local-client path on 2026-09-01. The live validation target is the local single-player Steam client. The owner consented to capture `!guide ` chat input, send system-chat replies, and read both target-build-verified field families: player position and active-Otomo identity/position. No other client fields are approved. The validation world is `3C2BA10146F65256FD1B889FBF5F854F`. Before adapter installation, its complete save directory must be copied to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` and retained for 30 days.
 
-The approved UE4SS design is recorded in `docs/superpowers/specs/2026-09-01-phase-g5-ue4ss-design.md` and its nine-task, test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g5-ue4ss.md`. No adapter code has been written and no runtime integration has begun.
+The approved UE4SS design is recorded in `docs/superpowers/specs/2026-09-01-phase-g5-ue4ss-design.md` and its nine-task, test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g5-ue4ss.md`. The UE4SS adapter path is now implemented and passed its offline acceptance gate; only approved live validation remains.
+
+## UE4SS Implementation Scope
+
+The approved UE4SS local-client path is implemented offline:
+
+- `crates/game-gateway`: authenticated schema-2 loopback WebSocket gateway with 65,536-byte frames, 64-message queue caps, three-second default tool timeout, strict sequences, one active session with replacement and cancellation.
+- `crates/guide-tools` + `crates/guide-agent`: `RuntimeToolSource` composition (dynamic tool visibility, no static shadowing, shared call budget) and a narrow x/y/z numeric grounding carve-out for the two approved observation tools.
+- `crates/guide-adapter`: `GameAdapterRuntime` (allowlist intersection, fail-closed dispatch, internal-only `send_chat_message`) and `InGameChatBridge` (exact `!guide ` prefix, ping bypass, four-exchange bounded text-only history, six asks/minute, 1000/400 character bounds).
+- `crates/guide-server`: `--adapter-port`/`--adapter-token-env` adapter mode with environment-only token validation, loopback-only binding, and a dedicated serial event service sharing one agent with the Web server.
+- `adapter/read-only/ue4ss`: renamed transport-only native shim (`PalworldGuider`, callbacks `guider_cfg`/`guider_conn`/`guider_send`/`guider_poll`/`guider_stat`/`guider_close`, exports `start_mod`/`uninstall_mod`) plus Lua adapter (`ping`, `get_player_status`, `get_active_pal_status`, `send_chat_message`; guarded chat hook; finite-position and active-Otomo reads; no file IPC).
+- `scripts/`: `Build-G5Ue4ss.ps1`, `Backup-G5Save.ps1`, `Install-G5Ue4ss.ps1`, `Uninstall-G5Ue4ss.ps1` with SHA256 verification, backup-before-install ordering, save backup with 30-day retention, and fail-closed guards.
+
+## Offline Acceptance Gate Results
+
+Fresh final gates (2026-09-01):
+
+- `cargo fmt --all -- --check` clean.
+- `cargo clippy --all-targets -- -D warnings` clean.
+- `cargo test` with 250 tests, all passing.
+- `git diff --check` clean.
+
+Native package built with `scripts/Build-G5Ue4ss.ps1 -Ue4ssDll <UE4SS_v3.0.1\UE4SS.dll>`; SHA256 manifest verified. `dumpbin` shows `main.dll` exports exactly `start_mod` and `uninstall_mod` with dependents `UE4SS.dll`, `WINHTTP.dll`, and MSVC runtime only. Build-time package hashes: `dlls/main.dll` is non-reproducible across MSVC builds (observed `fa50e3f9...`); `Scripts/main.lua` `92263140c893c103cd4b10cfd6d7b9a38c7d762ea4d205d6ea4f7c16254e1258`, `Scripts/pal_transport.lua` `0be84de77e0b2ef42fb83ef3e27da2a1a1693c4265d8aadd33fd83ac8a45f2bb`, `Scripts/pal_json.lua` `56b16dac3cd2300795b4730460f49d18570fbac7a09ab6c390977680ac69a698`.
+
+Offline loopback rehearsal passed: `guide-server --data data\reviewed --adapter-port 8071` with a process-only `PALWORLD_GUIDER_GATEWAY_TOKEN`; a fake schema-2 adapter client authenticated, sent hello/manifest, sent `!guide ping`, received exactly one `send_chat_message` tool call with the exact reply `Pong: Palworld Guider adapter connected.`, and answered it. The provider was never called (ping bypass), and no `.local` transcript contains player text or the reply text. Palworld was not launched and no save, game directory, or live game state was touched.
+
+## Remaining Live-Only Blockers
+
+G5 is not yet complete. The remaining acceptance criteria require approved live validation against the recorded local single-player client (build `24575825`, UE4SS `3.0.1 Beta #0`):
+
+- Back up world `3C2BA10146F65256FD1B889FBF5F854F` before adapter installation, verify the backup, then install the hash-verified package.
+- Launch Palworld and validate `!guide ping`, a factual question, a player-position question, and an active-Otomo question with an Otomo spawned.
+- Restart and fail-closed checks (server restart, game restart, server-down recovery) and a clean-exit check.
+- These steps require explicit project-owner approval to launch the game.

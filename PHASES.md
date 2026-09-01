@@ -8,7 +8,7 @@ Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bear
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
-Phase G5 is in progress. The approved architecture starts with a loopback-only Axum Web API and minimal browser UI that reuse the existing Rust guide core, preserve bounded in-memory sessions, and expose provenance and uncertainty. Runtime private-server REST, UE4SS, and in-game chat adapters remain blocked until the Web path is stable and the user records the exact live target constraints.
+Phase G5 is in progress. The loopback-only Axum Web API, bounded sessions, and browser UI are complete. The approved UE4SS read-only in-game chat path is implemented and has passed its full offline acceptance gate (gateway, runtime tool composition, adapter bridge, observation grounding, server adapter mode, Lua/native transport, and safety scripts). Only the approved live single-player validation remains, and it requires explicit project-owner approval to launch Palworld.
 
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
@@ -166,20 +166,22 @@ Completed:
 - Added the loopback-only `guide-server` crate with health, session, snapshot, ask, history, cancellation, and browser-UI routes.
 - Added bounded in-memory history, rolling ask and snapshot rate limits, payload and JSON-depth limits, redacted snapshot metadata, provider-failure propagation, server deadlines, cancellation, and blocking-pool agent execution.
 - Added explicit environment-only provider startup for OpenAI-compatible and Ollama providers and documented the local Web interface.
+- Implemented the authenticated schema-2 loopback `game-gateway` crate with 65,536-byte frames, 64-message queue caps, replacement sessions, and cancellation.
+- Implemented runtime tool composition, the bounded in-game adapter bridge, narrow x/y/z observation grounding, and the `guide-server` adapter mode with environment-only tokens.
+- Implemented the renamed transport-only `PalworldGuider` UE4SS Lua/native adapter (read-only player position and active-Otomo reads, `!guide ` chat capture) and the build/backup/install/uninstall safety scripts.
+- Passed the offline acceptance gate: 250 tests, clippy and fmt clean, native package built with verified SHA256 manifest, exports `start_mod`/`uninstall_mod`, and an offline loopback rehearsal with the exact Pong reply and no provider call.
 
 Remaining:
 
-- Execute the approved UE4SS implementation plan: gateway, runtime composition, adapter bridge, observation grounding, server adapter mode, Lua/native transport, and safety scripts.
-- Pass the full offline gates with the built native package.
-- Complete the approved save backup, adapter install, and local single-player read-only chat validation for world `3C2BA10146F65256FD1B889FBF5F854F`.
+- Complete the approved save backup, adapter install, and local single-player read-only chat validation for world `3C2BA10146F65256FD1B889FBF5F854F`, then the restart/fail-closed and clean-exit checks.
 
 ### Verification
 
-The Web milestone passed full-workspace `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 166 tests, and `git diff --check`. Detailed evidence is in `docs/phase-records/phase-g5.md`.
+The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 
-- The offline target definition and implementation plan are complete, but no adapter code or runtime integration exists yet. The approved target is local single-player Steam Windows Palworld build `24575825` with UE4SS `3.0.1 Beta #0`; reads are limited to player position and active-Otomo identity/position. Validation world `3C2BA10146F65256FD1B889FBF5F854F` must be backed up to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` and retained 30 days before installation. Runtime integration remains blocked behind the approved test-first implementation plan and passing offline gates.
+- Live validation remains. It requires explicit project-owner approval to launch Palworld: back up world `3C2BA10146F65256FD1B889FBF5F854F` to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` (30-day retention), install the hash-verified package, then validate ping, factual, position, and active-Otomo questions plus restart/fail-closed and clean-exit checks.
 
 ## Phase Boundaries
 
