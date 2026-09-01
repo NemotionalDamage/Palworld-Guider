@@ -13,11 +13,16 @@ use axum::{
     Json, Router,
 };
 use guide_agent::{AgentAnswer, GuideAgent};
+use guide_core::VersionInfo;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use state_snapshot::{PlayerStateSnapshot, SnapshotValidator};
 use std::{
-    sync::{Arc, Mutex, RwLock},
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+    },
     time::Instant,
 };
 use tower_http::limit::RequestBodyLimitLayer;
@@ -31,9 +36,16 @@ pub struct GuideServerState {
 }
 
 struct GuideServerInner {
-    agent: RwLock<GuideAgent>,
+    agent: Arc<RwLock<GuideAgent>>,
     sessions: Mutex<SessionStore>,
+    cancellations: Mutex<HashMap<String, CancellationHandle>>,
     limits: ServerLimits,
+}
+
+struct CancellationHandle {
+    flag: Arc<AtomicBool>,
+    sender: tokio::sync::watch::Sender<bool>,
+    created_at: Instant,
 }
 
 #[derive(Clone)]
@@ -45,8 +57,9 @@ impl GuideServer {
     pub fn new(agent: GuideAgent, limits: ServerLimits) -> Self {
         let state = GuideServerState {
             inner: Arc::new(GuideServerInner {
-                agent: RwLock::new(agent),
+                agent: Arc::new(RwLock::new(agent)),
                 sessions: Mutex::new(SessionStore::new(limits)),
+                cancellations: Mutex::new(HashMap::new()),
                 limits,
             }),
         };
@@ -64,6 +77,7 @@ impl GuideServer {
                 post(attach_snapshot),
             )
             .route("/api/sessions/{session_id}/ask", post(ask))
+            .route("/api/cancellations/{token}", post(cancel_ask))
             .with_state(self.state.clone())
             .layer(middleware::from_fn(payload_limit))
             .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
@@ -86,12 +100,19 @@ struct SessionHistoryResponse {
 #[derive(Deserialize)]
 struct AskRequest {
     question: String,
+    cancellation_token: Option<String>,
 }
 
 #[derive(Serialize)]
 struct AskResponse {
     session_id: String,
     answer: AgentAnswer,
+}
+
+enum AskOutcome {
+    Completed(AgentAnswer),
+    Cancelled,
+    TimedOut,
 }
 
 async fn index() -> Response {
@@ -129,10 +150,10 @@ type JsonResult = Result<Json<Value>, JsonRejection>;
 async fn create_session(State(state): State<GuideServerState>, body: JsonResult) -> Response {
     let value = match check_json(body) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(code) => return api_error(code),
     };
-    if let Err(response) = check_depth(&value) {
-        return response;
+    if let Err(code) = check_depth(&value) {
+        return api_error(code);
     }
     if !value.is_object() {
         return api_error(ApiErrorCode::InvalidRequest);
@@ -176,10 +197,10 @@ async fn attach_snapshot(
 ) -> Response {
     let value = match check_json(body) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(code) => return api_error(code),
     };
-    if let Err(response) = check_depth(&value) {
-        return response;
+    if let Err(code) = check_depth(&value) {
+        return api_error(code);
     }
     let snapshot = match PlayerStateSnapshot::from_json(&value) {
         Ok(snapshot) => snapshot,
@@ -214,10 +235,10 @@ async fn ask(
 ) -> Response {
     let value = match check_json(body) {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(code) => return api_error(code),
     };
-    if let Err(response) = check_depth(&value) {
-        return response;
+    if let Err(code) = check_depth(&value) {
+        return api_error(code);
     }
     let request: AskRequest = match serde_json::from_value(value) {
         Ok(request) => request,
@@ -235,26 +256,146 @@ async fn ask(
             Err(error) => return session_error(error),
         }
     };
-    let answer = state
-        .inner
-        .agent
-        .read()
-        .expect("agent lock is not poisoned")
-        .ask(&prompt);
-    let _ = lock_sessions(&state).complete_ask(&session_id, question, answer.clone());
-    Json(AskResponse { session_id, answer }).into_response()
-}
-
-fn check_json(body: JsonResult) -> Result<Value, Response> {
-    match body {
-        Ok(Json(value)) => Ok(value),
-        Err(_) => Err(api_error(ApiErrorCode::InvalidJson)),
+    let token = match request.cancellation_token {
+        Some(token) => {
+            if token.len() != 32 || u128::from_str_radix(&token, 16).is_err() {
+                return api_error(ApiErrorCode::InvalidRequest);
+            }
+            Some(token)
+        }
+        None => None,
+    };
+    let cancellation_flag = Arc::new(AtomicBool::new(false));
+    let (cancel_sender, mut cancel_receiver) = tokio::sync::watch::channel(false);
+    if let Some(token) = token.as_ref() {
+        let mut cancellations = lock_cancellations(&state);
+        remove_expired_cancellations(
+            &mut cancellations,
+            Instant::now(),
+            state.inner.limits.ask_timeout,
+        );
+        cancellations.insert(
+            token.clone(),
+            CancellationHandle {
+                flag: cancellation_flag.clone(),
+                sender: cancel_sender.clone(),
+                created_at: Instant::now(),
+            },
+        );
+    }
+    let agent = state.inner.agent.clone();
+    let blocking_prompt = prompt.clone();
+    let blocking_flag = cancellation_flag.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        agent
+            .read()
+            .expect("agent lock is not poisoned")
+            .ask_with_cancellation(&blocking_prompt, &blocking_flag)
+    });
+    let outcome = tokio::time::timeout(state.inner.limits.ask_timeout, async {
+        if token.is_some() {
+            tokio::select! {
+                answer = task => AskOutcome::Completed(join_answer(answer)),
+                _ = cancel_receiver.changed() => AskOutcome::Cancelled,
+            }
+        } else {
+            AskOutcome::Completed(join_answer(task.await))
+        }
+    })
+    .await
+    .unwrap_or(AskOutcome::TimedOut);
+    if let Some(token) = token.as_ref() {
+        lock_cancellations(&state).remove(token);
+    }
+    match outcome {
+        AskOutcome::Cancelled => api_error(ApiErrorCode::RequestCancelled),
+        AskOutcome::TimedOut => {
+            cancellation_flag.store(true, Ordering::SeqCst);
+            let answer = timeout_answer();
+            let _ = lock_sessions(&state).complete_ask(&session_id, question, answer.clone());
+            Json(AskResponse { session_id, answer }).into_response()
+        }
+        AskOutcome::Completed(answer) => {
+            let _ = lock_sessions(&state).complete_ask(&session_id, question, answer.clone());
+            Json(AskResponse { session_id, answer }).into_response()
+        }
     }
 }
 
-fn check_depth(value: &Value) -> Result<(), Response> {
+async fn cancel_ask(State(state): State<GuideServerState>, Path(token): Path<String>) -> Response {
+    let now = Instant::now();
+    let mut cancellations = lock_cancellations(&state);
+    remove_expired_cancellations(&mut cancellations, now, state.inner.limits.ask_timeout);
+    let Some(handle) = cancellations.remove(&token) else {
+        return api_error(ApiErrorCode::CancellationNotFound);
+    };
+    handle.flag.store(true, Ordering::SeqCst);
+    let _ = handle.sender.send(true);
+    (StatusCode::ACCEPTED, Json(json!({"status": "cancelled"}))).into_response()
+}
+
+fn join_answer(result: Result<AgentAnswer, tokio::task::JoinError>) -> AgentAnswer {
+    match result {
+        Ok(answer) => answer,
+        Err(error) => AgentAnswer {
+            status: guide_agent::AgentStatus::Error,
+            answer: None,
+            tool_calls: Vec::new(),
+            provenance: Vec::new(),
+            version: unknown_version(),
+            uncertainty: Vec::new(),
+            errors: vec![format!("agent worker failed: {error}")],
+        },
+    }
+}
+
+fn timeout_answer() -> AgentAnswer {
+    AgentAnswer {
+        status: guide_agent::AgentStatus::Error,
+        answer: None,
+        tool_calls: Vec::new(),
+        provenance: Vec::new(),
+        version: unknown_version(),
+        uncertainty: Vec::new(),
+        errors: vec!["server ask timeout exceeded".to_string()],
+    }
+}
+
+fn unknown_version() -> VersionInfo {
+    VersionInfo {
+        knowledge_version: "unknown".to_string(),
+        configured_game_version: None,
+        matches: true,
+    }
+}
+
+fn lock_cancellations(
+    state: &GuideServerState,
+) -> std::sync::MutexGuard<'_, HashMap<String, CancellationHandle>> {
+    state
+        .inner
+        .cancellations
+        .lock()
+        .expect("cancellation lock is not poisoned")
+}
+
+fn remove_expired_cancellations(
+    cancellations: &mut HashMap<String, CancellationHandle>,
+    now: Instant,
+    timeout: std::time::Duration,
+) {
+    cancellations.retain(|_, handle| now.duration_since(handle.created_at) <= timeout);
+}
+fn check_json(body: JsonResult) -> Result<Value, ApiErrorCode> {
+    match body {
+        Ok(Json(value)) => Ok(value),
+        Err(_) => Err(ApiErrorCode::InvalidJson),
+    }
+}
+
+fn check_depth(value: &Value) -> Result<(), ApiErrorCode> {
     if json_depth(value) > MAX_JSON_DEPTH {
-        return Err(api_error(ApiErrorCode::JsonDepthExceeded));
+        return Err(ApiErrorCode::JsonDepthExceeded);
     }
     Ok(())
 }

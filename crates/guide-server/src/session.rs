@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Copy)]
 pub struct ServerLimits {
     pub session_ttl: Duration,
+    pub ask_timeout: Duration,
     pub max_sessions: usize,
     pub max_history_exchanges: usize,
     pub max_asks_per_minute: usize,
@@ -16,6 +17,7 @@ impl Default for ServerLimits {
     fn default() -> Self {
         Self {
             session_ttl: Duration::from_secs(1800),
+            ask_timeout: Duration::from_secs(30),
             max_sessions: 32,
             max_history_exchanges: 4,
             max_asks_per_minute: 10,

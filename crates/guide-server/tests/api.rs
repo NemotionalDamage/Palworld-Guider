@@ -278,7 +278,7 @@ async fn empty_and_overlong_questions_are_rejected() {
     let guide = server(vec![ChatResponse::text("unused")]);
     let router = guide.router();
     let session_id = create_session(&router).await;
-    for question in vec![String::new(), "x".repeat(2001)] {
+    for question in [String::new(), "x".repeat(2001)] {
         let response = router
             .clone()
             .oneshot(request(

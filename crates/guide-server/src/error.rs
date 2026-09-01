@@ -17,6 +17,8 @@ pub enum ApiErrorCode {
     SessionLimitReached,
     AskRateLimited,
     SnapshotRateLimited,
+    RequestCancelled,
+    CancellationNotFound,
 }
 
 impl ApiErrorCode {
@@ -33,6 +35,10 @@ impl ApiErrorCode {
             Self::SessionLimitReached => "Session limit reached",
             Self::AskRateLimited => "Ask rate limit reached",
             Self::SnapshotRateLimited => "Snapshot rate limit reached",
+            Self::RequestCancelled => "Request was cancelled",
+            Self::CancellationNotFound => {
+                "Cancellation token does not exist or is already finished"
+            }
         }
     }
 
@@ -47,6 +53,8 @@ impl ApiErrorCode {
             Self::SessionNotFound => StatusCode::NOT_FOUND,
             Self::SessionExpired | Self::SessionLimitReached => StatusCode::GONE,
             Self::AskRateLimited | Self::SnapshotRateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::RequestCancelled => StatusCode::CONFLICT,
+            Self::CancellationNotFound => StatusCode::NOT_FOUND,
         }
     }
 }
