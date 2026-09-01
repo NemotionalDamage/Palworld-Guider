@@ -35,7 +35,12 @@ fn connect_authenticated(address: std::net::SocketAddr) -> ClientSocket {
         AUTHORIZATION,
         HeaderValue::from_str(&format!("Bearer {TOKEN}")).unwrap(),
     );
-    connect(request).unwrap().0
+    let mut socket = connect(request).unwrap().0;
+    if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
+        // Disable Nagle so burst test frames are not stalled by delayed ACKs.
+        stream.set_nodelay(true).unwrap();
+    }
+    socket
 }
 
 fn send_json(socket: &mut ClientSocket, frame: Value) {
@@ -334,4 +339,75 @@ fn disconnect_cancels_pending_call() {
     let cancelled = worker.join().unwrap();
     assert_eq!(cancelled.status, TaskStatus::Cancelled);
     assert_eq!(cancelled.call_id, call["call_id"].as_str().unwrap());
+}
+
+#[test]
+fn overflowing_event_queue_closes_the_connection() {
+    let mut gateway = gateway();
+    let mut client = connect_authenticated(gateway.local_addr());
+    if let MaybeTlsStream::Plain(stream) = client.get_mut() {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+    }
+    send_json(&mut client, hello(1));
+    send_json(&mut client, manifest(2, &["ping"]));
+    for sequence in 3..=67 {
+        send_json(&mut client, event(sequence, "queued message"));
+    }
+
+    match client.read().unwrap() {
+        Message::Close(frame) => assert_eq!(
+            frame.unwrap().code,
+            tungstenite::protocol::frame::coding::CloseCode::Policy
+        ),
+        message => panic!("expected policy close, got {message:?}"),
+    }
+
+    let mut delivered = 0;
+    while let Some(_event) = gateway
+        .next_event_timeout(Duration::from_millis(20))
+        .unwrap()
+    {
+        delivered += 1;
+        assert!(delivered <= 64, "overflow must not deliver a 65th event");
+    }
+    assert_eq!(
+        delivered, 64,
+        "exactly the queue cap is delivered before overflow closes the session"
+    );
+}
+
+#[test]
+fn pending_call_cap_rejects_overflow() {
+    let gateway = std::sync::Arc::new(gateway());
+    let mut client = connect_authenticated(gateway.local_addr());
+    send_json(&mut client, hello(1));
+    send_json(&mut client, manifest(2, &["ping"]));
+
+    let mut handles = Vec::new();
+    for _ in 0..65 {
+        let gateway = std::sync::Arc::clone(&gateway);
+        handles.push(std::thread::spawn(move || {
+            gateway.call_tool("ping", json!({})).unwrap()
+        }));
+    }
+    let results: Vec<_> = handles
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status == TaskStatus::Timeout)
+            .count(),
+        64
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status == TaskStatus::RateLimited)
+            .count(),
+        1
+    );
 }

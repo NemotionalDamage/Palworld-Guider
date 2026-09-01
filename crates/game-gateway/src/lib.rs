@@ -21,6 +21,14 @@ use tungstenite::{accept_hdr, Message};
 const SCHEMA_VERSION: u32 = 1;
 pub const PROTOCOL_SCHEMA_VERSION: u32 = 2;
 
+// Bounded queue limits shared by every session. Each queue caps at 64
+// messages so a slow consumer or adapter cannot grow gateway memory
+// without limit; event overflow closes the session instead of silently
+// dropping player messages.
+const MAX_QUEUED_EVENTS: usize = 64;
+const OUTBOUND_QUEUE_CAPACITY: usize = 64;
+const MAX_PENDING_CALLS: usize = 64;
+
 #[derive(Debug, Error)]
 pub enum GatewayError {
     #[error("io error: {0}")]
@@ -495,7 +503,7 @@ struct SharedGatewayState {
     events: VecDeque<ChatEvent>,
     pending: HashMap<String, std::sync::mpsc::Sender<ToolResult>>,
     active_session: Option<u64>,
-    active_sender: Option<std::sync::mpsc::Sender<Value>>,
+    active_sender: Option<std::sync::mpsc::SyncSender<Value>>,
 }
 
 #[derive(Default)]
@@ -606,6 +614,13 @@ impl WebSocketGateway {
         let (result_sender, result_receiver) = std::sync::mpsc::channel::<ToolResult>();
         {
             let mut state = self.state.lock().expect("gateway state lock poisoned");
+            if state.pending.len() >= MAX_PENDING_CALLS {
+                return Ok(local_result(
+                    &call_id,
+                    TaskStatus::RateLimited,
+                    "too many pending tool calls",
+                ));
+            }
             state.pending.insert(call_id.clone(), result_sender);
         }
 
@@ -624,13 +639,24 @@ impl WebSocketGateway {
                 "no authenticated adapter session is active",
             ));
         };
-        if sender.send(frame).is_err() {
-            self.remove_pending(&call_id);
-            return Ok(local_result(
-                &call_id,
-                TaskStatus::Cancelled,
-                "adapter session disconnected",
-            ));
+        match sender.try_send(frame) {
+            Ok(()) => {}
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                self.remove_pending(&call_id);
+                return Ok(local_result(
+                    &call_id,
+                    TaskStatus::Cancelled,
+                    "adapter session disconnected",
+                ));
+            }
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                self.remove_pending(&call_id);
+                return Ok(local_result(
+                    &call_id,
+                    TaskStatus::RateLimited,
+                    "adapter outbound queue full",
+                ));
+            }
         }
 
         match result_receiver.recv_timeout(self.config.call_timeout) {
@@ -730,7 +756,8 @@ fn run_session(
     }
 
     let session_id = signals.next_session.fetch_add(1, Ordering::SeqCst);
-    let (outbound_sender, outbound_receiver) = std::sync::mpsc::channel::<Value>();
+    let (outbound_sender, outbound_receiver) =
+        std::sync::mpsc::sync_channel::<Value>(OUTBOUND_QUEUE_CAPACITY);
     {
         let mut shared = state.lock().expect("gateway state lock poisoned");
         cancel_pending(
@@ -764,9 +791,12 @@ fn run_session(
                         break;
                     }
                 };
-                if !handle_frame(frame, &value, &mut session_stage, &state, session_id) {
-                    let _ = close_with_policy(&mut socket, "invalid session state");
-                    break;
+                match handle_frame(frame, &value, &mut session_stage, &state, session_id) {
+                    Ok(()) => {}
+                    Err(reason) => {
+                        let _ = close_with_policy(&mut socket, reason);
+                        break;
+                    }
                 }
                 state_changed.notify_all();
             }
@@ -831,12 +861,11 @@ fn handle_frame(
     stage: &mut SessionStage,
     state: &Arc<Mutex<SharedGatewayState>>,
     session_id: u64,
-) -> bool {
+) -> Result<(), &'static str> {
     let kind = frame.kind;
-    let accepted = match (frame.kind, *stage) {
+    match (frame.kind, *stage) {
         (FrameKind::Hello, SessionStage::AwaitingHello) => {
             *stage = SessionStage::AwaitingManifest;
-            true
         }
         (FrameKind::CapabilityManifest, SessionStage::AwaitingManifest) => {
             let capabilities = frame
@@ -859,10 +888,16 @@ fn handle_frame(
                 .expect("gateway state lock poisoned")
                 .capabilities = capabilities;
             *stage = SessionStage::Ready;
-            true
         }
         (FrameKind::Event, SessionStage::Ready) => {
-            let event = ChatEvent {
+            let mut shared = state.lock().expect("gateway state lock poisoned");
+            if shared.events.len() >= MAX_QUEUED_EVENTS {
+                // Overflow closes the session with a policy close instead of
+                // silently dropping player messages; the adapter reconnects
+                // with backoff and restarts hello/manifest.
+                return Err("event queue full");
+            }
+            shared.events.push_back(ChatEvent {
                 event_id: value
                     .get("event_id")
                     .and_then(Value::as_str)
@@ -887,13 +922,7 @@ fn handle_frame(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
-            };
-            state
-                .lock()
-                .expect("gateway state lock poisoned")
-                .events
-                .push_back(event);
-            true
+            });
         }
         (FrameKind::ToolResult, SessionStage::Ready) => {
             let call_id = value
@@ -927,15 +956,9 @@ fn handle_frame(
             if let Some(sender) = sender {
                 let _ = sender.send(result);
             }
-            true
         }
-        (FrameKind::Heartbeat, SessionStage::Ready) | (FrameKind::Error, SessionStage::Ready) => {
-            true
-        }
-        _ => false,
-    };
-    if !accepted {
-        return false;
+        (FrameKind::Heartbeat, SessionStage::Ready) | (FrameKind::Error, SessionStage::Ready) => {}
+        _ => return Err("invalid session state"),
     }
     let capability_count = if kind == FrameKind::CapabilityManifest {
         Some(
@@ -949,9 +972,8 @@ fn handle_frame(
         None
     };
     emit_gateway_frame_log(session_id, kind, frame.sequence, capability_count);
-    true
+    Ok(())
 }
-
 fn cancel_pending(state: &mut SharedGatewayState, status: TaskStatus, reason: &str) {
     for (call_id, sender) in state.pending.drain() {
         let _ = sender.send(local_result(&call_id, status, reason));
