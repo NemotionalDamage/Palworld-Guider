@@ -6,7 +6,9 @@ edition = "2021"
 [dependencies]
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
+game-gateway = { path = "../game-gateway" }
 game-knowledge = { path = "../game-knowledge" }
+guide-adapter = { path = "../guide-adapter" }
 guide-agent = { path = "../guide-agent" }
 guide-core = { path = "../guide-core" }
 guide-tools = { path = "../guide-tools" }
@@ -19,3 +21,6 @@ state-snapshot = { path = "../state-snapshot" }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["limit"] }
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+tungstenite = "0.28"

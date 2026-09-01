@@ -159,3 +159,73 @@ fn starts_and_requires_manual_shutdown(environment: &[(&str, &str)]) {
     child.kill().expect("guide-server test process stops");
     child.wait().expect("guide-server test process reaps");
 }
+
+const ADAPTER_TOKEN_ENVIRONMENT: &str = "PALWORLD_GUIDER_GATEWAY_TOKEN";
+
+#[test]
+fn adapter_mode_requires_environment_token() {
+    let environment = base_environment(Some("ollama"))
+        .into_iter()
+        .chain([(ADAPTER_TOKEN_ENVIRONMENT, None)])
+        .collect::<Vec<_>>();
+    let (success, stdout) = run(
+        &[
+            "--data",
+            DATA_DIRECTORY,
+            "--port",
+            "8070",
+            "--adapter-port",
+            "8123",
+            "--timeout-seconds",
+            "30",
+        ],
+        &environment,
+    );
+    assert!(!success);
+    assert!(
+        stdout.contains(ADAPTER_TOKEN_ENVIRONMENT),
+        "missing-token failure must name the environment variable: {stdout}"
+    );
+}
+
+#[test]
+fn adapter_mode_rejects_invalid_ports_and_token_names() {
+    for port in ["0", "65536", "not-a-port"] {
+        let (success, stdout) = run(
+            &[
+                "--data",
+                DATA_DIRECTORY,
+                "--port",
+                "8070",
+                "--adapter-port",
+                port,
+            ],
+            &base_environment(Some("ollama")),
+        );
+        assert!(!success, "adapter port {port:?} must be rejected");
+        assert!(
+            stdout.to_lowercase().contains("adapter port"),
+            "port error must be clear for {port:?}: {stdout}"
+        );
+    }
+    for name in ["", " ", "\t", "bad name"] {
+        let (success, stdout) = run(
+            &[
+                "--data",
+                DATA_DIRECTORY,
+                "--port",
+                "8070",
+                "--adapter-port",
+                "8123",
+                "--adapter-token-env",
+                name,
+            ],
+            &base_environment(Some("ollama")),
+        );
+        assert!(!success, "token environment name {name:?} must be rejected");
+        assert!(
+            stdout.to_lowercase().contains("token environment"),
+            "token-name error must be clear for {name:?}: {stdout}"
+        );
+    }
+}

@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -96,10 +96,10 @@ fn mock_server_with_provider(responses: Vec<ChatResponse>) -> (GuideServer, Arc<
     let provider = Arc::new(MockProvider::scripted(responses));
     (
         GuideServer::new(
-            agent_with_provider(
+            Arc::new(RwLock::new(agent_with_provider(
                 Box::new(ProviderHandle(provider.clone())),
                 Duration::from_secs(5),
-            ),
+            ))),
             ServerLimits::default(),
         ),
         provider,
@@ -263,7 +263,10 @@ async fn provider_failure_is_clear_and_unfabricated() {
 #[tokio::test]
 async fn agent_deadline_returns_timeout_error() {
     let guide = GuideServer::new(
-        agent_with_provider(Box::new(SlowProvider), Duration::from_secs(5)),
+        Arc::new(RwLock::new(agent_with_provider(
+            Box::new(SlowProvider),
+            Duration::from_secs(5),
+        ))),
         ServerLimits {
             ask_timeout: Duration::from_millis(1),
             ..ServerLimits::default()
@@ -297,7 +300,10 @@ async fn cancellation_token_stops_waiting_for_a_blocked_provider() {
         calls: Mutex::new(Vec::new()),
     };
     let guide = GuideServer::new(
-        agent_with_provider(Box::new(provider), Duration::from_secs(5)),
+        Arc::new(RwLock::new(agent_with_provider(
+            Box::new(provider),
+            Duration::from_secs(5),
+        ))),
         ServerLimits::default(),
     );
     let router = guide.router();

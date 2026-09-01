@@ -10,7 +10,7 @@ use guide_tools::ToolRegistry;
 use knowledge_index::KnowledgeIndex;
 use provider::{ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tower::ServiceExt;
 
@@ -47,7 +47,7 @@ fn test_agent(responses: Vec<ChatResponse>) -> GuideAgent {
 
 fn server(responses: Vec<ChatResponse>) -> GuideServer {
     GuideServer::new(
-        test_agent(responses),
+        Arc::new(RwLock::new(test_agent(responses))),
         ServerLimits {
             max_asks_per_minute: 1,
             max_snapshots_per_minute: 1,

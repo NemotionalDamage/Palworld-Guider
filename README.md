@@ -81,3 +81,63 @@ For an OpenAI-compatible provider, also set `OPENAI_API_KEY`. `GUIDE_BASE_URL` o
 The API provides `GET /health`, `POST /api/sessions`, `GET /api/sessions/{session_id}`, `POST /api/sessions/{session_id}/snapshots`, and `POST /api/sessions/{session_id}/ask`. Snapshot responses contain only schema, source-kind, game-version, freshness, and completeness metadata. Runtime private-server REST, UE4SS, and in-game chat remain disabled until the exact live target and verified read-only field set are recorded.
 
 See `PHASES.md` for current progress and `AGENTS.md` for the governing specification.
+
+## In-Game Adapter Mode
+
+G5 also runs a read-only in-game chat service on the loopback gateway. The Web
+server stays fully functional; adapter mode only adds a second loopback
+listener for the game adapter.
+
+```powershell
+$env:GUIDE_PROVIDER = "ollama"
+$env:GUIDE_MODEL = "llama3.2"
+$env:PALWORLD_GUIDER_GATEWAY_TOKEN = "a-long-random-bearer-token-0123456789"
+cargo run -p guide-server -- --data data/reviewed --port 8070 --adapter-port 8123
+```
+
+- `--adapter-port <1-65535>` enables adapter mode and binds the schema-2
+  gateway on `127.0.0.1:{port}` with 65,536-byte frames and a tool-call
+  timeout no larger than the agent ask timeout.
+- `--adapter-token-env <name>` selects the environment variable that carries
+  the bearer token (default `PALWORLD_GUIDER_GATEWAY_TOKEN`). The token must
+  be 16..=4096 characters, contain no control characters or surrounding
+  whitespace, and is read only from that variable — it is never printed or
+  logged. Startup prints `adapter=127.0.0.1:{port}` and the variable name
+  only.
+- The in-game adapter addresses the guide with the chat prefix `!guide`, for
+  example `!guide What do I need to build a saddle?`. The exact question
+  `ping` returns `Pong: Palworld Guider adapter connected.` without running
+  the provider.
+
+Privacy and read-only boundary:
+
+- Both listeners bind only `127.0.0.1`; nothing listens on a public address.
+- The adapter exposes only the compile-time model-visible allowlist
+  (`get_player_status`, `get_active_pal_status`); `send_chat_message` is an
+  internal tool the model can never call directly.
+- Events are processed one at a time on a dedicated thread. The shared agent
+  locks are held only for the current event, so the Web server keeps serving
+  between events, and a failed gateway or delivery never crashes the guide.
+- The adapter never mutates the game: no movement, combat, gathering,
+  construction, inventory, or world writes.
+
+Troubleshooting:
+
+- `adapter token environment variable ... is required` — the token variable is
+  missing or unset; set it before starting the server.
+- `no authenticated adapter session is active` — the UE4SS adapter is not
+  connected (not installed, wrong token, or the game is not running); the Web
+  guide still works.
+- `Guide unavailable:` replies — the provider failed or timed out for that
+  ask; the raw error is never fabricated, and the Web server is unaffected.
+- Port-in-use errors — both `--port` and `--adapter-port` must be free
+  loopback ports.
+
+Uninstall behavior:
+
+- Removing adapter mode is just stopping the server or omitting
+  `--adapter-port`; the Web guide runs unchanged.
+- Removing the game-side UE4SS adapter files (see the adapter install record)
+  stops in-game chat delivery; unanswered events are ignored and the guide
+  continues to answer through the Web interface.
+- No save file, world, or game installation is modified at any point.

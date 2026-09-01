@@ -54,10 +54,13 @@ pub struct GuideServer {
 }
 
 impl GuideServer {
-    pub fn new(agent: GuideAgent, limits: ServerLimits) -> Self {
+    /// Create the Web server around a shared agent. The same
+    /// `Arc<RwLock<GuideAgent>>` may back the in-game adapter service so both
+    /// interfaces use one tool registry and one provider budget.
+    pub fn new(agent: Arc<RwLock<GuideAgent>>, limits: ServerLimits) -> Self {
         let state = GuideServerState {
             inner: Arc::new(GuideServerInner {
-                agent: Arc::new(RwLock::new(agent)),
+                agent,
                 sessions: Mutex::new(SessionStore::new(limits)),
                 cancellations: Mutex::new(HashMap::new()),
                 limits,

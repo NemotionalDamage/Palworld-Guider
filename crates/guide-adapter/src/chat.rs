@@ -86,6 +86,11 @@ impl InGameChatBridge {
         }
     }
 
+    /// The configured poll interval used by the adapter service loop.
+    pub fn poll_interval(&self) -> Duration {
+        self.limits.poll_interval
+    }
+
     pub fn process_event(&mut self, agent: &GuideAgent, event: ChatEvent) -> ChatOutcome {
         let stripped = event.text.strip_prefix(CHAT_PREFIX).unwrap_or(&event.text);
         let question = stripped.trim();
