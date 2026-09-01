@@ -133,10 +133,11 @@ Completed:
 
 - Defined and approved the G4 architecture in `docs/superpowers/specs/2026-09-01-phase-g4-design.md`.
 - Defined the test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g4.md`.
+- Added the strict `state_snapshot_v1` schema with source, consent, evidence, state, goal, and preference validation.
 
 In progress:
 
-- Snapshot schema, validation, freshness, completeness, and redacted summaries.
+- Snapshot freshness, completeness, and redacted summaries.
 - Deterministic inventory, party, craftable, goal, and recommendation planning.
 - Typed tool and agent integration with no raw snapshot exposure.
 
