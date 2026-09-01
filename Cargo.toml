@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/game-gateway",
     "crates/game-knowledge",
     "crates/guide-core",
     "crates/knowledge-index",
