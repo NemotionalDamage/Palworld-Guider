@@ -83,7 +83,7 @@ local function parse_string(text, start)
         local character = text:sub(position, position)
         if character == "\"" then
             return table.concat(result), position + 1
-        elseif character == "\\\\" then
+        elseif character == "\\" then
             local escape = text:sub(position + 1, position + 1)
             if escape == "u" then
                 local digits = text:sub(position + 2, position + 5)
@@ -101,7 +101,7 @@ local function parse_string(text, start)
                 result[#result + 1] = encoded
                 position = position + 6
             else
-                local decoded = {b="\\b", f="\\f", n="\\n", r="\\r", t="\\t", ["\""]="\\\"", ["\\"]="\\\\", ["/"]="/"}
+                local decoded = {b="\b", f="\f", n="\n", r="\r", t="\t", ['"']='"', ["\\"]="\\", ["/"]="/"}
                 result[#result + 1] = decoded[escape] or escape
                 position = position + 2
             end

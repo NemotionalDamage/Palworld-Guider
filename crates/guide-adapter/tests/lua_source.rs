@@ -318,3 +318,30 @@ fn strict_json_decode_used() {
     assert_contains(&json, "function PalJSON.decode", "json decoder");
     assert_contains(&json, "json_escape", "json escaping");
 }
+
+#[test]
+fn json_decoder_handles_escaped_strings() {
+    // pal_json.lua must decode strings containing JSON escapes (for example
+    // \" inside an error message body). The escape branch compares a single
+    // character, so it must use a one-character backslash literal; the
+    // two-character "\\\\" literal made the branch dead code and truncated
+    // any escaped string at the first escaped quote.
+    let json = read("Scripts/pal_json.lua");
+    assert_contains(
+        &json,
+        "elseif character == \"\\\\\" then",
+        "single-backslash escape branch",
+    );
+    assert_contains(&json, "b=\"\\b\"", "backspace escape");
+    assert_contains(&json, "f=\"\\f\"", "form-feed escape");
+    assert_contains(&json, "n=\"\\n\"", "newline escape");
+    assert_contains(&json, "r=\"\\r\"", "carriage-return escape");
+    assert_contains(&json, "t=\"\\t\"", "tab escape");
+    assert_contains(&json, "[\"\\\\\"]=\"\\\\\"", "backslash escape");
+    assert_contains(
+        &json,
+        "\x5b\x27\x22\x27\x5d\x3d\x27\x22\x27",
+        "quote escape",
+    );
+    assert_not_contains(&json, "character == \"\\\\\\\\\"", "dead escape branch");
+}
