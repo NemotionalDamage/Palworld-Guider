@@ -6,6 +6,8 @@ Last updated: 2026-09-01, Asia/Shanghai.
 
 Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
 
+Phase G4 is in progress after G0–G3 completed. The approved G4 design adds explicit user-entered read-only snapshots, deterministic state analysis, and bounded model-facing summaries without game I/O or save parsing.
+
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
 The G1–G6 roadmap has been refined around a hybrid Rust RAG and deterministic Tool Use architecture: reviewed structured data first, exact Rust calculators second, grounded natural-language retrieval third, state-aware planning fourth, and integrated interfaces last.
@@ -24,7 +26,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G1 | Complete | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
-| G4 | Not started | Add state-aware advice and progression planning |
+| G4 | In progress | Add state-aware advice and progression planning |
 | G5 | Not started | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
 
@@ -125,9 +127,26 @@ Completed:
 
 None.
 
+## Phase G4 Progress
+
+Completed:
+
+- Defined and approved the G4 architecture in `docs/superpowers/specs/2026-09-01-phase-g4-design.md`.
+- Defined the test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g4.md`.
+
+In progress:
+
+- Snapshot schema, validation, freshness, completeness, and redacted summaries.
+- Deterministic inventory, party, craftable, goal, and recommendation planning.
+- Typed tool and agent integration with no raw snapshot exposure.
+
+Next required action:
+
+- Execute Task 1 of the approved plan using the failing-test-first workflow.
+
 ## Phase Boundaries
 
-- Current scope is the grounded static-information guide: lexical retrieval, typed tool use, and bounded LLM synthesis over reviewed knowledge.
-- Game integration and adapter work are deferred to the defined later phases.
+- Current scope is the explicit, read-only single-user state-aware guide: imported user state, deterministic planning, redacted model summaries, and bounded LLM synthesis.
+- Game integration, adapter work, save parsing, server APIs, and all runtime game I/O remain deferred to the defined later phases.
 - Detailed game coverage remains intentionally incomplete until later reviewed intakes.
 - The product remains a read-only guide and advisor.
