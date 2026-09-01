@@ -161,16 +161,18 @@ Completed:
 
 - Approved the Web-first integrated-interface architecture.
 - Defined the test-first Web milestone plan in `docs/superpowers/plans/2026-09-01-phase-g5-web.md`.
+- Added the loopback-only `guide-server` crate with health, session, snapshot, ask, history, cancellation, and browser-UI routes.
+- Added bounded in-memory history, rolling ask and snapshot rate limits, payload and JSON-depth limits, redacted snapshot metadata, provider-failure propagation, server deadlines, cancellation, and blocking-pool agent execution.
+- Added explicit environment-only provider startup for OpenAI-compatible and Ollama providers and documented the local Web interface.
 
 Remaining:
 
-- Implement the Web path test-first and pass offline verification.
 - Record the exact Palworld target version, platform, load mode, ownership, backup, and adapter constraints.
 - Add only the explicitly configured read-only retrieval and thin in-game chat paths validated for that target.
 
 ### Verification
 
-Pending.
+The Web milestone passed `cargo test -p guide-server` with 29 tests, `cargo clippy -p guide-server --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and `git diff --check`. Full-workspace final gates remain pending until the phase record is prepared.
 
 ### Blockers
 

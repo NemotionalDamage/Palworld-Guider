@@ -66,4 +66,18 @@ The snapshot is optional and off by default. It is validated for schema version,
 
 There is no save parser, server API, game-process reader, UE4SS adapter, file watcher, or mutation path in this phase.
 
+## Local Web Guide
+
+G5 adds an explicit, loopback-only Axum server and minimal browser UI:
+
+```powershell
+$env:GUIDE_PROVIDER = "ollama"
+$env:GUIDE_MODEL = "llama3.2"
+cargo run -p guide-server -- --data data/reviewed --port 8070
+```
+
+For an OpenAI-compatible provider, also set `OPENAI_API_KEY`. `GUIDE_BASE_URL` optionally overrides the provider endpoint. The server always binds `127.0.0.1`, keeps sessions and snapshots in memory, bounds request size and JSON depth, applies session rate limits, exposes bounded follow-up history, and returns provenance and uncertainty with each answer.
+
+The API provides `GET /health`, `POST /api/sessions`, `GET /api/sessions/{session_id}`, `POST /api/sessions/{session_id}/snapshots`, and `POST /api/sessions/{session_id}/ask`. Snapshot responses contain only schema, source-kind, game-version, freshness, and completeness metadata. Runtime private-server REST, UE4SS, and in-game chat remain disabled until the exact live target and verified read-only field set are recorded.
+
 See `PHASES.md` for current progress and `AGENTS.md` for the governing specification.
