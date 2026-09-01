@@ -137,14 +137,16 @@ Completed:
 - Added inclusive freshness evaluation, completeness reporting, deterministic field ordering, and question-relevant summaries that omit consent and raw source metadata.
 - Added deterministic inventory-gap, party-work-gap, craftable-now, craft- and progression-goal readiness analyses.
 - Added stable relevance, effort, benefit, risk, and uncertainty ranking for three to five explained recommendations, with missing-state fallback and reviewed unlock-relationship propagation.
+- Added typed snapshot confirmation, inventory, party, and next-goal tools with explicit Rust-side attachment, redacted summaries, provenance, version, uncertainty, and errors.
+- Verified the bounded agent request path never serializes consent IDs, consent objects, or raw capture metadata into provider requests.
 
 In progress:
 
-- Typed tool and agent integration with no raw snapshot exposure.
+- Final workspace gates and Phase G4 evidence records.
 
 Next required action:
 
-- Execute Task 1 of the approved plan using the failing-test-first workflow.
+- Execute Task 5 final verification and documentation.
 
 ## Phase Boundaries
 

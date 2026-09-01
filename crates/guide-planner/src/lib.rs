@@ -32,6 +32,19 @@ pub struct PlannerAnswer<T> {
     pub errors: Vec<String>,
 }
 
+impl<T> PlannerAnswer<T> {
+    pub fn map_data<U>(self, transform: impl FnOnce(Option<T>) -> Option<U>) -> PlannerAnswer<U> {
+        PlannerAnswer {
+            status: self.status,
+            data: transform(self.data),
+            provenance: self.provenance,
+            version: self.version,
+            uncertainty: self.uncertainty,
+            errors: self.errors,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GoalInventoryGap {
     pub target_id: String,

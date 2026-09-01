@@ -4,9 +4,13 @@ use guide_core::{
     AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry, ProvenanceSummary,
     Resolution, VersionInfo,
 };
+use guide_planner::{GuidePlanner, PlannerAnswer, PlannerStatus};
 use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, ProvenanceBrief};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use state_snapshot::{
+    PlayerStateSnapshot, SnapshotFreshness, SnapshotSummaryOptions, SnapshotValidator,
+};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +109,26 @@ impl ToolEnvelope {
             errors: Vec::new(),
         }
     }
+
+    fn from_planner<T: Serialize>(answer: PlannerAnswer<T>) -> Self {
+        let status = match answer.status {
+            PlannerStatus::Ok => ToolStatus::Ok,
+            PlannerStatus::Unknown => ToolStatus::Unknown,
+            PlannerStatus::Ambiguous => ToolStatus::Ambiguous,
+            PlannerStatus::Error => ToolStatus::Error,
+        };
+        Self {
+            status,
+            data: answer
+                .data
+                .as_ref()
+                .map(|data| serde_json::to_value(data).unwrap_or(Value::Null)),
+            provenance: answer.provenance,
+            version: answer.version,
+            uncertainty: answer.uncertainty,
+            errors: answer.errors,
+        }
+    }
 }
 
 fn provenance_summary(brief: &ProvenanceBrief) -> ProvenanceSummary {
@@ -156,6 +180,7 @@ impl ToolBudget {
 pub struct ToolRegistry {
     engine: GuideEngine,
     index: KnowledgeIndex,
+    state_snapshot: Option<PlayerStateSnapshot>,
     definitions: Vec<ToolDefinition>,
 }
 
@@ -164,8 +189,24 @@ impl ToolRegistry {
         Self {
             engine,
             index,
+            state_snapshot: None,
             definitions: build_definitions(),
         }
+    }
+
+    pub fn with_state_snapshot(mut self, snapshot: PlayerStateSnapshot) -> Self {
+        self.state_snapshot = Some(snapshot);
+        self
+    }
+
+    pub fn with_state_snapshot_json(mut self, value: &Value) -> Result<Self, String> {
+        let snapshot = PlayerStateSnapshot::from_json(value)?;
+        let validation = SnapshotValidator.validate(&snapshot, chrono::Utc::now());
+        if !validation.valid {
+            return Err(validation.errors.join("; "));
+        }
+        self.state_snapshot = Some(snapshot);
+        Ok(self)
     }
 
     pub fn definitions(&self) -> &[ToolDefinition] {
@@ -302,8 +343,64 @@ impl ToolRegistry {
                 ),
             },
             "get_conflicting_records" => self.conflicts(version),
+            "import_player_snapshot" => self.import_player_snapshot(arguments, version),
+            "analyze_inventory" => self.analyze_inventory(version),
+            "analyze_party" => self.analyze_party(version),
+            "suggest_next_goals" => self.suggest_next_goals(version),
             _ => ToolEnvelope::error(format!("unknown tool: {name}"), version),
         }
+    }
+
+    fn import_player_snapshot(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
+        if let Err(message) = require_string(arguments, "confirmation") {
+            return ToolEnvelope::error(message, version);
+        }
+        let Some(snapshot) = &self.state_snapshot else {
+            return ToolEnvelope::unknown("no player state snapshot is configured", version);
+        };
+        let summary = snapshot.summarize(
+            "player state summary",
+            &SnapshotSummaryOptions::include_all(),
+            chrono::Utc::now(),
+        );
+        let mut envelope = ToolEnvelope::ok(
+            serde_json::to_value(summary).unwrap_or(Value::Null),
+            version,
+        );
+        if snapshot.freshness(chrono::Utc::now()) != SnapshotFreshness::Fresh {
+            envelope.status = ToolStatus::Unknown;
+            envelope.uncertainty.push("snapshot is stale".to_string());
+        }
+        envelope
+    }
+
+    fn analyze_inventory(&self, version: VersionInfo) -> ToolEnvelope {
+        let Some(snapshot) = &self.state_snapshot else {
+            return ToolEnvelope::unknown("no player state snapshot is configured", version);
+        };
+        let answer = GuidePlanner::new(self.engine.clone())
+            .analyze(snapshot, chrono::Utc::now())
+            .map_data(|analysis| analysis.map(|analysis| analysis.inventory_gap));
+        ToolEnvelope::from_planner(answer)
+    }
+
+    fn analyze_party(&self, version: VersionInfo) -> ToolEnvelope {
+        let Some(snapshot) = &self.state_snapshot else {
+            return ToolEnvelope::unknown("no player state snapshot is configured", version);
+        };
+        let answer = GuidePlanner::new(self.engine.clone())
+            .analyze(snapshot, chrono::Utc::now())
+            .map_data(|analysis| analysis.map(|analysis| analysis.party_work));
+        ToolEnvelope::from_planner(answer)
+    }
+
+    fn suggest_next_goals(&self, version: VersionInfo) -> ToolEnvelope {
+        let Some(snapshot) = &self.state_snapshot else {
+            return ToolEnvelope::unknown("no player state snapshot is configured", version);
+        };
+        ToolEnvelope::from_planner(
+            GuidePlanner::new(self.engine.clone()).recommend(snapshot, chrono::Utc::now()),
+        )
     }
 
     fn resolve_name(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
@@ -509,6 +606,30 @@ fn build_definitions() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "get_conflicting_records".to_string(),
             description: "Return all unresolved or resolved knowledge conflicts.".to_string(),
+            parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
+        },
+        ToolDefinition {
+            name: "import_player_snapshot".to_string(),
+            description: "Confirm use of an explicitly supplied, validated player-state snapshot and return its redacted summary.".to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {"confirmation": {"type": "string", "enum": ["user_entered"]}},
+                "required": ["confirmation"]
+            }),
+        },
+        ToolDefinition {
+            name: "analyze_inventory".to_string(),
+            description: "Analyze the attached player snapshot for inventory gaps against reviewed goals.".to_string(),
+            parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
+        },
+        ToolDefinition {
+            name: "analyze_party".to_string(),
+            description: "Analyze the attached player snapshot for party work-suitability coverage and gaps.".to_string(),
+            parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
+        },
+        ToolDefinition {
+            name: "suggest_next_goals".to_string(),
+            description: "Return three to five deterministic, explained recommendations from the attached snapshot.".to_string(),
             parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
         },
     ]

@@ -1,3 +1,4 @@
+use chrono::{Duration as ChronoDuration, Utc};
 use game_knowledge::KnowledgeStore;
 use guide_core::GuideEngine;
 use guide_tools::{ToolBudget, ToolRegistry, ToolStatus};
@@ -40,6 +41,10 @@ fn manifest_publishes_all_tools_with_schemas() {
         "calculate_breeding_result",
         "calculate_breeding_chain",
         "get_conflicting_records",
+        "import_player_snapshot",
+        "analyze_inventory",
+        "analyze_party",
+        "suggest_next_goals",
     ] {
         assert!(names.contains(&expected), "missing tool: {expected}");
     }
@@ -47,6 +52,134 @@ fn manifest_publishes_all_tools_with_schemas() {
         assert!(!definition.description.is_empty());
         assert_eq!(definition.parameters_schema["type"], "object");
     }
+}
+
+#[test]
+fn state_tools_use_attached_snapshot_without_exposing_raw_state() {
+    let registry = test_registry(None)
+        .with_state_snapshot_json(&snapshot_value())
+        .expect("snapshot attaches");
+    let mut budget = fresh_budget(8);
+
+    let imported = registry.dispatch(
+        "import_player_snapshot",
+        &json!({"confirmation": "user_entered"}),
+        &mut budget,
+    );
+    assert_eq!(imported.status, ToolStatus::Ok);
+    assert_eq!(
+        imported.data.as_ref().expect("summary exists")["source_kind"],
+        "user_entered"
+    );
+    let serialized = serde_json::to_string(&imported).expect("envelope serializes");
+    assert!(!serialized.contains("operator-local-session"));
+    assert!(!serialized.contains("consent"));
+
+    let inventory = registry.dispatch("analyze_inventory", &json!({}), &mut budget);
+    assert_eq!(inventory.status, ToolStatus::Ok);
+    let inventory_data = inventory.data.expect("inventory analysis exists");
+    assert_eq!(inventory_data["goals"][0]["target_id"], "ITEM_WOODEN_CLUB");
+    assert_eq!(
+        inventory_data["goals"][0]["shortage"]["shortages"][0]["missing_quantity"],
+        3
+    );
+
+    let party = registry.dispatch("analyze_party", &json!({}), &mut budget);
+    assert_eq!(party.status, ToolStatus::Ok);
+    let party_data = party.data.expect("party analysis exists");
+    assert_eq!(party_data["members"][0]["pal_id"], "PAL_LAMBALL");
+
+    let recommendations = registry.dispatch("suggest_next_goals", &json!({}), &mut budget);
+    assert_eq!(recommendations.status, ToolStatus::Ok);
+    let data = recommendations
+        .data
+        .as_ref()
+        .expect("recommendations exist");
+    assert!(data
+        .as_array()
+        .expect("recommendations are an array")
+        .iter()
+        .any(|recommendation| recommendation["action"] == "Collect 3 Wood"));
+    assert!(!recommendations.provenance.is_empty());
+    let serialized = serde_json::to_string(&recommendations).expect("envelope serializes");
+    assert!(!serialized.contains("operator-local-session"));
+}
+
+#[test]
+fn missing_snapshot_returns_unknown_state() {
+    let registry = test_registry(None);
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch("suggest_next_goals", &json!({}), &mut budget);
+    assert_eq!(envelope.status, ToolStatus::Unknown);
+    assert!(envelope
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("no player state snapshot is configured")));
+}
+
+#[test]
+fn stale_and_invalid_snapshots_are_rejected_clearly() {
+    let mut stale = snapshot_value();
+    stale["source"]["captured_at"] = json!("2020-01-01T00:00:00Z");
+    stale["source"]["time_to_live_seconds"] = json!(1);
+    let registry = test_registry(None)
+        .with_state_snapshot_json(&stale)
+        .expect("shape is valid");
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch("suggest_next_goals", &json!({}), &mut budget);
+    assert_eq!(envelope.status, ToolStatus::Unknown);
+    assert!(envelope
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("snapshot is stale")));
+
+    let mut invalid = snapshot_value();
+    invalid["source"]["kind"] = json!("server_api");
+    let error = match test_registry(None).with_state_snapshot_json(&invalid) {
+        Err(error) => error,
+        Ok(_) => panic!("unsupported source is rejected"),
+    };
+    assert!(error.contains("unsupported source kind"));
+}
+
+fn snapshot_value() -> serde_json::Value {
+    let captured_at = Utc::now() - ChronoDuration::seconds(1);
+    json!({
+        "schema_version": "state_snapshot_v1",
+        "source": {
+            "kind": "user_entered",
+            "captured_at": captured_at.to_rfc3339(),
+            "game_version": "1.0.3",
+            "time_to_live_seconds": 900,
+            "consent": {
+                "id": "operator-local-session",
+                "scope": ["guide_advice"],
+                "granted_at": captured_at.to_rfc3339()
+            }
+        },
+        "inventory": [
+            {"item": "Wood", "quantity": 7, "evidence": "user_entered"}
+        ],
+        "party": [
+            {"slot": 0, "pal": "Lamball", "evidence": "user_entered"}
+        ],
+        "unlocked_technologies": [
+            {"technology": "Technology Level 1", "evidence": "user_entered"}
+        ],
+        "captured_pals": [
+            {"pal": "Lamball", "level": 5, "evidence": "user_entered"}
+        ],
+        "player_level": {"value": 7, "evidence": "user_entered"},
+        "goals": [
+            {"kind": "craft", "target": "Wooden Club", "quantity": 2, "priority": 2}
+        ],
+        "preferences": {
+            "spoiler_level": "minimal",
+            "long_horizon": false,
+            "preferred_activities": ["gathering"],
+            "avoided_activities": ["combat"]
+        }
+    })
 }
 
 #[test]

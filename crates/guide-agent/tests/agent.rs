@@ -53,6 +53,79 @@ fn scripted_agent(
 }
 
 #[test]
+fn agent_never_receives_raw_snapshot_state() {
+    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let index = KnowledgeIndex::from_store(&store, None).expect("index builds");
+    let engine = GuideEngine::new(store, None);
+    let snapshot = json!({
+        "schema_version": "state_snapshot_v1",
+        "source": {
+            "kind": "user_entered",
+            "captured_at": "2020-01-01T00:00:00Z",
+            "game_version": "1.0.3",
+            "time_to_live_seconds": 1,
+            "consent": {
+                "id": "operator-local-session",
+                "scope": ["guide_advice"],
+                "granted_at": "2020-01-01T00:00:00Z"
+            }
+        },
+        "inventory": [
+            {"item": "Wood", "quantity": 7, "evidence": "user_entered"}
+        ],
+        "party": [
+            {"slot": 0, "pal": "Lamball", "evidence": "user_entered"}
+        ],
+        "unlocked_technologies": [
+            {"technology": "Technology Level 1", "evidence": "user_entered"}
+        ],
+        "captured_pals": [
+            {"pal": "Lamball", "level": 5, "evidence": "user_entered"}
+        ],
+        "player_level": {"value": 7, "evidence": "user_entered"},
+        "goals": [
+            {"kind": "craft", "target": "Wooden Club", "quantity": 2, "priority": 2}
+        ],
+        "preferences": {
+            "spoiler_level": "minimal",
+            "long_horizon": false,
+            "preferred_activities": ["gathering"],
+            "avoided_activities": ["combat"]
+        }
+    });
+    let registry = ToolRegistry::new(engine, index)
+        .with_state_snapshot_json(&snapshot)
+        .expect("snapshot attaches");
+    let provider = Arc::new(MockProvider::scripted(vec![
+        ChatResponse::tool("state_call", "suggest_next_goals", json!({})),
+        ChatResponse::text("Use the supplied guidance; refresh your snapshot first."),
+    ]));
+    let agent = GuideAgent::new(
+        registry,
+        Box::new(ProviderHandle(provider.clone())),
+        AgentConfig {
+            limits: AgentLimits {
+                max_tool_calls: 4,
+                timeout: Duration::from_secs(30),
+            },
+            max_reply_characters: 1200,
+        },
+    );
+
+    let answer = agent.ask("What should I do next?");
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    let calls = provider.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].messages[0].content, "What should I do next?");
+    for call in &calls {
+        let serialized = serde_json::to_string(call).expect("request serializes");
+        assert!(!serialized.contains("operator-local-session"));
+        assert!(!serialized.contains("consent"));
+        assert!(!serialized.contains("captured_at"));
+    }
+}
+
+#[test]
 fn executes_tool_request_and_returns_grounded_answer() {
     let (agent, _provider) = scripted_agent(
         None,
