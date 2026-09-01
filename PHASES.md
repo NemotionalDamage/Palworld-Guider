@@ -135,10 +135,11 @@ Completed:
 - Defined the test-first implementation plan in `docs/superpowers/plans/2026-09-01-phase-g4.md`.
 - Added the strict `state_snapshot_v1` schema with source, consent, evidence, state, goal, and preference validation.
 - Added inclusive freshness evaluation, completeness reporting, deterministic field ordering, and question-relevant summaries that omit consent and raw source metadata.
+- Added deterministic inventory-gap, party-work-gap, craftable-now, craft- and progression-goal readiness analyses.
+- Added stable relevance, effort, benefit, risk, and uncertainty ranking for three to five explained recommendations, with missing-state fallback and reviewed unlock-relationship propagation.
 
 In progress:
 
-- Deterministic inventory, party, craftable, goal, and recommendation planning.
 - Typed tool and agent integration with no raw snapshot exposure.
 
 Next required action:

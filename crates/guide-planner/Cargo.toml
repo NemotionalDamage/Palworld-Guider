@@ -1,0 +1,12 @@
+[package]
+name = "guide-planner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+game-knowledge = { path = "../game-knowledge" }
+guide-core = { path = "../guide-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+state-snapshot = { path = "../state-snapshot" }

@@ -389,6 +389,12 @@ impl KnowledgeStore {
         self.breeding_rules.values()
     }
 
+    pub fn progression_relationships(
+        &self,
+    ) -> impl Iterator<Item = &crate::models::ProgressionRelationshipRecord> {
+        self.progression_relationships.values()
+    }
+
     pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {
         self.conflicts
             .values()
