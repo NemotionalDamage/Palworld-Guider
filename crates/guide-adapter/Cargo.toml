@@ -1,0 +1,19 @@
+[package]
+name = "guide-adapter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game-gateway = { path = "../game-gateway" }
+guide-agent = { path = "../guide-agent" }
+guide-core = { path = "../guide-core" }
+guide-tools = { path = "../guide-tools" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+game-knowledge = { path = "../game-knowledge" }
+knowledge-index = { path = "../knowledge-index" }
+provider = { path = "../provider" }
+tungstenite = "0.28"
