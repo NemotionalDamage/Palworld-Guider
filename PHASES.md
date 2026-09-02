@@ -95,7 +95,7 @@ Remaining:
 
 ### Blocker
 
-FModel and UAssetGUI are not installed or discoverable. The project owner must perform interactive tool setup and targeted export; no encryption key or game asset will be guessed.
+FModel 4.4.4 is installed and mounts Steam build 24575825, but DataTable export requires a matching Palworld mapping. A PalworldModding/UsefulFiles mapping is downloaded beside FModel; enable Local Mapping File, point it to that Mappings.usmap, restart FModel, and retry the two target exports.
 
 ## Phase G2 Progress
 

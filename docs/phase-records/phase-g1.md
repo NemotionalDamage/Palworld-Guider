@@ -79,4 +79,4 @@ The correction adds a dot-separated numeric version rule for sources and provena
 
 The project owner approved reopening G1 for a narrowly scoped extraction pilot against installed Steam build 24575825 at D:/Steam/steamapps/common/Palworld. The pilot must first reproduce the already reviewed early-game item, recipe, technology, and Lamball facts before broader intake is considered. Raw exports stay under gitignored .local/research/local-build; only reviewed transformed facts and provenance may enter canonical data.
 
-Current blocker: neither FModel nor UAssetGUI is installed or discoverable, and interactive setup must be completed by the project owner. Do not guess an encryption key, table name, field meaning, or game fact.
+Current blocker: FModel 4.4.4 is installed and mounts the installed Steam build, but DataTable export reports that a mapping file is missing. A PalworldModding/UsefulFiles mapping is downloaded beside FModel; interactive Local Mapping File enablement and targeted export retry remain. Do not guess field meaning or promote an unreviewed export into canonical game facts.
