@@ -23,6 +23,61 @@ fn source() -> SourceRecord {
     }
 }
 
+#[test]
+fn local_identity_preserves_legacy_records_and_rejects_duplicates() {
+    let legacy_json = r#"{
+        "record_type": "item",
+        "id": "ITEM_LEGACY",
+        "names": { "en": "Legacy" },
+        "description": null,
+        "rarity": "common",
+        "acquisition_leads": [],
+        "provenance": {
+            "source_id": "SRC-PALDB-20260831",
+            "applicable_game_version": "1.0.3",
+            "retrieved_on": "2026-08-31",
+            "reviewer": "Codex",
+            "review_status": "reviewed",
+            "confidence": "reviewed_secondary"
+        }
+    }"#;
+    let legacy: KnowledgeRecord = serde_json::from_str(legacy_json).unwrap();
+
+    assert!(KnowledgeStore::from_records(vec![KnowledgeRecord::Source(source()), legacy]).is_ok());
+
+    let mut first = item_record("ITEM_FIRST", Some("SharedNativeRow"));
+    let mut second = item_record("ITEM_SECOND", Some("SharedNativeRow"));
+    if let (KnowledgeRecord::Item(first), KnowledgeRecord::Item(second)) = (&mut first, &mut second)
+    {
+        first.provenance.corroborating_source_ids = vec![SOURCE_ID.to_string()];
+        second.provenance.corroborating_source_ids = vec!["SRC_MISSING".to_string()];
+    }
+
+    let errors =
+        KnowledgeStore::from_records(vec![KnowledgeRecord::Source(source()), first, second])
+            .expect_err("duplicate native identity and unregistered corroboration must fail");
+
+    assert!(errors
+        .iter()
+        .any(|error| error.message.contains("duplicate native row ID")));
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "provenance.corroborating_source_ids"));
+}
+
+fn item_record(id: &str, native_row_id: Option<&str>) -> KnowledgeRecord {
+    KnowledgeRecord::Item(ItemRecord {
+        id: id.to_string(),
+        names: names("Test"),
+        description: None,
+        rarity: "common".to_string(),
+        acquisition_leads: vec![],
+        native_row_id: native_row_id.map(str::to_string),
+        local_evidence: None,
+        provenance: provenance(),
+    })
+}
+
 fn provenance() -> Provenance {
     Provenance {
         source_id: SOURCE_ID.to_string(),
@@ -32,6 +87,7 @@ fn provenance() -> Provenance {
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::ReviewedSecondary,
         change_risk: None,
+        corroborating_source_ids: Vec::new(),
     }
 }
 
@@ -54,6 +110,8 @@ fn valid_records() -> Vec<KnowledgeRecord> {
                 action: "Chop trees".to_string(),
                 notes: None,
             }],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(ItemRecord {
@@ -62,12 +120,16 @@ fn valid_records() -> Vec<KnowledgeRecord> {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Technology(TechnologyRecord {
             id: "TECH_LEVEL_1".to_string(),
             names: names("Technology Level 1"),
             level: 1,
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Recipe(RecipeRecord {
@@ -84,6 +146,8 @@ fn valid_records() -> Vec<KnowledgeRecord> {
             technology_id: Some("TECH_LEVEL_1".to_string()),
             crafting_seconds: None,
             byproducts: Vec::new(),
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::ProgressionRelationship(ProgressionRelationshipRecord {
@@ -157,6 +221,8 @@ fn rejects_duplicate_ids_and_invalid_entity_values() {
         description: None,
         rarity: String::new(),
         acquisition_leads: vec![],
+        native_row_id: None,
+        local_evidence: None,
         provenance: provenance(),
     }));
 
@@ -185,6 +251,8 @@ fn rejects_invalid_ranges_and_broken_references() {
             probability_percent: 101.0,
         }],
         habitat_ids: vec![],
+        native_row_id: None,
+        local_evidence: None,
         provenance: provenance(),
     }));
 
@@ -250,6 +318,8 @@ fn validates_all_related_fact_schemas_and_keeps_conflicts_visible() {
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],
+        native_row_id: None,
+        local_evidence: None,
         provenance: provenance(),
     }));
 

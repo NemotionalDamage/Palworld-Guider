@@ -28,6 +28,26 @@ pub struct Provenance {
     pub review_status: ReviewStatus,
     pub confidence: Confidence,
     pub change_risk: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub corroborating_source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalizationStatus {
+    Resolved,
+    Partial,
+    Missing,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalEvidenceMetadata {
+    pub source_table: String,
+    pub localization_status: LocalizationStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unresolved_fields: Vec<String>,
+    pub transformation_notes: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +83,10 @@ pub struct ItemRecord {
     pub description: Option<String>,
     pub rarity: String,
     pub acquisition_leads: Vec<AcquisitionLead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_row_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_evidence: Option<LocalEvidenceMetadata>,
     pub provenance: Provenance,
 }
 
@@ -71,6 +95,10 @@ pub struct TechnologyRecord {
     pub id: String,
     pub names: LocaleNames,
     pub level: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_row_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_evidence: Option<LocalEvidenceMetadata>,
     pub provenance: Provenance,
 }
 
@@ -96,6 +124,10 @@ pub struct RecipeRecord {
     pub crafting_seconds: Option<f32>,
     #[serde(default)]
     pub byproducts: Vec<RecipeItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_row_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_evidence: Option<LocalEvidenceMetadata>,
     pub provenance: Provenance,
 }
 
@@ -145,6 +177,10 @@ pub struct PalRecord {
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_row_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_evidence: Option<LocalEvidenceMetadata>,
     pub provenance: Provenance,
 }
 

@@ -1,6 +1,26 @@
 use game_knowledge::{Confidence, ReviewStatus, WorkKind};
 
 const SOURCE_ID: &str = "SRC-PALDB-V1_0_3-20260831";
+const LOCAL_BUILD_SOURCE_ID: &str = "SRC-LOCAL-BUILD-24575825-20260902";
+
+#[test]
+fn loads_local_build_source() {
+    let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
+        .expect("canonical reviewed dataset must be valid");
+
+    let source = store
+        .source(LOCAL_BUILD_SOURCE_ID)
+        .expect("local build source exists");
+
+    assert_eq!(source.applicable_game_version, "1.0.3");
+    assert_eq!(source.review_status, ReviewStatus::Reviewed);
+    assert_eq!(source.confidence, Confidence::VerifiedTarget);
+    assert!(source
+        .notes
+        .as_deref()
+        .unwrap()
+        .contains("Steam Build 24575825"));
+}
 
 #[test]
 fn canonical_reviewed_dataset_loads_and_propagates_provenance() {

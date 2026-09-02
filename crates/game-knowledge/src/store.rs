@@ -25,6 +25,10 @@ impl KnowledgeStore {
         let mut errors = Vec::new();
         let mut fact_ids: BTreeSet<String> = BTreeSet::new();
         let mut alias_keys: BTreeSet<(String, String)> = BTreeSet::new();
+        let mut native_item_ids: BTreeMap<String, String> = BTreeMap::new();
+        let mut native_pal_ids: BTreeMap<String, String> = BTreeMap::new();
+        let mut native_technology_ids: BTreeMap<String, String> = BTreeMap::new();
+        let mut native_recipe_ids: BTreeMap<String, String> = BTreeMap::new();
 
         for record in records {
             match record {
@@ -44,6 +48,13 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::Item(record) => {
                     validate_id(&record.id, "item.id", &record.id, &mut errors);
+                    validate_native_row_id(
+                        &record,
+                        &mut native_item_ids,
+                        "item.native_row_id",
+                        &mut errors,
+                    );
+                    validate_local_evidence(&record, &mut errors);
                     if let Some(error) = validate_locale_names(&record.id, &record.names) {
                         errors.push(error);
                     }
@@ -74,6 +85,13 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::Pal(record) => {
                     validate_id(&record.id, "pal.id", &record.id, &mut errors);
+                    validate_native_row_id(
+                        &record,
+                        &mut native_pal_ids,
+                        "pal.native_row_id",
+                        &mut errors,
+                    );
+                    validate_local_evidence(&record, &mut errors);
                     if let Some(error) = validate_locale_names(&record.id, &record.names) {
                         errors.push(error);
                     }
@@ -122,6 +140,13 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::Technology(record) => {
                     validate_id(&record.id, "technology.id", &record.id, &mut errors);
+                    validate_native_row_id(
+                        &record,
+                        &mut native_technology_ids,
+                        "technology.native_row_id",
+                        &mut errors,
+                    );
+                    validate_local_evidence(&record, &mut errors);
                     if let Some(error) = validate_locale_names(&record.id, &record.names) {
                         errors.push(error);
                     }
@@ -145,6 +170,13 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::Recipe(record) => {
                     validate_id(&record.id, "recipe.id", &record.id, &mut errors);
+                    validate_native_row_id(
+                        &record,
+                        &mut native_recipe_ids,
+                        "recipe.native_row_id",
+                        &mut errors,
+                    );
+                    validate_local_evidence(&record, &mut errors);
                     if record.ingredients.is_empty() {
                         errors.push(ValidationError::new(
                             Some(record.id.clone()),
@@ -437,7 +469,10 @@ impl KnowledgeStore {
     fn validate_references(&self, fact_ids: &BTreeSet<String>, errors: &mut Vec<ValidationError>) {
         for record in self.sources.values() {
             for url in &record.evidence_urls {
-                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                if !(url.starts_with("https://")
+                    || url.starts_with("http://")
+                    || url.starts_with("local://"))
+                {
                     errors.push(ValidationError::new(
                         Some(record.id.clone()),
                         "evidence_urls",
@@ -590,9 +625,97 @@ impl KnowledgeStore {
                     "fact provenance does not match its registered source",
                 ));
             }
+            for source_id in &provenance.corroborating_source_ids {
+                if !self.sources.contains_key(source_id) {
+                    errors.push(ValidationError::new(
+                        Some(record_id.clone()),
+                        "provenance.corroborating_source_ids",
+                        "corroborating source is not registered",
+                    ));
+                }
+            }
         }
     }
 }
+
+fn validate_native_row_id<T>(
+    record: &T,
+    native_ids: &mut BTreeMap<String, String>,
+    field: &'static str,
+    errors: &mut Vec<ValidationError>,
+) where
+    T: NativeRowRecord,
+{
+    let record_id = record.record_id().to_string();
+    if let Some(native_row_id) = record.native_row_id() {
+        if native_row_id.trim().is_empty() {
+            errors.push(ValidationError::new(
+                Some(record_id),
+                field,
+                "native row ID must not be empty",
+            ));
+        } else if let Some(existing_id) =
+            native_ids.insert(native_row_id.to_string(), record_id.clone())
+        {
+            errors.push(ValidationError::new(
+                Some(record_id),
+                field,
+                format!("duplicate native row ID also used by {existing_id}"),
+            ));
+        }
+    }
+}
+
+fn validate_local_evidence<T>(record: &T, errors: &mut Vec<ValidationError>)
+where
+    T: NativeRowRecord,
+{
+    if let Some(evidence) = record.local_evidence() {
+        if evidence.source_table.trim().is_empty() {
+            errors.push(ValidationError::new(
+                Some(record.record_id().to_string()),
+                "local_evidence.source_table",
+                "source table must not be empty",
+            ));
+        }
+        if evidence.transformation_notes.trim().is_empty() {
+            errors.push(ValidationError::new(
+                Some(record.record_id().to_string()),
+                "local_evidence.transformation_notes",
+                "transformation notes are required",
+            ));
+        }
+    }
+}
+
+trait NativeRowRecord {
+    fn record_id(&self) -> &str;
+    fn native_row_id(&self) -> Option<&str>;
+    fn local_evidence(&self) -> Option<&crate::models::LocalEvidenceMetadata>;
+}
+
+macro_rules! impl_native_row_record {
+    ($record_type:ty, $id_field:ident) => {
+        impl NativeRowRecord for $record_type {
+            fn record_id(&self) -> &str {
+                &self.$id_field
+            }
+
+            fn native_row_id(&self) -> Option<&str> {
+                self.native_row_id.as_deref()
+            }
+
+            fn local_evidence(&self) -> Option<&crate::models::LocalEvidenceMetadata> {
+                self.local_evidence.as_ref()
+            }
+        }
+    };
+}
+
+impl_native_row_record!(crate::models::ItemRecord, id);
+impl_native_row_record!(crate::models::PalRecord, id);
+impl_native_row_record!(crate::models::TechnologyRecord, id);
+impl_native_row_record!(crate::models::RecipeRecord, id);
 
 fn read_jsonl(path: &Path) -> Result<Vec<KnowledgeRecord>, Vec<ValidationError>> {
     let content = fs::read_to_string(path).map_err(|error| {
