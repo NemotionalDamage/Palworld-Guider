@@ -85,14 +85,15 @@ Detailed evidence remains in `docs/phase-records/phase-g1.md`.
 
 ### Active Local-Build Data Pilot
 
-The project owner approved a local Palworld DataTable extraction pilot for installed Steam build 24575825 at D:/Steam/steamapps/common/Palworld. The pilot targets only table families needed to reproduce the reviewed Wood and Stone early-game records, Pal Sphere records, food records, Technology Levels 1 and 2, and Lamball work and drop records. Extracted raw assets remain under gitignored .local/research/local-build and will not be committed or copied wholesale into canonical data.
+The project owner approved a local Palworld DataTable extraction pilot for installed Steam build 24575825. The pilot targets only table families needed to reproduce the reviewed Wood and Stone early-game records, Pal Sphere records, food records, Technology Levels 1 and 2, and Lamball work and drop records. Extracted raw assets remain under gitignored .local/research/local-build and will not be committed or copied wholesale into canonical data.
+
+The local-build export gate passed. The preserved manifest contains 518 JSON exports totaling 135,737,060 bytes, with SHA-256 C5850F0EDCE381850526420218F6C0DBC20570BBA97FCE0F23D0978703EFABA7. All 518 files are present and valid JSON; 518/518 matched the manifest, with zero missing. One planned table, DT_SupplyIncident_NPC_Sakura01, legitimately has zero rows. The implementation plan is docs/superpowers/plans/2026-09-02-phase-g1-local-build-intake.md.
 
 Remaining:
 
-- Export the remaining minimal Pal, item, recipe, technology, and localized-text tables.
-- Map selected local-build fields to item, recipe, technology, Pal, progression, and localized alias schemas.
-- Compare extracted values with current Paldb records and preserve any conflict explicitly.
-- Record the local-build provenance for the reviewed facts.
+- Register the verified local-build source and provenance metadata.
+- Execute Tasks 1–8 in docs/superpowers/plans/2026-09-02-phase-g1-local-build-intake.md in order.
+- Preserve the Wooden Club versus Stone Axe identity conflict and require semantic review before canonical promotion.
 
 ### Blocker
 
