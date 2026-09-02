@@ -96,7 +96,7 @@ Remaining:
 
 ### Blocker
 
-None. FModel now exports with the PalworldModding/UsefulFiles mapping commit 0e4ae19a05ba0d9fb95d859c09b28f168cb3624f; the 1,044-row drop table was validated and SheepBall000 matches the reviewed Lamball drop facts. Continue only the targeted exports and review gate.
+None. FModel now exports with the PalworldModding/UsefulFiles mapping commit 0e4ae19a05ba0d9fb95d859c09b28f168cb3624f; the 1,044-row drop table and 753-row Pal parameter table were validated. SheepBall000 matches the reviewed Lamball drop facts, and SheepBall matches Handcraft, Transport, and MonsterFarm level 1. Continue only the targeted exports and review gate.
 
 ## Phase G2 Progress
 
