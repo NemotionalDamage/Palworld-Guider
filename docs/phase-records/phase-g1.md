@@ -74,3 +74,9 @@ No checks were intentionally skipped.
 A second accepted audit reopened the phase because version format, conflict shape, identifier charset, and alias locale checks were incomplete. `nonsense-version` loaded as an applicable game version, a conflict with empty `values` loaded and mislabeled lookups as ambiguous, pure punctuation IDs such as `-` loaded, and arbitrary alias locales such as `xx` were accepted.
 
 The correction adds a dot-separated numeric version rule for sources and provenance, requires at least two nonempty conflict values and one evidence source per conflict, requires at least one ASCII letter or digit in every ID, and restricts alias locales to `en` and `zh_hans`. Regression tests cover all four cases. `cargo test -p game-knowledge` passes with nine tests across schema validation and the canonical dataset.
+
+## Local-Build Data Pilot
+
+The project owner approved reopening G1 for a narrowly scoped extraction pilot against installed Steam build 24575825 at D:/Steam/steamapps/common/Palworld. The pilot must first reproduce the already reviewed early-game item, recipe, technology, and Lamball facts before broader intake is considered. Raw exports stay under gitignored .local/research/local-build; only reviewed transformed facts and provenance may enter canonical data.
+
+Current blocker: neither FModel nor UAssetGUI is installed or discoverable, and interactive setup must be completed by the project owner. Do not guess an encryption key, table name, field meaning, or game fact.

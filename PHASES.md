@@ -4,7 +4,7 @@ Last updated: 2026-09-02, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bearing JSONL knowledge foundation and passed an audit correction.
+Phase G0 is complete. G1 is complete at its original acceptance boundary but is reopened for a narrowly scoped local-build DataTable extraction pilot; the canonical foundation remains typed, validated, provenance-bearing, and audit-corrected.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -27,7 +27,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Phase | Status | Purpose |
 |---|---|---|
 | G0 | Complete | Establish the independent charter, roadmap, and reference-data rules |
-| G1 | Complete | Define knowledge schemas and ingest reviewed sources |
+| G1 | Reopened for local-build data pilot | Define knowledge schemas and ingest reviewed sources |
 | G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Complete | Add state-aware advice and progression planning |
@@ -82,6 +82,20 @@ Completed:
 
 Detailed evidence remains in `docs/phase-records/phase-g1.md`.
 
+
+### Active Local-Build Data Pilot
+
+The project owner approved a local Palworld DataTable extraction pilot for installed Steam build 24575825 at D:/Steam/steamapps/common/Palworld. The pilot targets only table families needed to reproduce the reviewed Wood and Stone early-game records, Pal Sphere records, food records, Technology Levels 1 and 2, and Lamball work and drop records. Extracted raw assets remain under gitignored .local/research/local-build and will not be committed or copied wholesale into canonical data.
+
+Remaining:
+
+- Configure an offline asset inspector for the installed build and export a minimal targeted JSON or CSV set.
+- Map selected local-build fields to item, recipe, technology, Pal, progression, and localized alias schemas.
+- Compare extracted values with current Paldb records and preserve any conflict explicitly.
+
+### Blocker
+
+FModel and UAssetGUI are not installed or discoverable. The project owner must perform interactive tool setup and targeted export; no encryption key or game asset will be guessed.
 
 ## Phase G2 Progress
 
