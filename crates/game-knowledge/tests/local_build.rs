@@ -1,0 +1,429 @@
+use game_knowledge::{LocalBuildError, LocalBuildLocale, LocalBuildTables, LocalizationIndex};
+use serde_json::{json, Map, Value};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[test]
+fn loads_core_local_build_tables_and_reports_every_row() {
+    let root = fixture_root();
+    write_core_fixtures(&root);
+
+    let tables = LocalBuildTables::load(&root).expect("core fixtures must load");
+
+    assert_eq!(
+        tables
+            .coverage()
+            .iter()
+            .map(|table| table.total_rows)
+            .sum::<usize>(),
+        60
+    );
+    assert_eq!(
+        tables
+            .item("FixtureItem00")
+            .expect("valid item exists")
+            .max_stack_count,
+        Some(9999)
+    );
+    assert!(!tables
+        .item("FixtureItem09")
+        .expect("parsed illegal item exists")
+        .is_legal_in_game
+        .unwrap_or(true));
+    assert_eq!(tables.item("FixtureItem04"), None);
+    assert_eq!(
+        tables
+            .recipe("FixtureRecipe00")
+            .expect("recipe exists")
+            .materials
+            .len(),
+        2
+    );
+    assert_eq!(
+        tables
+            .recipe("FixtureRecipe01")
+            .expect("multi-ingredient recipe exists")
+            .materials
+            .len(),
+        5
+    );
+    assert_eq!(tables.recipe("FixtureRecipe03"), None);
+    assert_eq!(
+        tables
+            .technology("FixtureTechnology00")
+            .expect("technology exists")
+            .unlock_item_recipes,
+        vec!["FixtureRecipe00".to_string()]
+    );
+    assert_eq!(
+        tables
+            .pal("FixturePal00")
+            .expect("Pal exists")
+            .work_suitability("Handcraft"),
+        Some(1)
+    );
+    assert_eq!(tables.drops_for("FixturePal00").len(), 2);
+
+    let all_coverage = tables.coverage();
+    let item_coverage = all_coverage
+        .iter()
+        .find(|table| table.name.ends_with("DT_ItemDataTable.json"))
+        .expect("item coverage exists");
+    assert_eq!(item_coverage.total_rows, 12);
+    assert_eq!(item_coverage.parsed_rows, 11);
+    assert_eq!(item_coverage.failed_rows, 1);
+    assert_eq!(item_coverage.fields_missing["MaxStackCount"], 1);
+    assert_eq!(item_coverage.fields_null["Price"], 1);
+    assert_eq!(item_coverage.fields_zero["Price"], 1);
+    assert_eq!(item_coverage.fields_empty_string["TypeA"], 1);
+    assert_eq!(item_coverage.failure_reasons["malformed_number"], 1);
+    assert_eq!(item_coverage.representative_errors.len(), 1);
+
+    let missing = LocalBuildTables::load(&root.join("missing"));
+    assert!(matches!(missing, Err(LocalBuildError::MissingTable { .. })));
+}
+
+#[test]
+fn localization_resolves_locales_and_rejects_placeholders() {
+    let root = fixture_root();
+    write_core_fixtures(&root);
+
+    let localization = LocalizationIndex::load(&root).expect("localization fixtures must load");
+
+    assert_eq!(
+        localization
+            .item_name("FixtureItem00", LocalBuildLocale::English)
+            .expect("valid English name"),
+        Some("Fixture English 0".to_string())
+    );
+    assert_eq!(
+        localization
+            .item_name("FixtureItem00", LocalBuildLocale::SimplifiedChinese)
+            .expect("valid Chinese name"),
+        Some("简体中文0".to_string())
+    );
+    assert_eq!(
+        localization
+            .item_name("FixtureItem08", LocalBuildLocale::SimplifiedChinese)
+            .expect("missing localization is explicit"),
+        None
+    );
+    assert!(localization
+        .item_name("FixtureItem07", LocalBuildLocale::SimplifiedChinese)
+        .is_err());
+    assert!(localization
+        .item_description("FixtureItem00", LocalBuildLocale::English)
+        .expect("description exists")
+        .is_some());
+    assert_eq!(
+        localization
+            .pal_name("FixturePal00", LocalBuildLocale::English)
+            .expect("Pal localization exists"),
+        Some("Fixture Pal 0".to_string())
+    );
+
+    let coverage = localization.coverage();
+    assert_eq!(coverage.len(), 6);
+    assert!(coverage.iter().any(|table| table.name.contains("zh-Hans")
+        && table.name.contains("DT_ItemNameText_Common.json")
+        && table.localization_rejections["placeholder"] >= 1));
+}
+
+#[test]
+fn parses_preserved_real_export_batch_when_present() {
+    let root = Path::new("../../.local/research/local-build/raw");
+    if !root.exists() {
+        return;
+    }
+
+    let tables = LocalBuildTables::load(root).expect("preserved real exports must parse");
+    let expected_counts = [
+        ("DT_ItemDataTable.json", 2_466),
+        ("DT_ItemRecipeDataTable.json", 1_414),
+        ("DT_TechnologyRecipeUnlock.json", 588),
+        ("DT_PalMonsterParameter.json", 753),
+        ("DT_PalDropItem_Common.json", 1_044),
+    ];
+    for coverage in tables.coverage() {
+        let expected = expected_counts
+            .iter()
+            .find(|(suffix, _)| coverage.name.ends_with(suffix))
+            .unwrap_or_else(|| panic!("unexpected coverage table {}", coverage.name))
+            .1;
+        assert_eq!(coverage.total_rows, expected, "{}", coverage.name);
+        assert_eq!(
+            coverage.total_rows,
+            coverage.parsed_rows + coverage.skipped_rows + coverage.failed_rows,
+            "{}",
+            coverage.name
+        );
+        assert_eq!(coverage.failed_rows, 0, "{}", coverage.name);
+    }
+
+    let localization = LocalizationIndex::load(root).expect("real localization must parse");
+    for coverage in localization.coverage() {
+        let expected = if coverage.name.contains("DT_ItemNameText_Common") {
+            1_994
+        } else if coverage.name.contains("DT_ItemDescriptionText_Common") {
+            1_924
+        } else {
+            322
+        };
+        assert_eq!(coverage.total_rows, expected, "{}", coverage.name);
+        assert_eq!(
+            coverage.total_rows,
+            coverage.parsed_rows + coverage.skipped_rows + coverage.failed_rows,
+            "{}",
+            coverage.name
+        );
+    }
+}
+
+fn fixture_root() -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock is after epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!("palworld-guider-local-build-{unique}"))
+}
+
+fn write_core_fixtures(root: &Path) {
+    let mut items = Map::new();
+    let mut recipes = Map::new();
+    let mut technologies = Map::new();
+    let mut pals = Map::new();
+    let mut drops = Map::new();
+    let mut english_names = Map::new();
+    let mut chinese_names = Map::new();
+    let mut english_descriptions = Map::new();
+    let mut chinese_descriptions = Map::new();
+    let mut english_pal_names = Map::new();
+    let mut chinese_pal_names = Map::new();
+
+    for index in 0..12 {
+        let item_id = format!("FixtureItem{index:02}");
+        let mut item = Map::new();
+        item.insert("TypeA".into(), json!("EPalItemTypeA::Material"));
+        item.insert("TypeB".into(), json!("EPalItemTypeB::Material"));
+        item.insert("Rank".into(), json!(1));
+        item.insert("Rarity".into(), json!(index % 5));
+        if index != 8 {
+            item.insert("MaxStackCount".into(), json!(9999));
+        }
+        if index == 4 {
+            item.insert("MaxStackCount".into(), json!("not-a-number"));
+        }
+        item.insert("Weight".into(), json!(1.0));
+        if index == 6 {
+            item.insert("Price".into(), Value::Null);
+        } else {
+            item.insert("Price".into(), json!(if index == 5 { 0 } else { 1 }));
+        }
+        item.insert("bLegalInGame".into(), json!(index != 9));
+        if index != 7 {
+            item.insert("TechnologyTreeLock".into(), json!(0));
+        }
+        if index == 10 {
+            item.insert("TypeA".into(), json!(""));
+        }
+        items.insert(item_id.clone(), Value::Object(item));
+
+        let recipe_id = format!("FixtureRecipe{index:02}");
+        let mut recipe = Map::new();
+        recipe.insert("Product_Id".into(), json!(item_id));
+        if index == 3 {
+            recipe.insert("Product_Count".into(), json!("not-a-number"));
+        } else {
+            recipe.insert("Product_Count".into(), json!(1));
+        }
+        recipe.insert("WorkAmount".into(), json!(100.0));
+        recipe.insert("WorkableAttribute".into(), json!(0));
+        recipe.insert("UnlockItemID".into(), json!("None"));
+        recipe.insert("Material1_Id".into(), json!("FixtureMaterialA"));
+        recipe.insert("Material1_Count".into(), json!(1));
+        recipe.insert("Material2_Id".into(), json!("FixtureMaterialB"));
+        recipe.insert("Material2_Count".into(), json!(2));
+        for material_index in 3..=5 {
+            let identifier = if index == 1 {
+                format!("FixtureMaterial{material_index}")
+            } else {
+                "None".to_string()
+            };
+            recipe.insert(format!("Material{material_index}_Id"), json!(identifier));
+            recipe.insert(
+                format!("Material{material_index}_Count"),
+                json!(if index == 1 { 3 } else { 0 }),
+            );
+        }
+        recipes.insert(recipe_id.clone(), Value::Object(recipe));
+
+        let mut technology = Map::new();
+        technology.insert("UnlockBuildObjects".into(), json!([]));
+        technology.insert(
+            "UnlockItemRecipes".into(),
+            json!(if index == 0 {
+                vec![recipe_id]
+            } else {
+                Vec::<String>::new()
+            }),
+        );
+        technology.insert("RequireTechnology".into(), json!("None"));
+        technology.insert("RequireResearchId".into(), json!("None"));
+        technology.insert("LevelCap".into(), json!(index + 1));
+        technology.insert("Tier".into(), json!(index));
+        technology.insert("Cost".into(), json!(index));
+        technologies.insert(
+            format!("FixtureTechnology{index:02}"),
+            Value::Object(technology),
+        );
+
+        let pal_id = format!("FixturePal{index:02}");
+        let mut pal = Map::new();
+        pal.insert("IsPal".into(), json!(true));
+        pal.insert("Hp".into(), json!(70));
+        pal.insert("MeleeAttack".into(), json!(70));
+        pal.insert("ShotAttack".into(), json!(70));
+        pal.insert("Defense".into(), json!(70));
+        for field in [
+            "EmitFlame",
+            "Watering",
+            "Seeding",
+            "GenerateElectricity",
+            "Handcraft",
+            "Collection",
+            "Deforest",
+            "Mining",
+            "OilExtraction",
+            "ProductMedicine",
+            "Cool",
+            "Transport",
+            "MonsterFarm",
+        ] {
+            pal.insert(
+                format!("WorkSuitability_{field}"),
+                json!(if field == "Handcraft" { 1 } else { 0 }),
+            );
+        }
+        pals.insert(pal_id.clone(), Value::Object(pal));
+
+        let mut drop = Map::new();
+        drop.insert("CharacterID".into(), json!(pal_id));
+        drop.insert("Level".into(), json!(index));
+        drop.insert("ItemId1".into(), json!("FixtureDropA"));
+        drop.insert("Rate1".into(), json!(100.0));
+        drop.insert("min1".into(), json!(1));
+        drop.insert("Max1".into(), json!(3));
+        drop.insert(
+            "ItemId2".into(),
+            json!(if index == 11 { "None" } else { "FixtureDropB" }),
+        );
+        drop.insert("Rate2".into(), json!(100.0));
+        drop.insert("min2".into(), json!(1));
+        drop.insert("Max2".into(), json!(1));
+        for drop_index in 3..=10 {
+            drop.insert(format!("ItemId{drop_index}"), json!("None"));
+            drop.insert(format!("Rate{drop_index}"), json!(0.0));
+            drop.insert(format!("min{drop_index}"), json!(0));
+            drop.insert(format!("Max{drop_index}"), json!(0));
+        }
+        drops.insert(format!("FixtureDrop{index:02}"), Value::Object(drop));
+
+        english_names.insert(
+            format!("ITEM_NAME_{item_id}"),
+            localization_row(&format!("Fixture English {index}")),
+        );
+        if index != 8 {
+            let chinese = if index == 7 {
+                "zh-hans text".to_string()
+            } else {
+                format!("简体中文{index}")
+            };
+            chinese_names.insert(format!("ITEM_NAME_{item_id}"), localization_row(&chinese));
+        }
+        english_descriptions.insert(
+            format!("ITEM_DESC_{item_id}"),
+            localization_row(&format!("Fixture description {index}")),
+        );
+        chinese_descriptions.insert(
+            format!("ITEM_DESC_{item_id}"),
+            localization_row(&format!("简体中文描述{index}")),
+        );
+        english_pal_names.insert(
+            format!("PAL_NAME_{pal_id}"),
+            localization_row(&format!("Fixture Pal {index}")),
+        );
+        chinese_pal_names.insert(
+            format!("PAL_NAME_{pal_id}"),
+            localization_row(&format!("简体中文帕鲁{index}")),
+        );
+    }
+
+    write_table(
+        &root.join("Pal/Content/Pal/DataTable/Item/DT_ItemDataTable.json"),
+        &items,
+    );
+    write_table(
+        &root.join("Pal/Content/Pal/DataTable/Item/DT_ItemRecipeDataTable.json"),
+        &recipes,
+    );
+    write_table(
+        &root.join("Pal/Content/Pal/DataTable/Technology/DT_TechnologyRecipeUnlock.json"),
+        &technologies,
+    );
+    write_table(
+        &root.join("Pal/Content/Pal/DataTable/Character/DT_PalMonsterParameter.json"),
+        &pals,
+    );
+    write_table(
+        &root.join("Pal/Content/Pal/DataTable/Character/DT_PalDropItem_Common.json"),
+        &drops,
+    );
+    write_table(
+        &root.join("Pal/Content/L10N/en/Pal/DataTable/Text/DT_ItemNameText_Common.json"),
+        &english_names,
+    );
+    write_table(
+        &root.join("Pal/Content/L10N/zh-Hans/Pal/DataTable/Text/DT_ItemNameText_Common.json"),
+        &chinese_names,
+    );
+    write_table(
+        &root.join("Pal/Content/L10N/en/Pal/DataTable/Text/DT_ItemDescriptionText_Common.json"),
+        &english_descriptions,
+    );
+    write_table(
+        &root
+            .join("Pal/Content/L10N/zh-Hans/Pal/DataTable/Text/DT_ItemDescriptionText_Common.json"),
+        &chinese_descriptions,
+    );
+    write_table(
+        &root.join("Pal/Content/L10N/en/Pal/DataTable/Text/DT_PalNameText_Common.json"),
+        &english_pal_names,
+    );
+    write_table(
+        &root.join("Pal/Content/L10N/zh-Hans/Pal/DataTable/Text/DT_PalNameText_Common.json"),
+        &chinese_pal_names,
+    );
+}
+
+fn localization_row(value: &str) -> Value {
+    json!({
+        "TextData": {
+            "Namespace": "Fixture",
+            "Key": "FixtureKey",
+            "SourceString": value,
+            "LocalizedString": value
+        }
+    })
+}
+
+fn write_table(path: &Path, rows: &Map<String, Value>) {
+    fs::create_dir_all(path.parent().expect("table path has parent"))
+        .expect("create fixture directory");
+    let export = json!([{ "Rows": Value::Object(rows.clone()) }]);
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&export).expect("serialize fixture"),
+    )
+    .expect("write fixture");
+}

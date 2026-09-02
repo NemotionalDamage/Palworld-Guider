@@ -1,0 +1,973 @@
+use std::collections::BTreeMap;
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+const ITEM_FIELDS: &[&str] = &[
+    "TypeA",
+    "TypeB",
+    "Rank",
+    "Rarity",
+    "MaxStackCount",
+    "Weight",
+    "Price",
+    "bLegalInGame",
+    "TechnologyTreeLock",
+];
+const RECIPE_FIELDS: &[&str] = &[
+    "Product_Id",
+    "Product_Count",
+    "WorkAmount",
+    "WorkableAttribute",
+    "UnlockItemID",
+    "Material1_Id",
+    "Material1_Count",
+    "Material2_Id",
+    "Material2_Count",
+    "Material3_Id",
+    "Material3_Count",
+    "Material4_Id",
+    "Material4_Count",
+    "Material5_Id",
+    "Material5_Count",
+];
+const TECHNOLOGY_FIELDS: &[&str] = &[
+    "UnlockBuildObjects",
+    "UnlockItemRecipes",
+    "RequireTechnology",
+    "RequireResearchId",
+    "LevelCap",
+    "Tier",
+    "Cost",
+];
+const PAL_FIELDS: &[&str] = &[
+    "IsPal",
+    "Hp",
+    "MeleeAttack",
+    "ShotAttack",
+    "Defense",
+    "Support",
+    "CraftSpeed",
+    "WorkSuitability_EmitFlame",
+    "WorkSuitability_Watering",
+    "WorkSuitability_Seeding",
+    "WorkSuitability_GenerateElectricity",
+    "WorkSuitability_Handcraft",
+    "WorkSuitability_Collection",
+    "WorkSuitability_Deforest",
+    "WorkSuitability_Mining",
+    "WorkSuitability_OilExtraction",
+    "WorkSuitability_ProductMedicine",
+    "WorkSuitability_Cool",
+    "WorkSuitability_Transport",
+    "WorkSuitability_MonsterFarm",
+];
+const DROP_FIELDS: &[&str] = &["CharacterID", "Level"];
+
+#[derive(Debug)]
+pub enum LocalBuildError {
+    MissingTable {
+        path: String,
+    },
+    InvalidTable {
+        path: String,
+        message: String,
+    },
+    LocalizationConflict {
+        table: String,
+        row_id: String,
+        localized_value: String,
+        source_value: String,
+    },
+    InvalidLocalization {
+        table: String,
+        row_id: String,
+        reason: String,
+    },
+    Io {
+        path: String,
+        message: String,
+    },
+}
+
+impl fmt::Display for LocalBuildError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingTable { path } => write!(formatter, "required local table is missing: {path}"),
+            Self::InvalidTable { path, message } => {
+                write!(formatter, "invalid local table {path}: {message}")
+            }
+            Self::LocalizationConflict {
+                table,
+                row_id,
+                localized_value,
+                source_value,
+            } => write!(
+                formatter,
+                "localized values conflict in {table} for {row_id}: {localized_value} versus {source_value}"
+            ),
+            Self::InvalidLocalization {
+                table,
+                row_id,
+                reason,
+            } => write!(formatter, "invalid localization in {table} for {row_id}: {reason}"),
+            Self::Io { path, message } => write!(formatter, "cannot read {path}: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for LocalBuildError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalBuildLocale {
+    English,
+    SimplifiedChinese,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepresentativeError {
+    pub stable_hash: u64,
+    pub native_row_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TableCoverage {
+    pub name: String,
+    pub total_rows: usize,
+    pub parsed_rows: usize,
+    pub skipped_rows: usize,
+    pub failed_rows: usize,
+    pub skip_reasons: BTreeMap<String, usize>,
+    pub failure_reasons: BTreeMap<String, usize>,
+    pub fields_observed: BTreeMap<String, usize>,
+    pub fields_missing: BTreeMap<String, usize>,
+    pub fields_null: BTreeMap<String, usize>,
+    pub fields_none_sentinel: BTreeMap<String, usize>,
+    pub fields_empty_string: BTreeMap<String, usize>,
+    pub fields_zero: BTreeMap<String, usize>,
+    pub fields_false: BTreeMap<String, usize>,
+    pub unsupported_enum_forms: BTreeMap<String, usize>,
+    pub localization_hits: BTreeMap<String, usize>,
+    pub localization_misses: BTreeMap<String, usize>,
+    pub localization_rejections: BTreeMap<String, usize>,
+    pub localization_conflicts: usize,
+    pub duplicate_native_ids: usize,
+    pub invalid_references: usize,
+    pub representative_errors: Vec<RepresentativeError>,
+}
+
+impl TableCoverage {
+    fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ..Self::default()
+        }
+    }
+
+    fn increment(map: &mut BTreeMap<String, usize>, key: &str) {
+        *map.entry(key.to_string()).or_insert(0) += 1;
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalItemRow {
+    pub native_row_id: String,
+    pub type_a: Option<String>,
+    pub type_b: Option<String>,
+    pub rank: Option<i64>,
+    pub rarity: Option<i64>,
+    pub max_stack_count: Option<i64>,
+    pub weight: Option<f64>,
+    pub price: Option<i64>,
+    pub is_legal_in_game: Option<bool>,
+    pub technology_tree_lock: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalRecipeMaterial {
+    pub item_id: String,
+    pub quantity: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalRecipeRow {
+    pub native_row_id: String,
+    pub product_id: Option<String>,
+    pub product_count: Option<i64>,
+    pub materials: Vec<LocalRecipeMaterial>,
+    pub work_amount: Option<f64>,
+    pub workable_attribute: Option<i64>,
+    pub unlock_item_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalTechnologyRow {
+    pub native_row_id: String,
+    pub unlock_build_objects: Vec<String>,
+    pub unlock_item_recipes: Vec<String>,
+    pub required_technology: Option<String>,
+    pub required_research_id: Option<String>,
+    pub level_cap: Option<i64>,
+    pub tier: Option<i64>,
+    pub cost: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalPalStats {
+    pub hp: i64,
+    pub melee_attack: i64,
+    pub shot_attack: i64,
+    pub defense: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalPalRow {
+    pub native_row_id: String,
+    pub is_pal: Option<bool>,
+    pub stats: Option<LocalPalStats>,
+    pub work_suitability: BTreeMap<String, i64>,
+}
+
+impl LocalPalRow {
+    pub fn work_suitability(&self, native_kind: &str) -> Option<i64> {
+        self.work_suitability.get(native_kind).copied()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalDropRow {
+    pub native_row_id: String,
+    pub character_id: String,
+    pub level: Option<i64>,
+    pub item_id: String,
+    pub rate: f64,
+    pub min_quantity: i64,
+    pub max_quantity: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalBuildTables {
+    items: BTreeMap<String, LocalItemRow>,
+    recipes: BTreeMap<String, LocalRecipeRow>,
+    technologies: BTreeMap<String, LocalTechnologyRow>,
+    pals: BTreeMap<String, LocalPalRow>,
+    drops: BTreeMap<String, Vec<LocalDropRow>>,
+    coverage: Vec<TableCoverage>,
+}
+
+impl LocalBuildTables {
+    pub fn load(root: &Path) -> Result<Self, LocalBuildError> {
+        let (items, item_coverage) = load_table(
+            root,
+            "Pal/Content/Pal/DataTable/Item/DT_ItemDataTable.json",
+            ITEM_FIELDS,
+            &[("TypeA", "EPalItemTypeA::"), ("TypeB", "EPalItemTypeB::")],
+            parse_item,
+        )?;
+        let (recipes, recipe_coverage) = load_table(
+            root,
+            "Pal/Content/Pal/DataTable/Item/DT_ItemRecipeDataTable.json",
+            RECIPE_FIELDS,
+            &[],
+            parse_recipe,
+        )?;
+        let (technologies, technology_coverage) = load_table(
+            root,
+            "Pal/Content/Pal/DataTable/Technology/DT_TechnologyRecipeUnlock.json",
+            TECHNOLOGY_FIELDS,
+            &[],
+            parse_technology,
+        )?;
+        let (pals, pal_coverage) = load_table(
+            root,
+            "Pal/Content/Pal/DataTable/Character/DT_PalMonsterParameter.json",
+            PAL_FIELDS,
+            &[],
+            parse_pal,
+        )?;
+        let (drop_rows, drop_coverage) = load_table(
+            root,
+            "Pal/Content/Pal/DataTable/Character/DT_PalDropItem_Common.json",
+            DROP_FIELDS,
+            &[],
+            parse_drop,
+        )?;
+        let mut drops = BTreeMap::<String, Vec<LocalDropRow>>::new();
+        for (_, expanded_rows) in drop_rows {
+            for row in expanded_rows {
+                drops.entry(row.character_id.clone()).or_default().push(row);
+            }
+        }
+
+        Ok(Self {
+            items,
+            recipes,
+            technologies,
+            pals,
+            drops,
+            coverage: vec![
+                item_coverage,
+                recipe_coverage,
+                technology_coverage,
+                pal_coverage,
+                drop_coverage,
+            ],
+        })
+    }
+
+    pub fn item(&self, row_id: &str) -> Option<&LocalItemRow> {
+        self.items.get(row_id)
+    }
+
+    pub fn recipe(&self, row_id: &str) -> Option<&LocalRecipeRow> {
+        self.recipes.get(row_id)
+    }
+
+    pub fn technology(&self, row_id: &str) -> Option<&LocalTechnologyRow> {
+        self.technologies.get(row_id)
+    }
+
+    pub fn pal(&self, row_id: &str) -> Option<&LocalPalRow> {
+        self.pals.get(row_id)
+    }
+
+    pub fn drops_for(&self, character_id: &str) -> Vec<&LocalDropRow> {
+        self.drops
+            .get(character_id)
+            .map(|rows| rows.iter().collect())
+            .unwrap_or_default()
+    }
+
+    pub fn coverage(&self) -> Vec<TableCoverage> {
+        self.coverage.clone()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+struct LocalizationEntry {
+    localized_value: String,
+    source_value: String,
+    valid: bool,
+    rejection_reason: Option<String>,
+    values_conflict: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LocalizationIndex {
+    item_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    item_descriptions: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    pal_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    coverage: Vec<TableCoverage>,
+}
+
+impl LocalizationIndex {
+    pub fn load(root: &Path) -> Result<Self, LocalBuildError> {
+        let mut index = Self {
+            item_names: BTreeMap::new(),
+            item_descriptions: BTreeMap::new(),
+            pal_names: BTreeMap::new(),
+            coverage: Vec::new(),
+        };
+        for (locale, locale_path) in [
+            (
+                LocalBuildLocale::English,
+                "Pal/Content/L10N/en/Pal/DataTable/Text",
+            ),
+            (
+                LocalBuildLocale::SimplifiedChinese,
+                "Pal/Content/L10N/zh-Hans/Pal/DataTable/Text",
+            ),
+        ] {
+            index.load_table(
+                root,
+                &format!("{locale_path}/DT_ItemNameText_Common.json"),
+                locale,
+                "ITEM_NAME_",
+                "item_name",
+                |index, row_id, entry| {
+                    index.item_names.insert((locale, row_id.to_string()), entry);
+                },
+            )?;
+            index.load_table(
+                root,
+                &format!("{locale_path}/DT_ItemDescriptionText_Common.json"),
+                locale,
+                "ITEM_DESC_",
+                "item_description",
+                |index, row_id, entry| {
+                    index
+                        .item_descriptions
+                        .insert((locale, row_id.to_string()), entry);
+                },
+            )?;
+            index.load_table(
+                root,
+                &format!("{locale_path}/DT_PalNameText_Common.json"),
+                locale,
+                "PAL_NAME_",
+                "pal_name",
+                |index, row_id, entry| {
+                    index.pal_names.insert((locale, row_id.to_string()), entry);
+                },
+            )?;
+        }
+        Ok(index)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn load_table(
+        &mut self,
+        root: &Path,
+        relative_path: &str,
+        _locale: LocalBuildLocale,
+        prefix: &str,
+        field_name: &str,
+        insert: impl Fn(&mut Self, &str, LocalizationEntry),
+    ) -> Result<(), LocalBuildError> {
+        let rows = read_export(root, relative_path)?;
+        let mut coverage = TableCoverage::new(relative_path);
+        coverage.total_rows = rows.len();
+        for field in [
+            "TextData",
+            "Namespace",
+            "Key",
+            "SourceString",
+            "LocalizedString",
+        ] {
+            coverage.fields_observed.insert(field.to_string(), 0);
+        }
+
+        for (native_key, row) in rows {
+            let row_id = native_key
+                .strip_prefix(prefix)
+                .unwrap_or(&native_key)
+                .trim_end_matches("_TextData")
+                .to_string();
+            let text = row.get("TextData");
+            for field in [
+                "TextData",
+                "Namespace",
+                "Key",
+                "SourceString",
+                "LocalizedString",
+            ] {
+                if text.and_then(|value| value.get(field)).is_some() {
+                    TableCoverage::increment(&mut coverage.fields_observed, field);
+                } else {
+                    TableCoverage::increment(&mut coverage.fields_missing, field);
+                }
+            }
+            let Some(text) = text else {
+                TableCoverage::increment(&mut coverage.failure_reasons, "missing_text_data");
+                coverage.failed_rows += 1;
+                continue;
+            };
+            let (localized_value, source_value) = match (
+                optional_string(text, "LocalizedString"),
+                optional_string(text, "SourceString"),
+            ) {
+                (Ok(localized_value), Ok(source_value)) => (localized_value, source_value),
+                (Err(error), _) | (_, Err(error)) => {
+                    TableCoverage::increment(&mut coverage.failure_reasons, &error.reason);
+                    coverage.failed_rows += 1;
+                    continue;
+                }
+            };
+            let Some(localized_value) = localized_value else {
+                TableCoverage::increment(&mut coverage.failure_reasons, "missing_localized_string");
+                coverage.failed_rows += 1;
+                continue;
+            };
+            let source_value = source_value.unwrap_or_default();
+            let mut entry = LocalizationEntry {
+                localized_value: localized_value.clone(),
+                source_value: source_value.clone(),
+                valid: true,
+                rejection_reason: None,
+                values_conflict: false,
+            };
+            if localized_value.contains('\u{fffd}') {
+                entry.valid = false;
+                entry.rejection_reason = Some("invalid_unicode".to_string());
+                TableCoverage::increment(&mut coverage.localization_rejections, "invalid_unicode");
+            } else if is_placeholder(&localized_value) {
+                entry.valid = false;
+                entry.rejection_reason = Some("placeholder".to_string());
+                TableCoverage::increment(&mut coverage.localization_rejections, "placeholder");
+            }
+            if !source_value.is_empty()
+                && !localized_value.is_empty()
+                && source_value != localized_value
+            {
+                entry.values_conflict = true;
+                coverage.localization_conflicts += 1;
+            }
+            if entry.valid {
+                coverage.parsed_rows += 1;
+                TableCoverage::increment(&mut coverage.localization_hits, field_name);
+            } else {
+                coverage.failed_rows += 1;
+                TableCoverage::increment(&mut coverage.localization_misses, field_name);
+            }
+            insert(self, &row_id, entry);
+        }
+        self.coverage.push(coverage);
+        Ok(())
+    }
+
+    pub fn item_name(
+        &self,
+        item_row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<String>, LocalBuildError> {
+        self.lookup(
+            &self.item_names,
+            "DT_ItemNameText_Common",
+            item_row_id,
+            locale,
+        )
+    }
+
+    pub fn item_description(
+        &self,
+        item_row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<String>, LocalBuildError> {
+        self.lookup(
+            &self.item_descriptions,
+            "DT_ItemDescriptionText_Common",
+            item_row_id,
+            locale,
+        )
+    }
+
+    pub fn pal_name(
+        &self,
+        pal_row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<String>, LocalBuildError> {
+        self.lookup(&self.pal_names, "DT_PalNameText_Common", pal_row_id, locale)
+    }
+
+    pub fn coverage(&self) -> Vec<TableCoverage> {
+        self.coverage.clone()
+    }
+
+    fn lookup(
+        &self,
+        table: &BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+        table_name: &str,
+        row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<String>, LocalBuildError> {
+        let Some(entry) = table.get(&(locale, row_id.to_string())) else {
+            return Ok(None);
+        };
+        if let Some(reason) = &entry.rejection_reason {
+            return Err(LocalBuildError::InvalidLocalization {
+                table: table_name.to_string(),
+                row_id: row_id.to_string(),
+                reason: reason.clone(),
+            });
+        }
+        if entry.values_conflict {
+            return Err(LocalBuildError::LocalizationConflict {
+                table: table_name.to_string(),
+                row_id: row_id.to_string(),
+                localized_value: entry.localized_value.clone(),
+                source_value: entry.source_value.clone(),
+            });
+        }
+        Ok(Some(entry.localized_value.clone()))
+    }
+}
+
+fn parse_item(native_row_id: &str, row: &Value) -> Result<LocalItemRow, RowParseError> {
+    Ok(LocalItemRow {
+        native_row_id: native_row_id.to_string(),
+        type_a: optional_enum(row, "TypeA")?,
+        type_b: optional_enum(row, "TypeB")?,
+        rank: optional_integer(row, "Rank")?,
+        rarity: optional_integer(row, "Rarity")?,
+        max_stack_count: optional_integer(row, "MaxStackCount")?,
+        weight: optional_number(row, "Weight")?,
+        price: optional_integer(row, "Price")?,
+        is_legal_in_game: optional_bool(row, "bLegalInGame")?,
+        technology_tree_lock: optional_integer(row, "TechnologyTreeLock")?,
+    })
+}
+
+fn parse_recipe(native_row_id: &str, row: &Value) -> Result<LocalRecipeRow, RowParseError> {
+    let mut materials = Vec::new();
+    for index in 1..=5 {
+        let item_id = optional_identifier(row, &format!("Material{index}_Id"))?;
+        let Some(item_id) = item_id else {
+            continue;
+        };
+        let quantity = required_integer(row, &format!("Material{index}_Count"))?;
+        materials.push(LocalRecipeMaterial { item_id, quantity });
+    }
+    Ok(LocalRecipeRow {
+        native_row_id: native_row_id.to_string(),
+        product_id: optional_identifier(row, "Product_Id")?,
+        product_count: optional_integer(row, "Product_Count")?,
+        materials,
+        work_amount: optional_number(row, "WorkAmount")?,
+        workable_attribute: optional_integer(row, "WorkableAttribute")?,
+        unlock_item_id: optional_identifier(row, "UnlockItemID")?,
+    })
+}
+
+fn parse_technology(native_row_id: &str, row: &Value) -> Result<LocalTechnologyRow, RowParseError> {
+    Ok(LocalTechnologyRow {
+        native_row_id: native_row_id.to_string(),
+        unlock_build_objects: optional_string_array(row, "UnlockBuildObjects")?,
+        unlock_item_recipes: optional_string_array(row, "UnlockItemRecipes")?,
+        required_technology: optional_identifier(row, "RequireTechnology")?,
+        required_research_id: optional_identifier(row, "RequireResearchId")?,
+        level_cap: optional_integer(row, "LevelCap")?,
+        tier: optional_integer(row, "Tier")?,
+        cost: optional_integer(row, "Cost")?,
+    })
+}
+
+fn parse_pal(native_row_id: &str, row: &Value) -> Result<LocalPalRow, RowParseError> {
+    let is_pal = optional_bool(row, "IsPal")?;
+    let stats = if [
+        optional_integer(row, "Hp")?,
+        optional_integer(row, "MeleeAttack")?,
+        optional_integer(row, "ShotAttack")?,
+        optional_integer(row, "Defense")?,
+    ]
+    .iter()
+    .all(|value| value.is_some())
+    {
+        Some(LocalPalStats {
+            hp: optional_integer(row, "Hp")?.unwrap_or_default(),
+            melee_attack: optional_integer(row, "MeleeAttack")?.unwrap_or_default(),
+            shot_attack: optional_integer(row, "ShotAttack")?.unwrap_or_default(),
+            defense: optional_integer(row, "Defense")?.unwrap_or_default(),
+        })
+    } else {
+        None
+    };
+    let mut work_suitability = BTreeMap::new();
+    for field in [
+        "EmitFlame",
+        "Watering",
+        "Seeding",
+        "GenerateElectricity",
+        "Handcraft",
+        "Collection",
+        "Deforest",
+        "Mining",
+        "OilExtraction",
+        "ProductMedicine",
+        "Cool",
+        "Transport",
+        "MonsterFarm",
+    ] {
+        if let Some(level) = optional_integer(row, &format!("WorkSuitability_{field}"))? {
+            work_suitability.insert(field.to_string(), level);
+        }
+    }
+    Ok(LocalPalRow {
+        native_row_id: native_row_id.to_string(),
+        is_pal,
+        stats,
+        work_suitability,
+    })
+}
+
+fn parse_drop(native_row_id: &str, row: &Value) -> Result<Vec<LocalDropRow>, RowParseError> {
+    let character_id = required_identifier(row, "CharacterID")?;
+    let level = optional_integer(row, "Level")?;
+    let mut result = Vec::new();
+    for index in 1..=10 {
+        let Some(item_id) = optional_identifier(row, &format!("ItemId{index}"))? else {
+            continue;
+        };
+        result.push(LocalDropRow {
+            native_row_id: native_row_id.to_string(),
+            character_id: character_id.clone(),
+            level,
+            item_id,
+            rate: required_number(row, &format!("Rate{index}"))?,
+            min_quantity: required_integer(row, &format!("min{index}"))?,
+            max_quantity: required_integer(row, &format!("Max{index}"))?,
+        });
+    }
+    Ok(result)
+}
+
+fn load_table<T>(
+    root: &Path,
+    relative_path: &str,
+    fields: &[&str],
+    enum_fields: &[(&str, &str)],
+    parser: fn(&str, &Value) -> Result<T, RowParseError>,
+) -> Result<(BTreeMap<String, T>, TableCoverage), LocalBuildError> {
+    let rows = read_export(root, relative_path)?;
+    let mut coverage = TableCoverage::new(relative_path);
+    coverage.total_rows = rows.len();
+    let mut parsed = BTreeMap::new();
+    let mut errors = Vec::new();
+    for (native_row_id, row) in rows {
+        record_field_states(&mut coverage, &native_row_id, &row, fields, enum_fields);
+        match parser(&native_row_id, &row) {
+            Ok(value) => {
+                if parsed.insert(native_row_id, value).is_some() {
+                    coverage.duplicate_native_ids += 1;
+                }
+                coverage.parsed_rows += 1;
+            }
+            Err(error) => {
+                TableCoverage::increment(&mut coverage.failure_reasons, &error.reason);
+                coverage.failed_rows += 1;
+                errors.push(RepresentativeError {
+                    stable_hash: stable_hash(&native_row_id),
+                    native_row_id,
+                    message: error.message,
+                });
+            }
+        }
+    }
+    errors.sort_by_key(|error| (error.stable_hash, error.native_row_id.clone()));
+    errors.truncate(5);
+    coverage.representative_errors = errors;
+    Ok((parsed, coverage))
+}
+
+fn read_export(
+    root: &Path,
+    relative_path: &str,
+) -> Result<BTreeMap<String, Value>, LocalBuildError> {
+    let path: PathBuf = root.join(relative_path);
+    if !path.exists() {
+        return Err(LocalBuildError::MissingTable {
+            path: relative_path.to_string(),
+        });
+    }
+    let content = fs::read_to_string(&path).map_err(|error| LocalBuildError::Io {
+        path: relative_path.to_string(),
+        message: error.to_string(),
+    })?;
+    let value: Value =
+        serde_json::from_str(&content).map_err(|error| LocalBuildError::InvalidTable {
+            path: relative_path.to_string(),
+            message: error.to_string(),
+        })?;
+    let Some(exports) = value.as_array() else {
+        return Err(LocalBuildError::InvalidTable {
+            path: relative_path.to_string(),
+            message: "export root must be an array".to_string(),
+        });
+    };
+    if exports.len() != 1 {
+        return Err(LocalBuildError::InvalidTable {
+            path: relative_path.to_string(),
+            message: format!("expected one export object, found {}", exports.len()),
+        });
+    }
+    let Some(rows) = exports[0].get("Rows").and_then(Value::as_object) else {
+        return Err(LocalBuildError::InvalidTable {
+            path: relative_path.to_string(),
+            message: "export must contain a Rows object".to_string(),
+        });
+    };
+    Ok(rows
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect())
+}
+
+fn record_field_states(
+    coverage: &mut TableCoverage,
+    _native_row_id: &str,
+    row: &Value,
+    fields: &[&str],
+    enum_fields: &[(&str, &str)],
+) {
+    let row = row.as_object().cloned().unwrap_or_default();
+    for field in fields {
+        if let Some(value) = row.get(*field) {
+            TableCoverage::increment(&mut coverage.fields_observed, field);
+            match value {
+                Value::Null => TableCoverage::increment(&mut coverage.fields_null, field),
+                Value::String(value) => {
+                    if value == "None" {
+                        TableCoverage::increment(&mut coverage.fields_none_sentinel, field);
+                    }
+                    if value.is_empty() {
+                        TableCoverage::increment(&mut coverage.fields_empty_string, field);
+                    }
+                }
+                Value::Number(value) => {
+                    if value.as_i64() == Some(0) || value.as_u64() == Some(0) {
+                        TableCoverage::increment(&mut coverage.fields_zero, field);
+                    }
+                }
+                Value::Bool(value) if !value => {
+                    TableCoverage::increment(&mut coverage.fields_false, field);
+                }
+                _ => {}
+            }
+        } else {
+            TableCoverage::increment(&mut coverage.fields_missing, field);
+        }
+    }
+    for (field, expected_prefix) in enum_fields {
+        if let Some(Value::String(value)) = row.get(*field) {
+            if value != "None" && !value.starts_with(expected_prefix) {
+                TableCoverage::increment(&mut coverage.unsupported_enum_forms, field);
+            }
+        }
+    }
+}
+
+struct RowParseError {
+    reason: String,
+    message: String,
+}
+
+impl RowParseError {
+    fn malformed(field: &str) -> Self {
+        Self {
+            reason: "malformed_number".to_string(),
+            message: format!("{field} is not a number"),
+        }
+    }
+}
+
+fn optional_string(row: &Value, field: &str) -> Result<Option<String>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => {
+            if value == "None" {
+                Ok(None)
+            } else {
+                Ok(Some(value.clone()))
+            }
+        }
+        Some(_) => Err(RowParseError::malformed(field)),
+    }
+}
+
+fn optional_enum(row: &Value, field: &str) -> Result<Option<String>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => {
+            if value == "None" {
+                Ok(None)
+            } else {
+                Ok(Some(value.clone()))
+            }
+        }
+        Some(_) => Err(RowParseError {
+            reason: "malformed_enum".to_string(),
+            message: format!("{field} is not an enum string"),
+        }),
+    }
+}
+
+fn optional_identifier(row: &Value, field: &str) -> Result<Option<String>, RowParseError> {
+    optional_string(row, field)
+}
+
+fn optional_bool(row: &Value, field: &str) -> Result<Option<bool>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(RowParseError {
+            reason: "malformed_bool".to_string(),
+            message: format!("{field} is not a boolean"),
+        }),
+    }
+}
+
+fn optional_number(row: &Value, field: &str) -> Result<Option<f64>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(_)) => Ok(Some(required_number(row, field)?)),
+        Some(Value::String(value)) if value == "None" => Ok(None),
+        Some(_) => Err(RowParseError::malformed(field)),
+    }
+}
+
+fn optional_integer(row: &Value, field: &str) -> Result<Option<i64>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if value == "None" => Ok(None),
+        Some(Value::Number(value)) => value.as_i64().map(Some).ok_or_else(|| RowParseError {
+            reason: "non_integer".to_string(),
+            message: format!("{field} must be an integer"),
+        }),
+        Some(_) => Err(RowParseError::malformed(field)),
+    }
+}
+
+fn required_integer(row: &Value, field: &str) -> Result<i64, RowParseError> {
+    row.get(field)
+        .and_then(Value::as_i64)
+        .ok_or_else(|| RowParseError {
+            reason: "non_integer".to_string(),
+            message: format!("{field} must be an integer"),
+        })
+}
+
+fn required_number(row: &Value, field: &str) -> Result<f64, RowParseError> {
+    row.get(field)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| RowParseError::malformed(field))
+}
+
+fn required_identifier(row: &Value, field: &str) -> Result<String, RowParseError> {
+    optional_identifier(row, field)?.ok_or_else(|| RowParseError {
+        reason: "missing_identifier".to_string(),
+        message: format!("{field} is required"),
+    })
+}
+
+fn optional_string_array(row: &Value, field: &str) -> Result<Vec<String>, RowParseError> {
+    match row.get(field) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| RowParseError {
+                        reason: "malformed_string_array".to_string(),
+                        message: format!("{field} contains a non-string entry"),
+                    })
+            })
+            .collect(),
+        Some(_) => Err(RowParseError {
+            reason: "malformed_string_array".to_string(),
+            message: format!("{field} is not an array"),
+        }),
+    }
+}
+
+fn is_placeholder(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "en text" | "zh-hans text" | "english text"
+    ) || normalized.starts_with("placeholder")
+}
+
+fn stable_hash(value: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
