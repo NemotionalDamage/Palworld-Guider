@@ -137,4 +137,6 @@ No game was launched and no live adapter validation was performed. The required 
 - After endpoint correction, the in-game adapter delivered 23 of 23 recorded questions with no provider 404s and no user-visible grounding rejections.
 - Most unsatisfactory replies were correct `unknown` outcomes caused by the intentionally small reviewed seed dataset (8 records), especially missing Stone and Pal Sphere coverage.
 - Two Lamball drafts previously fell back because `get_pal` drop evidence contained only IDs; the ID-to-name mapping fixes that class.
+- Live replay after the fix confirmed both Lamball questions render normal drafted answers, including Lamball Mutton, without `model draft invalid` fallback.
 - Remaining known quality gaps are product/data decisions: seed-knowledge expansion, answer-language policy, general-advice boundaries, and observation coordinate rounding.
+- Live debugging also exposed a separate draft-protocol gap: some unknown-state drafts reference the `{v1}` version slot in text without declaring it in `slots`, which correctly falls back but produces terse entity-list replies.

@@ -181,6 +181,7 @@ Completed:
 - Normalized OpenAI-compatible base URLs to the chat-completions endpoint, added explicit truncation errors, and supported disabling provider reasoning through `GUIDE_DISABLE_REASONING`.
 - Added an opt-in, local-only chat debug log (`PALWORLD_GUIDER_CHAT_DEBUG_LOG`) that records questions, replies, statuses, errors, uncertainty, and tool names without entering Git.
 - Mapped entity IDs in tool results to canonical display names so multi-word entities such as Lamball Mutton remain renderable evidence instead of triggering the fallback.
+- Verified the entity-evidence correction in live single-player chat; both Lamball replays now render normal drafted answers.
 
 Remaining:
 
