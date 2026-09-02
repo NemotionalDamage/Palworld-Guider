@@ -178,6 +178,9 @@ Completed:
 - Passed the offline acceptance gate: 250 tests, clippy and fmt clean, native package built with verified SHA256 manifest, exports `start_mod`/`uninstall_mod`, and an offline loopback rehearsal with the exact Pong reply and no provider call.
 - Implemented evidence-slot answer drafting, strict Rust rendering, and deterministic fallback for numeric grounding.
 - Passed the G5 grounding-fix offline gate with formatting, Clippy, full tests, and whitespace checks clean.
+- Normalized OpenAI-compatible base URLs to the chat-completions endpoint, added explicit truncation errors, and supported disabling provider reasoning through `GUIDE_DISABLE_REASONING`.
+- Added an opt-in, local-only chat debug log (`PALWORLD_GUIDER_CHAT_DEBUG_LOG`) that records questions, replies, statuses, errors, uncertainty, and tool names without entering Git.
+- Mapped entity IDs in tool results to canonical display names so multi-word entities such as Lamball Mutton remain renderable evidence instead of triggering the fallback.
 
 Remaining:
 
@@ -185,7 +188,7 @@ Remaining:
 
 ### Verification
 
-The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix also passed fresh formatting, Clippy, full-test, and whitespace gates. Detailed evidence is in `docs/phase-records/phase-g5.md`.
+The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix and live-validation corrections also passed fresh formatting, Clippy, full-test, and whitespace gates. Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 

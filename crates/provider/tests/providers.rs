@@ -1,6 +1,7 @@
 use provider::{
-    build_ollama_request, build_openai_request, parse_ollama_response, parse_openai_response,
-    ChatMessage, ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError, ToolSpec,
+    build_ollama_request, build_openai_request, chat_completions_endpoint, parse_ollama_response,
+    parse_openai_response, ChatMessage, ChatProvider, ChatRequest, ChatResponse, MockProvider,
+    ProviderError, ToolSpec,
 };
 use serde_json::json;
 
@@ -136,7 +137,7 @@ fn mock_replays_script_then_reports_exhaustion() {
 
 #[test]
 fn openai_request_includes_system_tools_and_auto_choice() {
-    let request = build_openai_request("test-model", &sample_request());
+    let request = build_openai_request("test-model", &sample_request(), false);
     assert_eq!(request["model"], "test-model");
     assert_eq!(request["messages"][0]["role"], "system");
     assert_eq!(
@@ -147,6 +148,43 @@ fn openai_request_includes_system_tools_and_auto_choice() {
     assert_eq!(request["tools"][0]["type"], "function");
     assert_eq!(request["tools"][0]["function"]["name"], "get_item");
     assert_eq!(request["tool_choice"], "auto");
+    assert!(request.get("thinking").is_none());
+}
+
+#[test]
+fn openai_request_disables_reasoning_when_configured() {
+    let request = build_openai_request("test-model", &sample_request(), true);
+    assert_eq!(request["thinking"]["type"], "disabled");
+}
+
+#[test]
+fn base_urls_gain_the_chat_completions_path() {
+    assert_eq!(
+        chat_completions_endpoint("https://example.test/api/v1"),
+        "https://example.test/api/v1/chat/completions"
+    );
+    assert_eq!(
+        chat_completions_endpoint("https://example.test/api/v1/"),
+        "https://example.test/api/v1/chat/completions"
+    );
+}
+
+#[test]
+fn complete_endpoints_are_not_duplicated() {
+    assert_eq!(
+        chat_completions_endpoint("https://example.test/v1/chat/completions"),
+        "https://example.test/v1/chat/completions"
+    );
+}
+
+#[test]
+fn openai_response_truncation_is_an_explicit_api_error() {
+    let payload = r#"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"half an answer"}}]}"#;
+    let error = parse_openai_response(payload).expect_err("truncation must be rejected");
+    assert!(
+        matches!(&error, ProviderError::Api(message) if message.contains("truncated")),
+        "unexpected error: {error:?}"
+    );
 }
 
 #[test]

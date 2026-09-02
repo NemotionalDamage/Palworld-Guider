@@ -6,7 +6,10 @@ pub mod openai;
 
 pub use mock::MockProvider;
 pub use ollama::{build_ollama_request, parse_ollama_response, OllamaProvider};
-pub use openai::{build_openai_request, parse_openai_response, OpenAiCompatibleProvider};
+pub use openai::{
+    build_openai_request, chat_completions_endpoint, parse_openai_response,
+    OpenAiCompatibleProvider,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

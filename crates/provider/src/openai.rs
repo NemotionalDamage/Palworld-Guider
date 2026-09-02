@@ -7,6 +7,7 @@ pub struct OpenAiCompatibleProvider {
     endpoint: String,
     api_key: String,
     model: String,
+    disable_reasoning: bool,
 }
 
 impl OpenAiCompatibleProvider {
@@ -15,6 +16,7 @@ impl OpenAiCompatibleProvider {
         api_key: impl Into<String>,
         model: impl Into<String>,
         timeout: Duration,
+        disable_reasoning: bool,
     ) -> Result<Self, ProviderError> {
         let client = reqwest::blocking::Client::builder()
             .timeout(timeout)
@@ -25,7 +27,17 @@ impl OpenAiCompatibleProvider {
             endpoint: endpoint.into(),
             api_key: api_key.into(),
             model: model.into(),
+            disable_reasoning,
         })
+    }
+}
+
+pub fn chat_completions_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/chat/completions") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/chat/completions")
     }
 }
 
@@ -35,7 +47,7 @@ impl ChatProvider for OpenAiCompatibleProvider {
     }
 
     fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
-        let payload = build_openai_request(&self.model, request);
+        let payload = build_openai_request(&self.model, request, self.disable_reasoning);
         let response = self
             .client
             .post(&self.endpoint)
@@ -58,7 +70,7 @@ impl ChatProvider for OpenAiCompatibleProvider {
     }
 }
 
-pub fn build_openai_request(model: &str, request: &ChatRequest) -> Value {
+pub fn build_openai_request(model: &str, request: &ChatRequest, disable_reasoning: bool) -> Value {
     let mut messages = vec![json!({
         "role": "system",
         "content": request.system,
@@ -69,12 +81,16 @@ pub fn build_openai_request(model: &str, request: &ChatRequest) -> Value {
             "content": message.content,
         })
     }));
-    json!({
+    let mut payload = json!({
         "model": model,
         "messages": messages,
         "tools": request.tools.iter().map(function_json).collect::<Vec<_>>(),
         "tool_choice": "auto",
-    })
+    });
+    if disable_reasoning {
+        payload["thinking"] = json!({"type": "disabled"});
+    }
+    payload
 }
 
 fn function_json(tool: &ToolSpec) -> Value {
@@ -98,10 +114,18 @@ pub fn parse_openai_response(payload: &str) -> Result<ChatResponse, ProviderErro
             .unwrap_or("unknown API error");
         return Err(ProviderError::Api(message.to_string()));
     }
-    let message = root
+    let choice = root
         .get("choices")
         .and_then(|choices| choices.get(0))
-        .and_then(|choice| choice.get("message"))
+        .ok_or_else(|| ProviderError::InvalidResponse("missing choices[0]".to_string()))?;
+    if choice.get("finish_reason").and_then(Value::as_str) == Some("length") {
+        return Err(ProviderError::Api(
+            "model output was truncated (finish_reason=length); retry the question or ask for a shorter answer"
+                .to_string(),
+        ));
+    }
+    let message = choice
+        .get("message")
         .ok_or_else(|| ProviderError::InvalidResponse("missing choices[0].message".to_string()))?;
     let content = message
         .get("content")

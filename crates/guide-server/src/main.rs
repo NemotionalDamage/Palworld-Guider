@@ -8,7 +8,7 @@ use guide_server::{
 };
 use guide_tools::ToolRegistry;
 use knowledge_index::KnowledgeIndex;
-use provider::{ChatProvider, OllamaProvider, OpenAiCompatibleProvider};
+use provider::{chat_completions_endpoint, ChatProvider, OllamaProvider, OpenAiCompatibleProvider};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -179,13 +179,17 @@ async fn run(options: Options) -> Result<(), String> {
             registry = registry
                 .try_with_runtime_tools(Arc::new(runtime.clone()))
                 .map_err(|error| format!("failed to register adapter runtime tools: {error}"))?;
-            let bridge = InGameChatBridge::new(
+            let mut bridge = InGameChatBridge::new(
                 runtime.clone(),
                 InGameLimits {
                     poll_interval: adapter.poll_interval,
                     ..InGameLimits::default()
                 },
             );
+            if let Some(path) = chat_debug_log_from_environment() {
+                println!("chat-debug-log={path}");
+                bridge = bridge.with_debug_log(path);
+            }
             (Some(runtime), Some(bridge))
         }
         _ => (None, None),
@@ -271,8 +275,13 @@ fn build_provider_from_environment(timeout: Duration) -> Result<Box<dyn ChatProv
             })?;
             let endpoint = base_url
                 .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+            let endpoint = chat_completions_endpoint(&endpoint);
+            let disable_reasoning = env::var("GUIDE_DISABLE_REASONING")
+                .ok()
+                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
             Ok(Box::new(
-                OpenAiCompatibleProvider::new(endpoint, api_key, model, timeout)
+                OpenAiCompatibleProvider::new(endpoint, api_key, model, timeout, disable_reasoning)
                     .map_err(|error| error.to_string())?,
             ))
         }
@@ -286,6 +295,13 @@ fn build_provider_from_environment(timeout: Duration) -> Result<Box<dyn ChatProv
             "unsupported GUIDE_PROVIDER {other}; expected openai or ollama"
         )),
     }
+}
+
+fn chat_debug_log_from_environment() -> Option<String> {
+    env::var("PALWORLD_GUIDER_CHAT_DEBUG_LOG")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn error_value(message: &str) -> serde_json::Value {

@@ -9,7 +9,7 @@ use provider::{ChatMessage, ChatProvider, ChatRequest, ToolRequest, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use state_snapshot::PlayerStateSnapshot;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -87,6 +87,7 @@ impl GuideAgent {
         let deadline = Instant::now() + self.config.limits.timeout;
         let mut budget = ToolBudget::new(self.config.limits.max_tool_calls, deadline);
         let known_entity_names = self.registry.known_entity_names();
+        let entity_names_by_id = self.registry.canonical_entity_names();
         let mut tools = self
             .registry
             .definitions()
@@ -163,6 +164,7 @@ impl GuideAgent {
                     uncertainty,
                     version,
                     &known_entity_names,
+                    &entity_names_by_id,
                 );
             }
 
@@ -183,6 +185,7 @@ impl GuideAgent {
                     &mut version,
                     &mut messages,
                     &known_entity_names,
+                    &entity_names_by_id,
                 );
             }
         }
@@ -203,6 +206,7 @@ impl GuideAgent {
         version: &mut VersionInfo,
         messages: &mut Vec<ChatMessage>,
         known_entity_names: &BTreeSet<String>,
+        entity_names_by_id: &BTreeMap<String, String>,
     ) {
         let envelope = self
             .registry
@@ -226,7 +230,12 @@ impl GuideAgent {
             }
         }
         *version = envelope.version;
-        let fact_sheet = FactSheet::build(records, known_entity_names.clone(), version);
+        let fact_sheet = FactSheet::build(
+            records,
+            known_entity_names.clone(),
+            entity_names_by_id.clone(),
+            version,
+        );
         messages.push(ChatMessage::new(
             "user",
             format!(
@@ -238,6 +247,7 @@ impl GuideAgent {
         ));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn submit_answer(
         &self,
         tool_request: &ToolRequest,
@@ -246,8 +256,14 @@ impl GuideAgent {
         mut uncertainty: Vec<String>,
         version: VersionInfo,
         known_entity_names: &BTreeSet<String>,
+        entity_names_by_id: &BTreeMap<String, String>,
     ) -> AgentAnswer {
-        let fact_sheet = FactSheet::build(&records, known_entity_names.clone(), &version);
+        let fact_sheet = FactSheet::build(
+            &records,
+            known_entity_names.clone(),
+            entity_names_by_id.clone(),
+            &version,
+        );
         let draft = match serde_json::from_value::<AnswerDraft>(tool_request.arguments.clone()) {
             Ok(draft) => draft,
             Err(error) => {
@@ -303,7 +319,9 @@ impl GuideAgent {
         version: VersionInfo,
     ) -> AgentAnswer {
         let known_entity_names = self.registry.known_entity_names();
-        let fact_sheet = FactSheet::build(&records, known_entity_names, &version);
+        let entity_names_by_id = self.registry.canonical_entity_names();
+        let fact_sheet =
+            FactSheet::build(&records, known_entity_names, entity_names_by_id, &version);
         let trimmed = content.trim();
         if !trimmed.is_empty() {
             let status = match answer_status(&records) {

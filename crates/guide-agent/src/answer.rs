@@ -4,7 +4,7 @@ use guide_tools::ToolStatus;
 use provider::ToolSpec;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn submit_answer_parameters() -> Value {
     json!({
@@ -155,6 +155,7 @@ impl FactSheet {
     pub fn build(
         records: &[ToolCallRecord],
         known_entity_names: BTreeSet<String>,
+        entity_names_by_id: BTreeMap<String, String>,
         version: &VersionInfo,
     ) -> Self {
         let mut quantities = Vec::new();
@@ -162,12 +163,22 @@ impl FactSheet {
         let mut entity_evidence = BTreeSet::new();
 
         for record in records {
-            collect_entity_names(&record.arguments, &known_entity_names, &mut entity_evidence);
+            collect_entity_names(
+                &record.arguments,
+                &known_entity_names,
+                &entity_names_by_id,
+                &mut entity_evidence,
+            );
             if record.status != ToolStatus::Ok {
                 continue;
             }
             if let Some(data) = &record.data {
-                collect_entity_names(data, &known_entity_names, &mut entity_evidence);
+                collect_entity_names(
+                    data,
+                    &known_entity_names,
+                    &entity_names_by_id,
+                    &mut entity_evidence,
+                );
                 if is_observation_tool(&record.name) {
                     collect_observations(data, &record.name, &mut observations);
                 } else if let Some(summary) = calculator_summary(record, data) {
@@ -715,11 +726,17 @@ fn collect_observations(
 fn collect_entity_names(
     value: &Value,
     known_entity_names: &BTreeSet<String>,
+    entity_names_by_id: &BTreeMap<String, String>,
     entity_names: &mut BTreeSet<String>,
 ) {
     let text = value.to_string();
     for name in known_entity_names {
         if contains_entity_phrase(&text, name) {
+            entity_names.insert(name.clone());
+        }
+    }
+    for (id, name) in entity_names_by_id {
+        if text.contains(id.as_str()) {
             entity_names.insert(name.clone());
         }
     }

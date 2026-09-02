@@ -14,7 +14,9 @@ use guide_tools::ToolRegistry;
 use knowledge_index::KnowledgeIndex;
 use provider::{ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError};
 use serde_json::json;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -79,6 +81,13 @@ fn bridge_limits() -> InGameLimits {
         max_reply_characters: 400,
         poll_interval: Duration::from_millis(75),
     }
+}
+
+fn debug_log_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "guide-adapter-chat-debug-{}-{name}.jsonl",
+        std::process::id()
+    ))
 }
 
 fn process_in_worker(
@@ -203,6 +212,77 @@ fn chat_event_runs_agent_and_sends_final_reply_once() {
         provider.calls()[0].messages[0].content,
         "Q: How do I get Wood?"
     );
+}
+
+#[test]
+fn chat_debug_log_records_ask_reply_and_tool_calls() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, _provider) = scripted_agent(vec![
+        ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+        ChatResponse::text("Wood is obtained by chopping trees."),
+    ]);
+    let debug_log = debug_log_path("ask");
+    let bridge = Arc::new(Mutex::new(
+        InGameChatBridge::new(runtime, bridge_limits()).with_debug_log(&debug_log),
+    ));
+
+    let worker = process_in_worker(
+        &bridge,
+        agent,
+        chat_event("event-1", "!guide How do I get Wood?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+
+    assert!(outcome.delivered);
+    let contents = fs::read_to_string(&debug_log).expect("debug log is written");
+    let lines: Vec<_> = contents.lines().collect();
+    assert_eq!(lines.len(), 1);
+    let entry: serde_json::Value = serde_json::from_str(lines[0]).expect("debug entry is JSON");
+    assert_eq!(entry["kind"], "ask");
+    assert_eq!(entry["event_id"], "event-1");
+    assert_eq!(entry["question"], "How do I get Wood?");
+    assert_eq!(entry["reply"], delivered);
+    assert_eq!(entry["reply"], "Wood is obtained by chopping trees.");
+    assert_eq!(entry["delivered"], true);
+    assert_eq!(entry["status"], "ok");
+    assert_eq!(entry["tool_calls"][0]["name"], "get_item");
+    assert_eq!(entry["tool_calls"][0]["status"], "ok");
+    fs::remove_file(&debug_log).ok();
+}
+
+#[test]
+fn chat_debug_log_records_skipped_events() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, provider) = scripted_agent(Vec::new());
+    let debug_log = debug_log_path("skip");
+    let bridge = Arc::new(Mutex::new(
+        InGameChatBridge::new(runtime, bridge_limits()).with_debug_log(&debug_log),
+    ));
+
+    let worker = process_in_worker(&bridge, agent, chat_event("event-empty", "!guide   "));
+    let outcome = worker.join().unwrap();
+    adapter.expect_no_delivery();
+
+    assert!(!outcome.delivered);
+    let contents = fs::read_to_string(&debug_log).expect("debug log is written");
+    let entry: serde_json::Value =
+        serde_json::from_str(contents.lines().next().unwrap()).expect("debug entry is JSON");
+    assert_eq!(entry["kind"], "skip");
+    assert_eq!(entry["event_id"], "event-empty");
+    assert_eq!(entry["delivered"], false);
+    assert_eq!(entry["status"], "error");
+    assert!(entry["errors"]
+        .as_array()
+        .expect("errors array")
+        .iter()
+        .any(|error| error.as_str().unwrap_or_default().contains("no question")));
+    assert!(provider.calls().is_empty());
+    fs::remove_file(&debug_log).ok();
 }
 
 #[test]

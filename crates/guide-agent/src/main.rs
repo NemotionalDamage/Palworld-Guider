@@ -3,7 +3,7 @@ use guide_agent::{AgentConfig, AgentLimits, AgentStatus, GuideAgent};
 use guide_core::GuideEngine;
 use guide_tools::ToolRegistry;
 use knowledge_index::KnowledgeIndex;
-use provider::{OllamaProvider, OpenAiCompatibleProvider};
+use provider::{chat_completions_endpoint, OllamaProvider, OpenAiCompatibleProvider};
 use serde_json::{json, Value};
 use std::env;
 use std::path::PathBuf;
@@ -148,9 +148,20 @@ fn run(arguments: Vec<String>) -> Result<(Value, AgentStatus), String> {
             let endpoint = options
                 .base_url
                 .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+            let endpoint = chat_completions_endpoint(&endpoint);
+            let disable_reasoning = env::var("GUIDE_DISABLE_REASONING")
+                .ok()
+                .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
             Box::new(
-                OpenAiCompatibleProvider::new(endpoint, api_key, options.model, timeout)
-                    .map_err(|error| error.to_string())?,
+                OpenAiCompatibleProvider::new(
+                    endpoint,
+                    api_key,
+                    options.model,
+                    timeout,
+                    disable_reasoning,
+                )
+                .map_err(|error| error.to_string())?,
             )
         }
         "ollama" => {

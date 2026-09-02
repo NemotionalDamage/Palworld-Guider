@@ -318,6 +318,40 @@ fn submit_answer_renders_quantity_slot() {
 }
 
 #[test]
+fn entity_ids_authorize_multiword_display_names() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_pal", json!({"query": "Lamball"})),
+            submit_ok(
+                &["Lamball drops Lamball Mutton and Wool for your base."],
+                &[],
+            ),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What can Lamball do for me?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(
+        answer.answer.as_deref().unwrap().contains("Lamball Mutton"),
+        "answer: {:?}",
+        answer.answer
+    );
+    assert!(
+        !answer
+            .uncertainty
+            .iter()
+            .any(|message| message.contains("model draft invalid")),
+        "uncertainty: {:?}",
+        answer.uncertainty
+    );
+    let fact_sheet_message = &provider.calls()[1].messages[2].content;
+    assert!(fact_sheet_message.contains("entity name=\"Lamball Mutton\""));
+}
+
+#[test]
 fn numeric_tampering_has_no_render_path() {
     let (agent, _provider) = scripted_agent(
         None,

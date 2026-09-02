@@ -23,14 +23,21 @@
 //!   agent produced no usable answer (provider or agent failure), the reply
 //!   starts with `Guide unavailable:` and never fabricates content. The
 //!   original `AgentAnswer` is preserved unchanged in the `ChatOutcome`.
+//! - An explicitly configured local debug log records question, reply,
+//!   status, errors, uncertainty, and tool names for live diagnosis. It is
+//!   disabled unless `with_debug_log` is called by the host binary.
 
 use crate::runtime::GameAdapterRuntime;
 use game_gateway::ChatEvent;
 use guide_agent::{AgentAnswer, AgentStatus, GuideAgent};
 use guide_core::VersionInfo;
+use serde_json::{json, Value};
 use std::collections::VecDeque;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Prefix a player must use to address the guide in in-game chat.
 pub const CHAT_PREFIX: &str = "!guide ";
@@ -67,6 +74,7 @@ pub struct InGameChatBridge {
     limits: InGameLimits,
     history: VecDeque<(String, String)>,
     ask_timestamps: VecDeque<Instant>,
+    debug_log: Option<PathBuf>,
 }
 
 pub struct ChatOutcome {
@@ -83,7 +91,13 @@ impl InGameChatBridge {
             limits,
             history: VecDeque::new(),
             ask_timestamps: VecDeque::new(),
+            debug_log: None,
         }
+    }
+
+    pub fn with_debug_log(mut self, path: impl Into<PathBuf>) -> Self {
+        self.debug_log = Some(path.into());
+        self
     }
 
     /// The configured poll interval used by the adapter service loop.
@@ -112,8 +126,8 @@ impl InGameChatBridge {
         let prompt = self.build_prompt(&question);
         let answer = agent.ask_with_cancellation(&prompt, &AtomicBool::new(false));
         let reply = clamp(&self.reply_for(&answer), self.limits.max_reply_characters);
-        self.record_exchange(question, reply.clone());
-        self.deliver(event, answer, reply)
+        self.record_exchange(question.clone(), reply.clone());
+        self.deliver(event, answer, reply, &question, "ask")
     }
 
     fn build_prompt(&self, question: &str) -> String {
@@ -133,20 +147,35 @@ impl InGameChatBridge {
         }
     }
 
-    fn deliver(&self, event: ChatEvent, answer: AgentAnswer, reply: String) -> ChatOutcome {
+    fn deliver(
+        &self,
+        event: ChatEvent,
+        answer: AgentAnswer,
+        reply: String,
+        question: &str,
+        kind: &str,
+    ) -> ChatOutcome {
         match self.runtime.send_chat(&reply) {
-            Ok(()) => ChatOutcome {
-                event_id: event.event_id,
-                answer,
-                delivered: true,
-                delivery_error: None,
-            },
-            Err(error) => ChatOutcome {
-                event_id: event.event_id,
-                answer,
-                delivered: false,
-                delivery_error: Some(error.to_string()),
-            },
+            Ok(()) => {
+                let outcome = ChatOutcome {
+                    event_id: event.event_id,
+                    answer,
+                    delivered: true,
+                    delivery_error: None,
+                };
+                self.debug_log_entry(kind, &outcome, Some(question), Some(&reply));
+                outcome
+            }
+            Err(error) => {
+                let outcome = ChatOutcome {
+                    event_id: event.event_id,
+                    answer,
+                    delivered: false,
+                    delivery_error: Some(error.to_string()),
+                };
+                self.debug_log_entry(kind, &outcome, Some(question), Some(&reply));
+                outcome
+            }
         }
     }
 
@@ -161,11 +190,12 @@ impl InGameChatBridge {
             uncertainty: Vec::new(),
             errors: Vec::new(),
         };
-        self.deliver(event, answer, reply)
+        self.deliver(event, answer, reply, "ping", "pong")
     }
 
     fn skip_event(&self, event: ChatEvent, reason: &str) -> ChatOutcome {
-        ChatOutcome {
+        let question = event.text.clone();
+        let outcome = ChatOutcome {
             event_id: event.event_id,
             answer: AgentAnswer {
                 status: AgentStatus::Error,
@@ -178,6 +208,49 @@ impl InGameChatBridge {
             },
             delivered: false,
             delivery_error: None,
+        };
+        self.debug_log_entry("skip", &outcome, Some(&question), None);
+        outcome
+    }
+
+    fn debug_log_entry(
+        &self,
+        kind: &str,
+        outcome: &ChatOutcome,
+        question: Option<&str>,
+        reply: Option<&str>,
+    ) {
+        let Some(path) = &self.debug_log else {
+            return;
+        };
+        let timestamp_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default();
+        let entry = json!({
+            "timestamp_ms": timestamp_ms,
+            "kind": kind,
+            "event_id": outcome.event_id,
+            "question": question,
+            "reply": reply,
+            "delivered": outcome.delivered,
+            "delivery_error": outcome.delivery_error,
+            "status": serde_json::to_value(outcome.answer.status).unwrap_or(Value::Null),
+            "errors": outcome.answer.errors,
+            "uncertainty": outcome.answer.uncertainty,
+            "tool_calls": outcome
+                .answer
+                .tool_calls
+                .iter()
+                .map(|record| json!({
+                    "name": record.name,
+                    "status": serde_json::to_value(record.status).unwrap_or(Value::Null),
+                }))
+                .collect::<Vec<_>>(),
+        });
+        let line = format!("{entry}\n");
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = file.write_all(line.as_bytes());
         }
     }
 

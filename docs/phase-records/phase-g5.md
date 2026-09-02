@@ -122,3 +122,19 @@ Fresh final gates on 2026-09-02:
 All passed. The focused `guide-agent` suite contains 30 tests covering quantity tampering, unknown slots, numeric literals, English and Chinese number words, renderer numbering, exact observations, unsupported entities, free-text compatibility/fallback, provenance, versions, budgets, cancellation, timeout, and truncation.
 
 No game was launched and no live adapter validation was performed. The required live replay of the Wood, Food, and Lamball-spawn questions remains part of the existing G5 live-only gate and requires explicit project-owner approval to launch Palworld.
+
+## G5 Live Validation Corrections
+
+### Scope Delivered
+
+- Diagnosed live 404 failures to an OpenAI-compatible base URL missing the `/chat/completions` path. Provider construction now normalizes base URLs while leaving complete endpoints unchanged.
+- Added `GUIDE_DISABLE_REASONING` so reasoning-capable models can run with thinking disabled, and converted `finish_reason=length` responses into explicit truncation errors instead of returning partial text.
+- Added the opt-in `PALWORLD_GUIDER_CHAT_DEBUG_LOG` local JSONL log. It records question, reply, delivery status, errors, uncertainty, and tool names for diagnosis; gateway and Lua transport logs remain payload-free, and the log path stays under gitignored `.local/`.
+- Fixed entity evidence extraction to map entity IDs found in tool results (for example `ITEM_LAMBALL_MUTTON`) to canonical display names. Multi-word entities referenced by successful tools now authorize drafts instead of failing strict rendering and falling back.
+
+### Live Findings
+
+- After endpoint correction, the in-game adapter delivered 23 of 23 recorded questions with no provider 404s and no user-visible grounding rejections.
+- Most unsatisfactory replies were correct `unknown` outcomes caused by the intentionally small reviewed seed dataset (8 records), especially missing Stone and Pal Sphere coverage.
+- Two Lamball drafts previously fell back because `get_pal` drop evidence contained only IDs; the ID-to-name mapping fixes that class.
+- Remaining known quality gaps are product/data decisions: seed-knowledge expansion, answer-language policy, general-advice boundaries, and observation coordinate rounding.
