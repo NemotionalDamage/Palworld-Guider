@@ -28,6 +28,7 @@ fn provenance() -> Provenance {
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::Official,
         change_risk: None,
+        corroborating_source_ids: Vec::new(),
     }
 }
 
@@ -40,6 +41,7 @@ fn provenance_with(source_id: &str, version: &str) -> Provenance {
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::Official,
         change_risk: None,
+        corroborating_source_ids: Vec::new(),
     }
 }
 
@@ -74,6 +76,8 @@ fn test_store(with_duplicate_name: bool) -> KnowledgeStore {
             description: Some("A test item".to_string()),
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Alias(game_knowledge::AliasRecord {
@@ -92,6 +96,8 @@ fn test_store(with_duplicate_name: bool) -> KnowledgeStore {
             description: None,
             rarity: "Rare".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }));
     }
@@ -154,6 +160,8 @@ fn preserves_unicode_aliases_and_rejects_empty_normalized_queries() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Alias(game_knowledge::AliasRecord {
@@ -189,6 +197,8 @@ fn propagates_conflicts_from_item_relations() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -197,6 +207,8 @@ fn propagates_conflicts_from_item_relations() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
@@ -213,6 +225,8 @@ fn propagates_conflicts_from_item_relations() {
             technology_id: None,
             crafting_seconds: None,
             byproducts: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Pal(game_knowledge::PalRecord {
@@ -227,6 +241,8 @@ fn propagates_conflicts_from_item_relations() {
                 probability_percent: 100.0,
             }],
             habitat_ids: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Conflict(ConflictRecord {
@@ -268,15 +284,15 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
     let engine = GuideEngine::load_directory("../../data/reviewed", None)
         .expect("canonical dataset must load");
 
-    let answer = engine.lookup_item("wood");
+    let answer = engine.lookup_item("stone");
     assert_eq!(answer.status, AnswerStatus::Ok);
-    let item = answer.data.expect("Wood resolves");
-    assert_eq!(item.id, "ITEM_WOOD");
-    assert_eq!(item.names.en, "Wood");
+    let item = answer.data.expect("Stone resolves");
+    assert_eq!(item.id, "ITEM_STONE");
+    assert_eq!(item.names.en, "Stone");
     assert!(item
         .acquisition_leads
         .iter()
-        .any(|lead| lead.action == "Chop trees"));
+        .any(|lead| lead.action == "Mine rocks"));
     assert!(item.provenance.source_id.contains("PALDB"));
     assert_eq!(answer.version.knowledge_version, "1.0.3");
 
@@ -287,27 +303,30 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
     assert_eq!(pal.work_suitability.len(), 3);
     assert_eq!(pal.drops.len(), 2);
 
-    let answer = engine.lookup_recipe("Wooden Club");
+    let answer = engine.lookup_recipe("Paldium Fragment");
     assert_eq!(answer.status, AnswerStatus::Ok);
     let recipe = answer.data.expect("recipe resolves");
-    assert_eq!(recipe.id, "RECIPE_WOODEN_CLUB");
-    assert_eq!(recipe.output.item_id, "ITEM_WOODEN_CLUB");
-    assert_eq!(recipe.technology_id.as_deref(), Some("TECHNOLOGY_LEVEL_1"));
+    assert_eq!(recipe.id, "RECIPE_PALDIUM_FRAGMENT");
+    assert_eq!(recipe.output.item_id, "ITEM_PALDIUM_FRAGMENT");
+    assert_eq!(recipe.technology_id, None);
 
-    let answer = engine.lookup_technology("Technology Level 1");
+    let answer = engine.lookup_technology("Technology Level 2");
     assert_eq!(answer.status, AnswerStatus::Ok);
     let technology = answer.data.expect("technology resolves");
-    assert_eq!(technology.level, 1);
-    assert_eq!(technology.unlocked_recipe_ids, vec!["RECIPE_WOODEN_CLUB"]);
+    assert_eq!(technology.level, 2);
+    assert_eq!(
+        technology.unlocked_recipe_ids,
+        vec!["RECIPE_PAL_SPHERE".to_string()]
+    );
 }
 
 #[test]
 fn serializes_provenance_enums_consistently() {
     let engine =
         GuideEngine::load_directory("../../data/reviewed", None).expect("canonical data loads");
-    let answer = engine.lookup_item("wood");
+    let answer = engine.lookup_item("stone");
     assert_eq!(answer.status, AnswerStatus::Ok);
-    let item = answer.data.expect("Wood resolves");
+    let item = answer.data.expect("Stone resolves");
 
     assert_eq!(answer.provenance[0].review_status, "reviewed");
     assert_eq!(answer.provenance[0].confidence, "reviewed_secondary");
@@ -345,6 +364,8 @@ fn propagates_byproduct_provenance_and_conflicts_into_materials() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -353,6 +374,8 @@ fn propagates_byproduct_provenance_and_conflicts_into_materials() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -361,6 +384,8 @@ fn propagates_byproduct_provenance_and_conflicts_into_materials() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance_with("SRC-C", "1.0.2"),
         }),
         KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
@@ -380,6 +405,8 @@ fn propagates_byproduct_provenance_and_conflicts_into_materials() {
                 item_id: "ITEM_BONUS".to_string(),
                 quantity: 2,
             }],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Conflict(ConflictRecord {
@@ -418,6 +445,8 @@ fn lists_byproduct_acquisition_in_item_lookup() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -426,6 +455,8 @@ fn lists_byproduct_acquisition_in_item_lookup() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -434,6 +465,8 @@ fn lists_byproduct_acquisition_in_item_lookup() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
@@ -453,6 +486,8 @@ fn lists_byproduct_acquisition_in_item_lookup() {
                 item_id: "ITEM_BONUS".to_string(),
                 quantity: 2,
             }],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
     ];
@@ -478,6 +513,8 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -486,6 +523,8 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Pal(game_knowledge::PalRecord {
@@ -500,12 +539,16 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
                 probability_percent: 100.0,
             }],
             habitat_ids: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Technology(game_knowledge::TechnologyRecord {
             id: "TECH_ONE".to_string(),
             names: names("Tech One"),
             level: 1,
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
@@ -522,6 +565,8 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
             technology_id: Some("TECH_ONE".to_string()),
             crafting_seconds: None,
             byproducts: vec![],
+            native_row_id: None,
+            local_evidence: None,
             provenance: provenance(),
         }),
         KnowledgeRecord::Conflict(ConflictRecord {

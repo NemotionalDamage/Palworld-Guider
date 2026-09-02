@@ -4,12 +4,28 @@ use guide_core::GuideEngine;
 use guide_tools::{ToolBudget, ToolRegistry, ToolStatus};
 use knowledge_index::KnowledgeIndex;
 use serde_json::json;
+use std::fs;
 use std::time::{Duration, Instant};
 
 const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/reviewed");
 
 fn test_registry(configured: Option<&str>) -> ToolRegistry {
-    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let mut lines = Vec::new();
+    for file_name in ["sources.jsonl", "facts.jsonl"] {
+        lines.extend(
+            fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+                .expect("dataset reads")
+                .lines()
+                .map(str::to_string),
+        );
+    }
+    let records = lines
+        .iter()
+        .filter(|line| !line.contains("\"record_type\":\"conflict\""))
+        .map(|line| serde_json::from_str(line.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("conflict-free fixtures parse");
+    let store = KnowledgeStore::from_records(records).expect("test store validates");
     let configured = configured.map(str::to_string);
     let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
     let engine = GuideEngine::new(store, configured);
@@ -244,7 +260,11 @@ fn calculator_result_is_deterministic() {
 fn unknown_record_returns_unknown() {
     let registry = test_registry(None);
     let mut budget = fresh_budget(4);
-    let envelope = registry.dispatch("get_item", &json!({"query": "Stone"}), &mut budget);
+    let envelope = registry.dispatch(
+        "get_item",
+        &json!({"query": "Unreviewed Thing"}),
+        &mut budget,
+    );
     assert_eq!(envelope.status, ToolStatus::Unknown);
     assert!(envelope.data.is_none());
     assert!(!envelope.uncertainty.is_empty());

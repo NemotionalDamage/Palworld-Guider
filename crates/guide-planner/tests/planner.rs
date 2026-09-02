@@ -1,12 +1,29 @@
 use chrono::{TimeZone, Utc};
-use game_knowledge::WorkKind;
+use game_knowledge::{KnowledgeStore, WorkKind};
 use guide_core::GuideEngine;
 use guide_planner::{GuidePlanner, PlannerStatus};
 use serde_json::json;
+use std::fs;
 
 fn engine() -> GuideEngine {
-    GuideEngine::load_directory("../../data/reviewed", Some("1.0.3".to_string()))
-        .expect("reviewed knowledge loads")
+    let data_directory = "../../data/reviewed";
+    let mut lines = Vec::new();
+    for file_name in ["sources.jsonl", "facts.jsonl"] {
+        lines.extend(
+            fs::read_to_string(format!("{data_directory}/{file_name}"))
+                .expect("reviewed knowledge reads")
+                .lines()
+                .map(str::to_string),
+        );
+    }
+    let records = lines
+        .iter()
+        .filter(|line| !line.contains("\"record_type\":\"conflict\""))
+        .map(|line| serde_json::from_str(line.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("conflict-free fixtures parse");
+    let store = KnowledgeStore::from_records(records).expect("test store validates");
+    GuideEngine::new(store, Some("1.0.3".to_string()))
 }
 
 fn snapshot() -> state_snapshot::PlayerStateSnapshot {
@@ -24,7 +41,7 @@ fn snapshot() -> state_snapshot::PlayerStateSnapshot {
             }
         },
         "inventory": [
-            {"item": "Wood", "quantity": 7, "evidence": "user_entered"}
+            {"item": "Stone", "quantity": 7, "evidence": "user_entered"}
         ],
         "party": [
             {"slot": 0, "pal": "Lamball", "evidence": "user_entered"}
@@ -37,7 +54,7 @@ fn snapshot() -> state_snapshot::PlayerStateSnapshot {
         ],
         "player_level": {"value": 7, "evidence": "user_entered"},
         "goals": [
-            {"kind": "craft", "target": "Wooden Club", "quantity": 2, "priority": 2}
+            {"kind": "craft", "target": "Paldium Fragment", "quantity": 2, "priority": 2}
         ],
         "preferences": {
             "spoiler_level": "minimal",
@@ -67,10 +84,10 @@ fn analyzes_inventory_party_craftable_and_goal_readiness() {
         .goals
         .first()
         .expect("craft goal is analyzed");
-    assert_eq!(goal_gap.target_id, "ITEM_WOODEN_CLUB");
+    assert_eq!(goal_gap.target_id, "ITEM_PALDIUM_FRAGMENT");
     assert_eq!(goal_gap.requested_quantity, 2);
     assert_eq!(goal_gap.shortage.shortages.len(), 1);
-    assert_eq!(goal_gap.shortage.shortages[0].item_id, "ITEM_WOOD");
+    assert_eq!(goal_gap.shortage.shortages[0].item_id, "ITEM_STONE");
     assert_eq!(goal_gap.shortage.shortages[0].missing_quantity, 3);
 
     assert!(analysis
@@ -86,10 +103,13 @@ fn analyzes_inventory_party_craftable_and_goal_readiness() {
         .craftable_now
         .recipes
         .iter()
-        .find(|recipe| recipe.target_id == "ITEM_WOODEN_CLUB")
-        .expect("club recipe is evaluated");
+        .find(|recipe| recipe.target_id == "ITEM_PALDIUM_FRAGMENT")
+        .expect("Paldium recipe is evaluated");
     assert_eq!(craftable.maximum_additional_count, 1);
-    assert_eq!(craftable.recipe_id.as_deref(), Some("RECIPE_WOODEN_CLUB"));
+    assert_eq!(
+        craftable.recipe_id.as_deref(),
+        Some("RECIPE_PALDIUM_FRAGMENT")
+    );
 
     let readiness = analysis
         .goal_readiness
@@ -100,7 +120,7 @@ fn analyzes_inventory_party_craftable_and_goal_readiness() {
     assert!(readiness
         .missing_requirements
         .iter()
-        .any(|requirement| requirement.contains("3 more Wood")));
+        .any(|requirement| requirement.contains("3 more Stone")));
 }
 
 #[test]
@@ -109,13 +129,13 @@ fn recommendations_are_deterministic_bounded_and_explained() {
     let first = planner.recommend(&snapshot(), now());
     let second = planner.recommend(&snapshot(), now());
 
-    assert_eq!(first.status, PlannerStatus::Ok);
+    assert_eq!(first.status, PlannerStatus::Ok, "{:?}", first.uncertainty);
     assert_eq!(first, second);
     let recommendations = first.data.expect("recommendations are present");
     assert!((3..=5).contains(&recommendations.len()));
     assert!(recommendations
         .iter()
-        .any(|recommendation| recommendation.action == "Collect 3 Wood"));
+        .any(|recommendation| recommendation.action == "Collect 3 Stone"));
     for recommendation in &recommendations {
         assert!(!recommendation.reason.is_empty());
         assert!(!recommendation.requirements.is_empty());
@@ -281,7 +301,7 @@ fn snapshot_json() -> serde_json::Value {
             }
         },
         "inventory": [
-            {"item": "Wood", "quantity": 7, "evidence": "user_entered"}
+            {"item": "Stone", "quantity": 7, "evidence": "user_entered"}
         ],
         "party": [
             {"slot": 0, "pal": "Lamball", "evidence": "user_entered"}
@@ -294,7 +314,7 @@ fn snapshot_json() -> serde_json::Value {
         ],
         "player_level": {"value": 7, "evidence": "user_entered"},
         "goals": [
-            {"kind": "craft", "target": "Wooden Club", "quantity": 2, "priority": 2}
+            {"kind": "craft", "target": "Paldium Fragment", "quantity": 2, "priority": 2}
         ],
         "preferences": {
             "spoiler_level": "minimal",

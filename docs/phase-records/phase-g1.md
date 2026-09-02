@@ -106,4 +106,25 @@ The parser reports total, parsed, skipped, failed, observed, missing, null, `Non
 
 `local-build-intake --batch all` writes only under `.local/research/local-build/candidates/`. Repeated real-data runs produce byte-identical candidate and report files. Current machine-audited totals are 4,633 candidate records and 18,555 explicit row outcomes: 1,520 item candidates, 915 recipe candidates, 309 Pal candidates, 369 provable unlock relationships, 499 unresolved recipe references, 4,094 unresolved drop-rate units, and 461 localization rejections. Technology-record candidates are intentionally zero because technology-name localization and map-object identity remain unverified. Pal drop rates are not promoted as percentages while their representation is unresolved. No unreviewed candidate has entered `data/reviewed/`.
 
-The remaining G1 work is the field-level canonical backfill audit, reviewed narrow promotion, explicit conflict preservation, final full gates, and final documentation. Crafting stations, map objects, stat scales, rarity semantics, and drop-probability units remain unresolved.
+## Canonical Backfill Audit
+
+The field-level canonical backfill gate passed. The Rust auditor loads the validated canonical store, maps through native IDs and exact structural relationships, and emits one primary classification for every reviewed game field. It covers all 38 canonical records and 105 field-level facts:
+
+| Classification | Facts |
+|---|---:|
+| `corroborated_exact` | 42 |
+| `corroborated_partial` | 8 |
+| `conflicting` | 6 |
+| `not_represented_locally` | 37 |
+| `unresolved_mapping` | 12 |
+| `ambiguous_mapping` | 0 |
+| `invalid_canonical_record` | 0 |
+| Unclassified | 0 |
+
+Mapping success is 75.24%. Missing localization, schema failures, provenance failures, and unclassified facts are zero. The six conflicting field facts all derive from the two preserved explicit conflicts: Wooden Club versus Stone Axe product identity and the conflicting Wooden Club ingredients. No old value or provenance was overwritten.
+
+Reviewed backfill actions add unique native row IDs, add local corroboration only after field review, and preserve the two explicit conflict records. The report records every required field, classification, difference, proposed action, and review status. `local-build-intake --batch canonical-backfill` accepts only `.local/research/local-build/reports/canonical-backfill.json`; the final generated report has SHA-256 `ee10be12a962f72da841d7572412fb7c043611da3c966a03069e6dcbe4acccc7`. The report and all raw or bulk generated data remain uncommitted.
+
+Crafting stations, map objects, stat scales, rarity semantics, and drop-probability units remain unresolved. Technology identities also remain unverified, so local corroboration is not claimed for those records.
+
+The final reopened-G1 gate passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `git -c core.autocrlf=false diff --check`. Runtime adapter, agent, planner, calculator, and tool-registry tests use stable conflict-free views or non-conflicting records so their behavioral assertions remain independent of the two preserved canonical conflicts; explicit conflict propagation remains separately tested. No required command was skipped.

@@ -181,9 +181,9 @@ fn chat_event_runs_agent_and_sends_final_reply_once() {
     let address = runtime.endpoint();
     let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
     let (agent, provider) = scripted_agent(vec![
-        ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+        ChatResponse::tool("call_1", "get_item", json!({"query": "Stone"})),
         ChatResponse::text(
-            "Wood is obtained by chopping trees and managing forest camps responsibly.",
+            "Stone is obtained by mining rocks and managing quarry output responsibly.",
         ),
     ]);
     let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
@@ -191,7 +191,7 @@ fn chat_event_runs_agent_and_sends_final_reply_once() {
     let worker = process_in_worker(
         &bridge,
         agent,
-        chat_event("event-1", "!guide How do I get Wood?"),
+        chat_event("event-1", "!guide How do I get Stone?"),
     );
     let delivered = adapter.respond_ok();
     let outcome = worker.join().unwrap();
@@ -200,17 +200,17 @@ fn chat_event_runs_agent_and_sends_final_reply_once() {
     assert!(outcome.delivery_error.is_none());
     assert_eq!(
         delivered,
-        "Wood is obtained by chopping trees and managing forest camps responsibly."
+        "Stone is obtained by mining rocks and managing quarry output responsibly."
     );
     assert_eq!(outcome.answer.status, AgentStatus::Ok);
     assert_eq!(
         outcome.answer.answer.as_deref(),
-        Some("Wood is obtained by chopping trees and managing forest camps responsibly.")
+        Some("Stone is obtained by mining rocks and managing quarry output responsibly.")
     );
     assert_eq!(provider.calls().len(), 2, "agent runs exactly once");
     assert_eq!(
         provider.calls()[0].messages[0].content,
-        "Q: How do I get Wood?"
+        "Q: How do I get Stone?"
     );
 }
 
@@ -220,8 +220,8 @@ fn chat_debug_log_records_ask_reply_and_tool_calls() {
     let address = runtime.endpoint();
     let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
     let (agent, _provider) = scripted_agent(vec![
-        ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-        ChatResponse::text("Wood is obtained by chopping trees."),
+        ChatResponse::tool("call_1", "get_item", json!({"query": "Stone"})),
+        ChatResponse::text("Stone is obtained by mining rocks."),
     ]);
     let debug_log = debug_log_path("ask");
     let bridge = Arc::new(Mutex::new(
@@ -231,7 +231,7 @@ fn chat_debug_log_records_ask_reply_and_tool_calls() {
     let worker = process_in_worker(
         &bridge,
         agent,
-        chat_event("event-1", "!guide How do I get Wood?"),
+        chat_event("event-1", "!guide How do I get Stone?"),
     );
     let delivered = adapter.respond_ok();
     let outcome = worker.join().unwrap();
@@ -243,9 +243,9 @@ fn chat_debug_log_records_ask_reply_and_tool_calls() {
     let entry: serde_json::Value = serde_json::from_str(lines[0]).expect("debug entry is JSON");
     assert_eq!(entry["kind"], "ask");
     assert_eq!(entry["event_id"], "event-1");
-    assert_eq!(entry["question"], "How do I get Wood?");
+    assert_eq!(entry["question"], "How do I get Stone?");
     assert_eq!(entry["reply"], delivered);
-    assert_eq!(entry["reply"], "Wood is obtained by chopping trees.");
+    assert_eq!(entry["reply"], "Stone is obtained by mining rocks.");
     assert_eq!(entry["delivered"], true);
     assert_eq!(entry["status"], "ok");
     assert_eq!(entry["tool_calls"][0]["name"], "get_item");

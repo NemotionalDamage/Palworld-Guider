@@ -19,6 +19,7 @@ fn synthetic_provenance() -> Provenance {
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::ReviewedSecondary,
         change_risk: None,
+        corroborating_source_ids: Vec::new(),
     }
 }
 
@@ -45,6 +46,8 @@ fn synthetic_alias_store() -> KnowledgeStore {
             description: None,
             rarity: "Common".to_string(),
             acquisition_leads: Vec::new(),
+            native_row_id: None,
+            local_evidence: None,
             provenance: synthetic_provenance(),
         }),
         KnowledgeRecord::Alias(AliasRecord {

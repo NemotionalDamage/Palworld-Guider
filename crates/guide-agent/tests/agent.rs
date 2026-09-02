@@ -5,6 +5,7 @@ use guide_tools::{RuntimeToolResult, RuntimeToolSource, ToolDefinition, ToolRegi
 use knowledge_index::KnowledgeIndex;
 use provider::{ChatProvider, ChatRequest, ChatResponse, MockProvider, ProviderError};
 use serde_json::json;
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,11 +25,30 @@ impl ChatProvider for ProviderHandle {
 }
 
 fn test_registry(configured: Option<&str>) -> ToolRegistry {
-    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let store = test_store();
     let configured = configured.map(str::to_string);
     let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
     let engine = GuideEngine::new(store, configured);
     ToolRegistry::new(engine, index)
+}
+
+fn test_store() -> KnowledgeStore {
+    let mut lines = Vec::new();
+    for file_name in ["sources.jsonl", "facts.jsonl"] {
+        lines.extend(
+            fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+                .expect("canonical dataset reads")
+                .lines()
+                .map(str::to_string),
+        );
+    }
+    let records = lines
+        .iter()
+        .filter(|line| !line.contains("\"record_type\":\"conflict\""))
+        .map(|line| serde_json::from_str(line.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("conflict-free test fixtures parse");
+    KnowledgeStore::from_records(records).expect("conflict-free test store validates")
 }
 
 fn agent_config(max_tool_calls: usize, max_reply_characters: usize) -> AgentConfig {
@@ -114,7 +134,7 @@ fn submit_ok(sentences: &[&str], slots: &[&str]) -> ChatResponse {
 
 #[test]
 fn agent_never_receives_raw_snapshot_state() {
-    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let store = test_store();
     let index = KnowledgeIndex::from_store(&store, None).expect("index builds");
     let engine = GuideEngine::new(store, None);
     let snapshot = json!({
@@ -744,7 +764,7 @@ fn unknown_knowledge_propagates_to_answer() {
     let (agent, _provider) = scripted_agent(
         None,
         vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Stone"})),
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Unreviewed Thing"})),
             ChatResponse::tool(
                 "submit_answer",
                 "submit_answer",
@@ -758,7 +778,7 @@ fn unknown_knowledge_propagates_to_answer() {
         4,
         1200,
     );
-    let answer = agent.ask("What is Stone?");
+    let answer = agent.ask("What is Unreviewed Thing?");
 
     assert_eq!(answer.status, AgentStatus::Unknown);
     assert_eq!(answer.tool_calls[0].status, ToolStatus::Unknown);

@@ -16,17 +16,17 @@ fn run(arguments: &[&str]) -> (Value, i32) {
 
 #[test]
 fn cli_answers_exact_lookup_with_provenance() {
-    let (answer, code) = run(&["--data", "../../data/reviewed", "lookup", "item", "wood"]);
+    let (answer, code) = run(&["--data", "../../data/reviewed", "lookup", "item", "stone"]);
 
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");
-    assert_eq!(answer["data"]["id"], "ITEM_WOOD");
+    assert_eq!(answer["data"]["id"], "ITEM_STONE");
     assert_eq!(answer["version"]["knowledge_version"], "1.0.3");
     assert!(answer["provenance"]
         .as_array()
         .expect("provenance is an array")
         .iter()
-        .any(|item| item["source_id"] == "SRC-PALDB-V1_0_3-20260831"));
+        .any(|item| item["source_id"] == "SRC-PALDB-CORE-ITEMS-V1_0_3-20260902"));
 }
 
 #[test]
@@ -36,12 +36,12 @@ fn cli_calculates_materials_and_shortage_offline() {
         "../../data/reviewed",
         "materials",
         "3",
-        "Wooden",
-        "Club",
+        "Paldium",
+        "Fragment",
     ]);
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");
-    assert_eq!(answer["data"]["target_id"], "ITEM_WOODEN_CLUB");
+    assert_eq!(answer["data"]["target_id"], "ITEM_PALDIUM_FRAGMENT");
     assert_eq!(
         answer["data"]["totals"][0]["required_quantity"],
         serde_json::json!(15)
@@ -52,10 +52,10 @@ fn cli_calculates_materials_and_shortage_offline() {
         "../../data/reviewed",
         "shortage",
         "--inventory",
-        "Wood=6",
+        "Stone=6",
         "3",
-        "Wooden",
-        "Club",
+        "Paldium",
+        "Fragment",
     ]);
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");

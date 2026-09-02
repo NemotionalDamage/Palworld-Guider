@@ -28,6 +28,7 @@ fn provenance() -> Provenance {
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::Official,
         change_risk: None,
+        corroborating_source_ids: Vec::new(),
     }
 }
 
@@ -42,6 +43,8 @@ fn pal(id: &str, name: &str) -> KnowledgeRecord {
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],
+        native_row_id: None,
+        local_evidence: None,
         provenance: provenance(),
     })
 }

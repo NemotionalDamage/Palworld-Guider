@@ -1,6 +1,7 @@
 use game_knowledge::{
-    candidate_output_is_safe, generate_candidates, IntakeBatch, LocalBuildError, LocalBuildLocale,
-    LocalBuildTables, LocalizationIndex,
+    audit_canonical_backfill, candidate_output_is_safe, canonical_backfill_output_is_safe,
+    generate_candidates, IntakeBatch, LocalBuildError, LocalBuildLocale, LocalBuildTables,
+    LocalizationIndex,
 };
 use serde_json::{json, Map, Value};
 use std::fs;
@@ -257,6 +258,79 @@ fn candidate_output_must_stay_under_local_research_directory() {
     assert!(!candidate_output_is_safe(Path::new(
         ".local/research/local-build/../secret/items.jsonl"
     )));
+}
+
+#[test]
+fn canonical_backfill_output_must_use_the_reviewed_report_path() {
+    assert!(canonical_backfill_output_is_safe(Path::new(
+        ".local/research/local-build/reports/canonical-backfill.json"
+    )));
+    assert!(canonical_backfill_output_is_safe(Path::new(
+        "C:/repo/.local/research/local-build/reports/canonical-backfill.json"
+    )));
+    assert!(!canonical_backfill_output_is_safe(Path::new(
+        ".local/research/local-build/reports/other-report.json"
+    )));
+    assert!(!canonical_backfill_output_is_safe(Path::new(
+        ".local/research/local-build/reports/canonical-backfill.json/../report.json"
+    )));
+}
+
+#[test]
+fn audits_every_canonical_fact_when_real_exports_are_present() {
+    let root = Path::new("../../.local/research/local-build/raw");
+    if !root.exists() {
+        return;
+    }
+    let tables = LocalBuildTables::load(root).expect("real tables load");
+    let localization = LocalizationIndex::load(root).expect("real localization loads");
+    let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
+        .expect("canonical dataset loads");
+
+    let report = audit_canonical_backfill(&tables, &localization, &store);
+
+    assert_eq!(report.summary.total_records, 38);
+    assert_eq!(report.summary.unclassified_facts, 0);
+    assert!(report.facts.len() >= 90);
+    assert!(report
+        .summary
+        .classification_counts
+        .contains_key("corroborated_exact"));
+    assert!(report
+        .summary
+        .classification_counts
+        .contains_key("corroborated_partial"));
+    assert!(report
+        .summary
+        .classification_counts
+        .contains_key("conflicting"));
+    assert!(report
+        .summary
+        .classification_counts
+        .contains_key("not_represented_locally"));
+    assert!(report
+        .summary
+        .classification_counts
+        .contains_key("unresolved_mapping"));
+    assert!(report.facts.iter().any(|fact| {
+        fact.canonical_record_id == "ITEM_WOODEN_CLUB"
+            && fact.canonical_field == "names.en"
+            && fact.classification == "conflicting"
+            && fact.current_value.contains("Wooden Club")
+            && fact.local_value.contains("Stone Axe")
+    }));
+    assert!(report.facts.iter().any(|fact| {
+        fact.canonical_record_id == "RECIPE_WOODEN_CLUB"
+            && fact.canonical_field == "ingredients"
+            && fact.classification == "conflicting"
+    }));
+    assert!(report.facts.iter().any(|fact| {
+        fact.canonical_record_id == "ITEM_BAKED_BERRIES"
+            && fact.canonical_field == "description"
+            && fact.classification == "corroborated_partial"
+            && fact.difference_explanation
+                == "the reviewed text differs only by target-build line endings"
+    }));
 }
 
 fn fixture_root() -> PathBuf {
