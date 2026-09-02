@@ -98,3 +98,27 @@ G5 is not yet complete. The remaining acceptance criteria require approved live 
 - Launch Palworld and validate `!guide ping`, a factual question, a player-position question, and an active-Otomo question with an Otomo spawned.
 - Restart and fail-closed checks (server restart, game restart, server-down recovery) and a clean-exit check.
 - These steps require explicit project-owner approval to launch the game.
+
+## G5 Grounding Fix
+
+### Scope Delivered
+
+- Added a Rust `FactSheet` that derives stable quantity, entity, observation, and version slots from successful deterministic tool results and reviewed tool arguments.
+- Added the model-visible `submit_answer` termination tool. It is not dispatched through the tool registry and does not consume the deterministic tool-call budget.
+- Added strict draft rendering: slot references must be declared and exist; digits and English/Chinese number words are forbidden in model text; known entities require tool evidence; Rust fills numeric values and renderer-added step numbers.
+- Added deterministic fallback rendering for invalid drafts, free-text responses, and tool-budget exhaustion, so grounding failures no longer produce a user-visible rejection.
+- Preserved a strict compatibility path for existing text-only providers: numeric-free and entity-safe free text is rendered by the same Rust validator; otherwise it falls back.
+- Removed the old natural-language numeric grounding heuristics and temporary diagnostics.
+
+### Verification
+
+Fresh final gates on 2026-09-02:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test`
+- `git diff --check`
+
+All passed. The focused `guide-agent` suite contains 30 tests covering quantity tampering, unknown slots, numeric literals, English and Chinese number words, renderer numbering, exact observations, unsupported entities, free-text compatibility/fallback, provenance, versions, budgets, cancellation, timeout, and truncation.
+
+No game was launched and no live adapter validation was performed. The required live replay of the Wood, Food, and Lamball-spawn questions remains part of the existing G5 live-only gate and requires explicit project-owner approval to launch Palworld.

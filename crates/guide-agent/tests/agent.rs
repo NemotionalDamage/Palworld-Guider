@@ -31,6 +31,16 @@ fn test_registry(configured: Option<&str>) -> ToolRegistry {
     ToolRegistry::new(engine, index)
 }
 
+fn agent_config(max_tool_calls: usize, max_reply_characters: usize) -> AgentConfig {
+    AgentConfig {
+        limits: AgentLimits {
+            max_tool_calls,
+            timeout: Duration::from_secs(30),
+        },
+        max_reply_characters,
+    }
+}
+
 fn scripted_agent(
     configured: Option<&str>,
     responses: Vec<ChatResponse>,
@@ -41,13 +51,7 @@ fn scripted_agent(
     let agent = GuideAgent::new(
         test_registry(configured),
         Box::new(ProviderHandle(provider.clone())),
-        AgentConfig {
-            limits: AgentLimits {
-                max_tool_calls,
-                timeout: Duration::from_secs(30),
-            },
-            max_reply_characters,
-        },
+        agent_config(max_tool_calls, max_reply_characters),
     );
     (agent, provider)
 }
@@ -91,15 +95,21 @@ fn scripted_agent_with_runtime(
     let agent = GuideAgent::new(
         registry,
         Box::new(ProviderHandle(provider.clone())),
-        AgentConfig {
-            limits: AgentLimits {
-                max_tool_calls,
-                timeout: Duration::from_secs(30),
-            },
-            max_reply_characters,
-        },
+        agent_config(max_tool_calls, max_reply_characters),
     );
     (agent, provider)
+}
+
+fn submit_ok(sentences: &[&str], slots: &[&str]) -> ChatResponse {
+    ChatResponse::tool(
+        "submit_answer",
+        "submit_answer",
+        json!({
+            "status": "ok",
+            "sentences": sentences,
+            "slots": slots
+        }),
+    )
 }
 
 #[test]
@@ -120,18 +130,12 @@ fn agent_never_receives_raw_snapshot_state() {
                 "granted_at": "2020-01-01T00:00:00Z"
             }
         },
-        "inventory": [
-            {"item": "Wood", "quantity": 7, "evidence": "user_entered"}
-        ],
-        "party": [
-            {"slot": 0, "pal": "Lamball", "evidence": "user_entered"}
-        ],
+        "inventory": [{"item": "Wood", "quantity": 7, "evidence": "user_entered"}],
+        "party": [{"slot": 0, "pal": "Lamball", "evidence": "user_entered"}],
         "unlocked_technologies": [
             {"technology": "Technology Level 1", "evidence": "user_entered"}
         ],
-        "captured_pals": [
-            {"pal": "Lamball", "level": 5, "evidence": "user_entered"}
-        ],
+        "captured_pals": [{"pal": "Lamball", "level": 5, "evidence": "user_entered"}],
         "player_level": {"value": 7, "evidence": "user_entered"},
         "goals": [
             {"kind": "craft", "target": "Wooden Club", "quantity": 2, "priority": 2}
@@ -153,16 +157,11 @@ fn agent_never_receives_raw_snapshot_state() {
     let agent = GuideAgent::new(
         registry,
         Box::new(ProviderHandle(provider.clone())),
-        AgentConfig {
-            limits: AgentLimits {
-                max_tool_calls: 4,
-                timeout: Duration::from_secs(30),
-            },
-            max_reply_characters: 1200,
-        },
+        agent_config(4, 1200),
     );
 
     let answer = agent.ask("What should I do next?");
+
     assert_eq!(answer.status, AgentStatus::Unknown);
     let calls = provider.calls();
     assert_eq!(calls.len(), 2);
@@ -208,13 +207,7 @@ fn agent_can_attach_a_snapshot_after_construction() {
     let mut agent = GuideAgent::new(
         registry,
         Box::new(ProviderHandle(provider.clone())),
-        AgentConfig {
-            limits: AgentLimits {
-                max_tool_calls: 4,
-                timeout: Duration::from_secs(30),
-            },
-            max_reply_characters: 1200,
-        },
+        agent_config(4, 1200),
     );
 
     agent.set_state_snapshot(parsed);
@@ -225,26 +218,26 @@ fn agent_can_attach_a_snapshot_after_construction() {
 }
 
 #[test]
-fn executes_tool_request_and_returns_grounded_answer() {
+fn executes_tool_request_and_returns_slot_answer() {
     let (agent, _provider) = scripted_agent(
         None,
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("Wood is obtained by chopping trees."),
+            submit_ok(&["Wood is obtained by chopping trees."], &[]),
         ],
         4,
         1200,
     );
     let answer = agent.ask("How do I get Wood?");
+
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer
-        .answer
-        .as_deref()
-        .unwrap_or_default()
-        .contains("chopping trees"));
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Wood is obtained by chopping trees.")
+    );
     assert_eq!(answer.tool_calls.len(), 1);
     assert_eq!(answer.tool_calls[0].name, "get_item");
-    assert_eq!(answer.tool_calls[0].status, guide_tools::ToolStatus::Ok);
+    assert_eq!(answer.tool_calls[0].status, ToolStatus::Ok);
     assert!(answer
         .provenance
         .iter()
@@ -253,40 +246,445 @@ fn executes_tool_request_and_returns_grounded_answer() {
 }
 
 #[test]
+fn submit_answer_is_visible_but_not_dispatched_or_budgeted() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
+        ],
+        1,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(provider.calls()[0]
+        .tools
+        .iter()
+        .any(|tool| tool.name == "submit_answer"));
+    assert!(answer
+        .tool_calls
+        .iter()
+        .all(|record| record.name != "submit_answer"));
+}
+
+#[test]
+fn fact_sheet_is_sent_after_each_tool_result() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let fact_sheet_message = &provider.calls()[1].messages[2].content;
+    assert!(fact_sheet_message.contains("FACT_SHEET:"));
+    assert!(fact_sheet_message.contains("[q1] quantity value=15 entity=\"Wood\""));
+}
+
+#[test]
+fn submit_answer_renders_quantity_slot() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+}
+
+#[test]
+fn numeric_tampering_has_no_render_path() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need 12 Wood."], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("numeric literal")));
+}
+
+#[test]
+fn unknown_slot_falls_back_to_fact_sheet() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q9} Wood."], &["q9"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("unknown slot q9")));
+}
+
+#[test]
+fn number_word_in_draft_falls_back() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![ChatResponse::tool(
+            "submit_answer",
+            "submit_answer",
+            json!({
+                "status": "unknown",
+                "sentences": ["This is one of the most common options."],
+                "slots": []
+            }),
+        )],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How do I get Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .contains("I don't have enough reviewed data"));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("numeric word")));
+}
+
+#[test]
+fn chinese_number_word_in_draft_falls_back() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "ok",
+                    "sentences": ["需要一个 Wood。"],
+                    "slots": []
+                }),
+            ),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("需要多少 Wood？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("numeric word")));
+}
+
+#[test]
+fn model_returns_free_text_without_submit_answer() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            ChatResponse::text("Wood comes from chopping trees."),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("How do I get Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.is_some());
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("model did not call submit_answer")));
+}
+
+#[test]
+fn empty_free_text_uses_fallback() {
+    let (agent, _provider) = scripted_agent(None, vec![ChatResponse::text("   ")], 4, 1200);
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .contains("I don't have enough reviewed data"));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("model did not call submit_answer")));
+}
+
+#[test]
+fn answers_without_tool_evidence_are_flagged() {
+    let (agent, _provider) =
+        scripted_agent(None, vec![submit_ok(&["I don't know."], &[])], 4, 1200);
+    let answer = agent.ask("Any tips?");
+
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("no deterministic tool evidence")));
+}
+
+#[test]
+fn steps_are_numbered_by_renderer() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "ok",
+                    "sentences": ["Gather materials:"],
+                    "steps": ["Collect {q1} Wood.", "Craft the club."],
+                    "slots": ["q1"]
+                }),
+            ),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Gather materials:\n1. Collect 15 Wood.\n2. Craft the club.")
+    );
+}
+
+#[test]
+fn position_slots_render_exact_observation() {
+    let (agent, _provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
+        vec![
+            ChatResponse::tool("call_1", "get_player_status", json!({})),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "ok",
+                    "sentences": ["Position: {o1}, {o2}, {o3}."],
+                    "slots": ["o1", "o2", "o3"]
+                }),
+            ),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Where is my player?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .starts_with("Position: x=-1.5, y=2.25, z=3"));
+}
+
+#[test]
+fn hand_written_position_falls_back_to_exact_observation() {
+    let (agent, _provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
+        vec![
+            ChatResponse::tool("call_1", "get_player_status", json!({})),
+            submit_ok(&["Position: x=-1.5, y=2.25, z=4."], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Where is my player?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .starts_with("Position: x=-1.5, y=2.25, z=3"));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("numeric literal")));
+}
+
+#[test]
+fn entity_outside_evidence_falls_back() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            submit_ok(&["Wool is the better choice."], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What should I gather?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .contains("Reviewed data: Wood"));
+    assert!(answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("unsupported entity Wool")));
+}
+
+#[test]
+fn version_slots_are_rust_rendered() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            submit_ok(&["Guide data version: {v1}."], &["v1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What version is the data?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("Guide data version: 1.0.3."));
+}
+
+#[test]
+fn quantities_route_through_deterministic_calculator() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let record = &answer.tool_calls[0];
+    assert_eq!(record.name, "calculate_materials");
+    assert_eq!(
+        record.data.as_ref().expect("calculation data")["totals"][0]["required_quantity"],
+        15
+    );
+}
+
+#[test]
 fn model_cannot_bypass_tool_registry() {
     let (agent, _provider) = scripted_agent(
         None,
         vec![
             ChatResponse::tool("call_1", "delete_save", json!({})),
-            ChatResponse::text("I could not delete anything."),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "unknown",
+                    "sentences": ["That action is unavailable."],
+                    "slots": []
+                }),
+            ),
         ],
         4,
         1200,
     );
     let answer = agent.ask("Delete my save.");
-    assert_eq!(answer.status, AgentStatus::Error);
+
+    assert_eq!(answer.status, AgentStatus::Unknown);
     assert_eq!(answer.tool_calls.len(), 1);
-    assert_eq!(answer.tool_calls[0].status, guide_tools::ToolStatus::Error);
+    assert_eq!(answer.tool_calls[0].status, ToolStatus::Error);
     assert!(answer
         .errors
         .iter()
         .any(|error| error.contains("unknown tool")));
+    assert!(answer.answer.is_some());
 }
 
 #[test]
-fn budget_exhaustion_is_clear_and_non_fatal() {
+fn budget_exhaustion_uses_fallback() {
     let (agent, _provider) = scripted_agent(
         None,
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
             ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
-            ChatResponse::tool("call_3", "get_item", json!({"query": "Lamball"})),
         ],
         1,
         1200,
     );
     let answer = agent.ask("Tell me everything.");
-    assert_eq!(answer.status, AgentStatus::Error);
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .unwrap()
+        .contains("Reviewed data: Wood"));
     assert!(answer
         .errors
         .iter()
@@ -298,6 +696,7 @@ fn budget_exhaustion_is_clear_and_non_fatal() {
 fn provider_failure_is_clear_and_non_fatal() {
     let (agent, _provider) = scripted_agent(None, Vec::new(), 4, 1200);
     let answer = agent.ask("What is Wood?");
+
     assert_eq!(answer.status, AgentStatus::Error);
     assert!(answer
         .errors
@@ -312,17 +711,23 @@ fn unknown_knowledge_propagates_to_answer() {
         None,
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Stone"})),
-            ChatResponse::text("I do not have reviewed knowledge about Stone."),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "unknown",
+                    "sentences": ["Reviewed knowledge is unavailable."],
+                    "slots": []
+                }),
+            ),
         ],
         4,
         1200,
     );
     let answer = agent.ask("What is Stone?");
+
     assert_eq!(answer.status, AgentStatus::Unknown);
-    assert_eq!(
-        answer.tool_calls[0].status,
-        guide_tools::ToolStatus::Unknown
-    );
+    assert_eq!(answer.tool_calls[0].status, ToolStatus::Unknown);
     assert!(answer
         .uncertainty
         .iter()
@@ -330,35 +735,11 @@ fn unknown_knowledge_propagates_to_answer() {
 }
 
 #[test]
-fn quantities_route_through_deterministic_calculator() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need 15 Wood for 3 Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Ok);
-    let record = &answer.tool_calls[0];
-    assert_eq!(record.name, "calculate_materials");
-    assert_eq!(
-        record.data.as_ref().expect("calculation data")["totals"][0]["required_quantity"],
-        15
-    );
-}
-
-#[test]
 fn cancellation_stops_before_provider_calls() {
     let (agent, provider) = scripted_agent(None, vec![ChatResponse::text("Too late.")], 4, 1200);
     let cancelled = AtomicBool::new(true);
     let answer = agent.ask_with_cancellation("What is Wood?", &cancelled);
+
     assert_eq!(answer.status, AgentStatus::Error);
     assert!(answer
         .errors
@@ -369,17 +750,44 @@ fn cancellation_stops_before_provider_calls() {
 }
 
 #[test]
+fn timeout_stops_before_provider_calls() {
+    let provider = Arc::new(MockProvider::scripted(vec![ChatResponse::text(
+        "Too late.",
+    )]));
+    let agent = GuideAgent::new(
+        test_registry(None),
+        Box::new(ProviderHandle(provider.clone())),
+        AgentConfig {
+            limits: AgentLimits {
+                max_tool_calls: 4,
+                timeout: Duration::ZERO,
+            },
+            max_reply_characters: 1200,
+        },
+    );
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Error);
+    assert!(answer
+        .errors
+        .iter()
+        .any(|error| error.contains("timeout exceeded")));
+    assert!(provider.calls().is_empty());
+}
+
+#[test]
 fn stale_version_propagates_to_answer() {
     let (agent, _provider) = scripted_agent(
         Some("0.9"),
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("Wood is obtained by chopping trees, but the data may be stale."),
+            submit_ok(&["Wood is useful, but the data may be stale."], &[]),
         ],
         4,
         1200,
     );
     let answer = agent.ask("How do I get Wood?");
+
     assert!(!answer.version.matches);
     assert!(answer
         .uncertainty
@@ -388,821 +796,17 @@ fn stale_version_propagates_to_answer() {
 }
 
 #[test]
-fn empty_final_answer_is_rejected() {
-    let (agent, _provider) = scripted_agent(None, vec![ChatResponse::text("   ")], 4, 1200);
-    let answer = agent.ask("What is Wood?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.errors.iter().any(|error| error.contains("empty")));
-}
-
-#[test]
-fn answers_without_tool_evidence_are_flagged() {
+fn reply_truncation_is_applied_by_renderer() {
     let (agent, _provider) = scripted_agent(
         None,
-        vec![ChatResponse::text("Generic advice without facts.")],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Any tips?");
-    assert_eq!(answer.status, AgentStatus::Unknown);
-    assert!(answer
-        .uncertainty
-        .iter()
-        .any(|message| message.contains("no deterministic tool evidence")));
-}
-
-#[test]
-fn numeric_tampering_is_rejected_by_grounding_gate() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need 12 Wood for 3 Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"12\"")));
-    assert_eq!(
-        answer.tool_calls[0].data.as_ref().expect("tool data")["totals"][0]["required_quantity"],
-        15
-    );
-}
-
-#[test]
-fn player_position_numbers_may_restate_exact_runtime_observation() {
-    let (agent, _provider) = scripted_agent_with_runtime(
-        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
-        vec![
-            ChatResponse::tool("call_1", "get_player_status", json!({})),
-            ChatResponse::text("Position: x=-1.5, y=2.25, z=3."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Where is my player?");
-    assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.errors.is_empty());
-    assert_eq!(
-        answer.answer.as_deref(),
-        Some("Position: x=-1.5, y=2.25, z=3.")
-    );
-}
-
-#[test]
-fn runtime_position_tampering_is_rejected() {
-    let (agent, _provider) = scripted_agent_with_runtime(
-        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
-        vec![
-            ChatResponse::tool("call_1", "get_player_status", json!({})),
-            ChatResponse::text("Position: x=-1.5, y=2.25, z=4."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Where is my player?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"4")));
-}
-
-#[test]
-fn runtime_observation_does_not_authorize_material_quantities() {
-    let (agent, _provider) = scripted_agent_with_runtime(
-        json!({"position": {"x": -1.5, "y": 2.25, "z": 3.0}}),
-        vec![
-            ChatResponse::tool("call_1", "get_player_status", json!({})),
-            ChatResponse::text("You need 5 Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How much Wood do I need?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer.errors.iter().any(|error| {
-        error.contains("unsupported numeric claim \"5\"")
-            || error.contains("unsupported calculation claim")
-    }));
-}
-
-#[test]
-fn unsupported_calculation_claims_require_tool_evidence() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![ChatResponse::text("You need 20 Wood for a club.")],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How much Wood for a club?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"20\"")));
-}
-
-#[test]
-fn version_digits_do_not_authorize_quantities() {
-    let (agent, _provider) = scripted_agent(
-        Some("1.0.3"),
-        vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("You need 3 Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How much Wood do I need?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"3\"")
-            || error.contains("unsupported calculation claim")));
-}
-
-#[test]
-fn number_words_are_normalized_and_require_calculator_evidence() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![ChatResponse::text("You need twenty Wood.")],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How much Wood do I need?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer.errors.iter().any(|error| error.contains("twenty")));
-}
-
-#[test]
-fn non_ascii_numerals_are_normalized_and_grounded() {
-    let (agent, _provider) =
-        scripted_agent(None, vec![ChatResponse::text("You need ３ Wood.")], 4, 1200);
-    let answer = agent.ask("How much Wood do I need?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"3\"")));
-}
-
-#[test]
-fn scaled_number_words_require_exact_calculator_values() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need fifteen thousand Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"fifteen thousand\"")));
-}
-
-#[test]
-fn complete_number_words_can_restate_exact_calculator_results() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need fifteen Wood for three Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.errors.is_empty());
-}
-
-#[test]
-fn fractional_number_words_require_exact_calculator_values() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need one and a half Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"one and a half\"")));
-}
-
-#[test]
-fn leading_decimal_fractions_require_exact_calculator_values() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 1}),
-            ),
-            ChatResponse::text("You need .5 Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 1 Wooden Club?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \".5\"")));
-}
-
-#[test]
-fn same_value_evidence_cannot_authorize_another_entity_in_the_sentence() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_shortage",
-                json!({
-                    "query": "Wooden Club",
-                    "quantity": 3,
-                    "inventory": [
-                        {"item": "Wood", "quantity": 5},
-                        {"item": "Wool", "quantity": 3}
-                    ]
-                }),
-            ),
-            ChatResponse::text("You are short 5 Wood and short 5 Wool for Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How short am I for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"5\"")));
-}
-
-#[test]
-fn comma_separated_values_cannot_reuse_the_previous_entity() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_shortage",
-                json!({
-                    "query": "Wooden Club",
-                    "quantity": 3,
-                    "inventory": [
-                        {"item": "Wood", "quantity": 5},
-                        {"item": "Wool", "quantity": 3}
-                    ]
-                }),
-            ),
-            ChatResponse::text("You need 5 Wood, 5 Wool for Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How short am I for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"5\"")));
-}
-
-#[test]
-fn scientific_notation_is_one_exact_numeric_claim() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 15}),
-            ),
-            ChatResponse::text("You need 75e15 Wood for Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 15 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"75e15\"")));
-}
-
-#[test]
-fn chinese_number_words_require_matching_question_locale() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("You need 十五 Wood."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Materials for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"十五\"")));
-}
-
-#[test]
-fn chinese_number_words_restate_results_for_chinese_questions() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_materials",
-                json!({"query": "Wooden Club", "quantity": 3}),
-            ),
-            ChatResponse::text("需要十五 Wood。"),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("3 个 Wooden Club 需要什么材料？");
-    assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.errors.is_empty());
-}
-
-#[test]
-fn explicit_unknown_answers_cannot_append_breeding_guesses() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("Unknown result: the offspring is fluffy."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn unknown_breeding_answers_cannot_assert_a_permitted_offspring() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Unknown result: the offspring is Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn unknown_breeding_answers_cannot_assert_offspring_without_a_copula() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Unknown result: the offspring Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn unknown_breeding_answers_cannot_assert_a_bare_offspring_entity() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Unknown result: Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn generic_breeding_conclusions_require_breeding_evidence() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("Their offspring is fluffy."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer.errors.iter().any(|error| error
-        .contains("unsupported breeding claim; a successful breeding result is required")));
-}
-
-#[test]
-fn breeding_questions_reject_context_free_generic_claims() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text("It is fluffy."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does breeding Lamball and Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer.errors.iter().any(|error| error
-        .contains("unsupported breeding claim; a successful breeding result is required")));
-}
-
-#[test]
-fn breeding_evidence_is_bound_to_the_answered_parent_pair() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::tool(
-                "call_2",
-                "calculate_breeding_result",
-                json!({"parent_a": "Wool", "parent_b": "Wool"}),
-            ),
-            ChatResponse::text("Lamball plus Lamball produces Wool."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported breeding claim \"Wool\"")));
-}
-
-#[test]
-fn unrelated_lookup_cannot_wrap_unknown_breeding_result() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
-            ChatResponse::text("Lamball and Lamball produce Wool."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported entity claim \"Wool\"")
-            || error.contains("unsupported breeding claim \"Wool\"")));
-}
-
-#[test]
-fn breeding_entity_evidence_ignores_unrelated_arguments() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
-            ChatResponse::text("Lamball plus Lamball gives Wool."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball give?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported entity claim \"Wool\"")));
-}
-
-#[test]
-fn breeding_guesses_beyond_tool_evidence_are_rejected() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Lamball and Lamball produce Wool."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported entity claim \"Wool\"")));
-}
-
-#[test]
-fn unknown_breeding_answers_may_echo_only_question_entities() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("No reviewed breeding result is available for Lamball and Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Unknown);
-    assert!(answer.answer.is_some());
-    assert!(answer.errors.is_empty());
-}
-
-#[test]
-fn reply_truncation_is_visible() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
-            ChatResponse::text(
-                "Wood is obtained by chopping trees and managing forest camps responsibly.",
-            ),
-        ],
+        vec![submit_ok(
+            &["Wood is useful for building and crafting."],
+            &[],
+        )],
         4,
         10,
     );
-    let answer = agent.ask("Long answer?");
+    let answer = agent.ask("What is Wood?");
+
     assert_eq!(answer.answer.as_deref().map(str::len), Some(10));
-    assert!(answer
-        .uncertainty
-        .iter()
-        .any(|message| message.contains("truncated")));
-}
-
-#[test]
-fn unknown_breeding_answers_cannot_assert_a_bare_entity_after_unknown() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Unknown: Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn unknown_breeding_answers_cannot_assert_offspring_before_the_keyword() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Unknown: Lamball is the offspring."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error
-            .contains("unsupported breeding claim after an explicit unknown statement")));
-}
-
-#[test]
-fn reversed_clause_entities_cannot_reuse_shared_values() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_shortage",
-                json!({
-                    "query": "Wooden Club",
-                    "quantity": 3,
-                    "inventory": [
-                        {"item": "Wood", "quantity": 5},
-                        {"item": "Wool", "quantity": 3}
-                    ]
-                }),
-            ),
-            ChatResponse::text("You need 5 Wool and 5 Wood for Wooden Clubs."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("How short am I for 3 Wooden Clubs?");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-    assert!(answer
-        .errors
-        .iter()
-        .any(|error| error.contains("unsupported numeric claim \"5\"")));
-}
-
-#[test]
-fn chinese_unknown_answers_cannot_assert_a_bare_entity() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("未知：Lamball。"),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("Lamball 和 Lamball 繁殖会得到什么？");
-    assert_eq!(answer.status, AgentStatus::Error);
-    assert!(answer.answer.is_none());
-}
-
-#[test]
-fn unknown_answers_accept_context_only_parent_entities() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("No reviewed result for Lamball and Lamball."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Unknown);
-    assert!(answer.answer.is_some());
-    assert!(answer.errors.is_empty());
-}
-
-#[test]
-fn unknown_answers_accept_subject_position_parent_entities() {
-    let (agent, _provider) = scripted_agent(
-        None,
-        vec![
-            ChatResponse::tool(
-                "call_1",
-                "calculate_breeding_result",
-                json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
-            ),
-            ChatResponse::text("Breeding Lamball and Lamball is unknown."),
-        ],
-        4,
-        1200,
-    );
-    let answer = agent.ask("What does Lamball plus Lamball produce?");
-    assert_eq!(answer.status, AgentStatus::Unknown);
-    assert!(answer.answer.is_some());
-    assert!(answer.errors.is_empty());
 }

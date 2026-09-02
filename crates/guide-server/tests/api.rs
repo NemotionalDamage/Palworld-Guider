@@ -299,7 +299,7 @@ async fn empty_and_overlong_questions_are_rejected() {
 #[tokio::test]
 async fn history_and_rate_limits_are_visible() {
     let guide = server(vec![
-        ChatResponse::text("First answer."),
+        ChatResponse::text("Initial answer."),
         ChatResponse::text("Unused."),
     ]);
     let router = guide.router();
@@ -322,7 +322,7 @@ async fn history_and_rate_limits_are_visible() {
     assert_eq!(body["exchanges"][0]["question"], json!("First question"));
     assert_eq!(
         body["exchanges"][0]["answer"]["answer"],
-        json!("First answer.")
+        json!("Initial answer.")
     );
 
     let response = router

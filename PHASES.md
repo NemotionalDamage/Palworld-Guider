@@ -1,6 +1,6 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-01, Asia/Shanghai.
+Last updated: 2026-09-02, Asia/Shanghai.
 
 ## Current Status
 
@@ -9,6 +9,8 @@ Phase G0 and G1 are complete. G1 established a typed, validated, provenance-bear
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
 Phase G5 is in progress. The loopback-only Axum Web API, bounded sessions, and browser UI are complete. The approved UE4SS read-only in-game chat path is implemented and has passed its full offline acceptance gate (gateway, runtime tool composition, adapter bridge, observation grounding, server adapter mode, Lua/native transport, and safety scripts). Only the approved live single-player validation remains, and it requires explicit project-owner approval to launch Palworld.
+
+The approved G5 grounding fix has passed its offline gate: model drafts use Rust-assigned evidence slots, Rust validates and renders numeric output, and invalid drafts receive deterministic fallback answers. Its live replay remains part of the G5 live validation blocker.
 
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
@@ -157,6 +159,10 @@ None.
 
 ## Phase G5 Progress
 
+In progress:
+
+- Complete the approved live read-only validation after explicit project-owner approval to launch Palworld.
+
 Completed:
 
 - Approved the Web-first integrated-interface architecture.
@@ -170,6 +176,8 @@ Completed:
 - Implemented runtime tool composition, the bounded in-game adapter bridge, narrow x/y/z observation grounding, and the `guide-server` adapter mode with environment-only tokens.
 - Implemented the renamed transport-only `PalworldGuider` UE4SS Lua/native adapter (read-only player position and active-Otomo reads, `!guide ` chat capture) and the build/backup/install/uninstall safety scripts.
 - Passed the offline acceptance gate: 250 tests, clippy and fmt clean, native package built with verified SHA256 manifest, exports `start_mod`/`uninstall_mod`, and an offline loopback rehearsal with the exact Pong reply and no provider call.
+- Implemented evidence-slot answer drafting, strict Rust rendering, and deterministic fallback for numeric grounding.
+- Passed the G5 grounding-fix offline gate with formatting, Clippy, full tests, and whitespace checks clean.
 
 Remaining:
 
@@ -177,11 +185,11 @@ Remaining:
 
 ### Verification
 
-The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. Detailed evidence is in `docs/phase-records/phase-g5.md`.
+The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix also passed fresh formatting, Clippy, full-test, and whitespace gates. Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 
-- Live validation remains. It requires explicit project-owner approval to launch Palworld: back up world `3C2BA10146F65256FD1B889FBF5F854F` to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` (30-day retention), install the hash-verified package, then validate ping, factual, position, and active-Otomo questions plus restart/fail-closed and clean-exit checks.
+- Live validation remains. It requires explicit project-owner approval to launch Palworld: back up world `3C2BA10146F65256FD1B889FBF5F854F` to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` (30-day retention), install the hash-verified package, then validate ping, the Wood, Food, and Lamball-spawn factual replays, position, and active-Otomo questions plus restart/fail-closed and clean-exit checks.
 
 ## Phase Boundaries
 
