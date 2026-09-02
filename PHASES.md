@@ -89,13 +89,14 @@ The project owner approved a local Palworld DataTable extraction pilot for insta
 
 Remaining:
 
-- Configure an offline asset inspector for the installed build and export a minimal targeted JSON or CSV set.
+- Export the remaining minimal Pal, item, recipe, technology, and localized-text tables.
 - Map selected local-build fields to item, recipe, technology, Pal, progression, and localized alias schemas.
 - Compare extracted values with current Paldb records and preserve any conflict explicitly.
+- Record the local-build provenance for the reviewed facts.
 
 ### Blocker
 
-FModel 4.4.4 is installed and mounts Steam build 24575825, but DataTable export requires a matching Palworld mapping. A PalworldModding/UsefulFiles mapping is downloaded beside FModel; enable Local Mapping File, point it to that Mappings.usmap, restart FModel, and retry the two target exports.
+None. FModel now exports with the PalworldModding/UsefulFiles mapping commit 0e4ae19a05ba0d9fb95d859c09b28f168cb3624f; the 1,044-row drop table was validated and SheepBall000 matches the reviewed Lamball drop facts. Continue only the targeted exports and review gate.
 
 ## Phase G2 Progress
 
