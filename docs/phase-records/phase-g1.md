@@ -84,3 +84,26 @@ The initial missing-mapping blocker is resolved. FModel 4.4.4 now uses PalworldM
 The full approved export batch is complete. The preserved manifest references 518 files and 135,737,060 bytes, with SHA-256 C5850F0EDCE381850526420218F6C0DBC20570BBA97FCE0F23D0978703EFABA7. The completeness audit matched 518/518 files, found zero missing or invalid JSON files, and ignored 11 extra exported Pal assets outside the manifest. One manifest table, DT_SupplyIncident_NPC_Sakura01, is valid JSON with zero rows. Key table counts are Item 2,466; Item Recipe 1,414; Technology Unlock 588; Pal Parameter 753; Pal Drop 1,044; and EN/zh-Hans Item Name 1,994 each.
 
 The next implementation step is the reviewed Rust intake plan in docs/superpowers/plans/2026-09-02-phase-g1-local-build-intake.md. It registers the local source, adds native-row and corroboration metadata, parses the five core table families, resolves localization with Unicode and placeholder gates, cross-checks pilot facts, promotes only reviewed non-conflicting candidates, and provides a candidate-generation CLI under .local. The known local Axe_Tier_00 identity conflict must remain explicit rather than silently replacing the current Wooden Club entity.
+
+## Local-Build Intake Status
+
+The verified local source `SRC-LOCAL-BUILD-24575825-20260902` is registered. Item, Pal, technology, and recipe records now support optional unique `native_row_id` values; provenance supports registered `corroborating_source_ids`; and candidate-only local-evidence metadata records source table, localization status, unresolved fields, and transformation notes.
+
+The generic Rust parser covers the five core DataTable families and the selected localization families. Real-build coverage is:
+
+| Table family | Rows | Parse failures |
+|---|---:|---:|
+| DT_ItemDataTable | 2,466 | 0 |
+| DT_ItemRecipeDataTable | 1,414 | 0 |
+| DT_TechnologyRecipeUnlock | 588 | 0 |
+| DT_PalMonsterParameter | 753 | 0 |
+| DT_PalDropItem_Common | 1,044 | 0 |
+| EN/zh-Hans DT_ItemNameText_Common | 1,994 each | 0 parser failures; localization rejections counted separately |
+| EN/zh-Hans DT_ItemDescriptionText_Common | 1,924 each | 0 parser failures; localization rejections counted separately |
+| EN/zh-Hans DT_PalNameText_Common | 322 each | 0 |
+
+The parser reports total, parsed, skipped, failed, observed, missing, null, `None`, empty, zero, false, unsupported-enum, duplicate, reference, and representative-error counts. Representative errors use a stable FNV-1a row hash. Localization preserves Unicode and separately reports hits, misses, rejections, and conflicts. `SourceString` and `LocalizedString` are identical in all selected real localization rows; the 461 reported rejections are genuine placeholder/invalid-Unicode rows.
+
+`local-build-intake --batch all` writes only under `.local/research/local-build/candidates/`. Repeated real-data runs produce byte-identical candidate and report files. Current machine-audited totals are 4,633 candidate records and 18,555 explicit row outcomes: 1,520 item candidates, 915 recipe candidates, 309 Pal candidates, 369 provable unlock relationships, 499 unresolved recipe references, 4,094 unresolved drop-rate units, and 461 localization rejections. Technology-record candidates are intentionally zero because technology-name localization and map-object identity remain unverified. Pal drop rates are not promoted as percentages while their representation is unresolved. No unreviewed candidate has entered `data/reviewed/`.
+
+The remaining G1 work is the field-level canonical backfill audit, reviewed narrow promotion, explicit conflict preservation, final full gates, and final documentation. Crafting stations, map objects, stat scales, rarity semantics, and drop-probability units remain unresolved.

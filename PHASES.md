@@ -83,17 +83,20 @@ Completed:
 Detailed evidence remains in `docs/phase-records/phase-g1.md`.
 
 
-### Active Local-Build Data Pilot
+### Active Local-Build Intake And Backfill
 
-The project owner approved a local Palworld DataTable extraction pilot for installed Steam build 24575825. The pilot targets only table families needed to reproduce the reviewed Wood and Stone early-game records, Pal Sphere records, food records, Technology Levels 1 and 2, and Lamball work and drop records. Extracted raw assets remain under gitignored .local/research/local-build and will not be committed or copied wholesale into canonical data.
+The project owner approved reopening G1 for local Palworld Steam Build 24575825 DataTable intake and canonical backfill. Raw exports remain under gitignored `.local/research/local-build`; only reviewed transformed facts and provenance may enter canonical data.
 
 The local-build export gate passed. The preserved manifest contains 518 JSON exports totaling 135,737,060 bytes, with SHA-256 C5850F0EDCE381850526420218F6C0DBC20570BBA97FCE0F23D0978703EFABA7. All 518 files are present and valid JSON; 518/518 matched the manifest, with zero missing. One planned table, DT_SupplyIncident_NPC_Sakura01, legitimately has zero rows. The implementation plan is docs/superpowers/plans/2026-09-02-phase-g1-local-build-intake.md.
 
+The local source and provenance-identity schema are complete. The Rust parser and localization resolver cover Item (2,466 rows), Item Recipe (1,414), Technology Unlock (588), Pal Parameter (753), Pal Drop (1,044), EN/zh-Hans Item Name (1,994 each), Item Description (1,924 each), and Pal Name (322 each). Core-table parse failures are zero; every row has parsed, skipped, or failed coverage. The all-row candidate CLI remains local-only and is deterministic across repeated runs. Its current reviewed-machine audit reports 1,520 item candidates, 915 recipe candidates, 309 Pal candidates, 369 provable unlock relationships, 499 unresolved recipe references, and 4,094 drop-rate units left unresolved. It reports 461 localization rejections, matching the raw tables exactly. These are candidates or explicit skips, not promoted facts.
+
 Remaining:
 
-- Register the verified local-build source and provenance metadata.
-- Execute Tasks 1–8 in docs/superpowers/plans/2026-09-02-phase-g1-local-build-intake.md in order.
-- Preserve the Wooden Club versus Stone Axe identity conflict and require semantic review before canonical promotion.
+- Implement and run the field-level canonical backfill audit for every existing reviewed fact.
+- Preserve the Wooden Club versus local Stone Axe identity conflict explicitly.
+- Promote only the reviewed non-conflicting corroborated batch and keep station, stat-unit, rarity, and drop-probability semantics unresolved until independently reviewed.
+- Run the full release gates and record the final durable boundary.
 
 ### Blocker
 

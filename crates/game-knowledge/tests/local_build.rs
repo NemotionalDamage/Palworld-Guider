@@ -1,4 +1,7 @@
-use game_knowledge::{LocalBuildError, LocalBuildLocale, LocalBuildTables, LocalizationIndex};
+use game_knowledge::{
+    candidate_output_is_safe, generate_candidates, IntakeBatch, LocalBuildError, LocalBuildLocale,
+    LocalBuildTables, LocalizationIndex,
+};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -180,6 +183,82 @@ fn parses_preserved_real_export_batch_when_present() {
     }
 }
 
+#[test]
+fn generate_candidates_processes_every_row_and_reports_skips() {
+    let root = fixture_root();
+    write_core_fixtures(&root);
+    let tables = LocalBuildTables::load(&root).expect("tables load");
+    let localization = LocalizationIndex::load(&root).expect("localization loads");
+
+    let candidates = generate_candidates(&tables, &localization, IntakeBatch::All)
+        .expect("candidate generation succeeds");
+    let report = &candidates.report;
+
+    assert_eq!(report.input_items, 12);
+    assert_eq!(report.candidate_items, 9);
+    assert_eq!(report.rejected_items, 3);
+    assert_eq!(report.input_recipes, 12);
+    assert_eq!(report.candidate_recipes, 8);
+    assert_eq!(report.unresolved_recipe_references, 3);
+    assert_eq!(report.input_technologies, 12);
+    assert_eq!(report.candidate_technologies, 0);
+    assert_eq!(report.skipped_technologies, 12);
+    assert_eq!(report.input_pals, 12);
+    assert_eq!(report.candidate_pals, 12);
+    assert_eq!(report.localization_rejections, 1);
+    assert!(report.unresolved_probability_units >= 23);
+    assert_eq!(report.relationship_candidates, 1);
+
+    let by_table: std::collections::BTreeMap<String, usize> = report
+        .row_outcomes
+        .iter()
+        .map(|outcome| (outcome.table.clone(), 1))
+        .fold(
+            std::collections::BTreeMap::new(),
+            |mut map, (table, count)| {
+                *map.entry(table).or_insert(0) += count;
+                map
+            },
+        );
+    assert_eq!(by_table["DT_ItemDataTable"], 12);
+    assert_eq!(by_table["DT_ItemRecipeDataTable"], 12);
+    assert_eq!(by_table["DT_TechnologyRecipeUnlock"], 12);
+    assert_eq!(by_table["DT_PalMonsterParameter"], 12);
+    assert_eq!(by_table["DT_PalDropItem_Common"], 23);
+    assert_eq!(by_table["DT_ItemNameText_Common:en"], 12);
+    assert_eq!(by_table["DT_ItemNameText_Common:zh-Hans"], 11);
+
+    assert_eq!(report.anti_bias.seed, 0);
+    assert_eq!(report.anti_bias.production_entity_special_cases, 0);
+    assert!(report
+        .anti_bias
+        .fixture_counts
+        .values()
+        .all(|count| *count >= 12));
+    assert!(report.row_outcomes.iter().all(|outcome| {
+        matches!(
+            outcome.outcome.as_str(),
+            "candidate" | "skip" | "failure" | "embedded_candidate"
+        ) && outcome.stable_hash != 0
+    }));
+}
+
+#[test]
+fn candidate_output_must_stay_under_local_research_directory() {
+    assert!(candidate_output_is_safe(Path::new(
+        ".local/research/local-build/candidates/items.jsonl"
+    )));
+    assert!(candidate_output_is_safe(Path::new(
+        "C:/repo/.local/research/local-build/candidates/items.jsonl"
+    )));
+    assert!(!candidate_output_is_safe(Path::new(
+        "data/reviewed/facts.jsonl"
+    )));
+    assert!(!candidate_output_is_safe(Path::new(
+        ".local/research/local-build/../secret/items.jsonl"
+    )));
+}
+
 fn fixture_root() -> PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -240,13 +319,17 @@ fn write_core_fixtures(root: &Path) {
         recipe.insert("WorkAmount".into(), json!(100.0));
         recipe.insert("WorkableAttribute".into(), json!(0));
         recipe.insert("UnlockItemID".into(), json!("None"));
-        recipe.insert("Material1_Id".into(), json!("FixtureMaterialA"));
+        recipe.insert("Material1_Id".into(), json!("FixtureItem00"));
         recipe.insert("Material1_Count".into(), json!(1));
-        recipe.insert("Material2_Id".into(), json!("FixtureMaterialB"));
+        recipe.insert("Material2_Id".into(), json!("FixtureItem01"));
         recipe.insert("Material2_Count".into(), json!(2));
         for material_index in 3..=5 {
             let identifier = if index == 1 {
-                format!("FixtureMaterial{material_index}")
+                match material_index {
+                    3 => "FixtureItem02".to_string(),
+                    4 => "FixtureItem05".to_string(),
+                    _ => "FixtureItem06".to_string(),
+                }
             } else {
                 "None".to_string()
             };

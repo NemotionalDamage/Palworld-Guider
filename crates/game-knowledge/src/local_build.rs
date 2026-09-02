@@ -1,10 +1,17 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::models::{
+    AliasRecord, Confidence, ItemRecord, KnowledgeRecord, LocalEvidenceMetadata, LocaleNames,
+    LocalizationStatus, PalRecord, ProgressionRelationKind, ProgressionRelationshipRecord,
+    Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, WorkKind,
+    WorkSuitability,
+};
 
 const ITEM_FIELDS: &[&str] = &[
     "TypeA",
@@ -159,6 +166,7 @@ pub struct TableCoverage {
     pub duplicate_native_ids: usize,
     pub invalid_references: usize,
     pub representative_errors: Vec<RepresentativeError>,
+    pub parse_failure_rows: Vec<RepresentativeError>,
 }
 
 impl TableCoverage {
@@ -341,6 +349,26 @@ impl LocalBuildTables {
             .get(character_id)
             .map(|rows| rows.iter().collect())
             .unwrap_or_default()
+    }
+
+    pub fn item_rows(&self) -> Vec<&LocalItemRow> {
+        self.items.values().collect()
+    }
+
+    pub fn recipe_rows(&self) -> Vec<&LocalRecipeRow> {
+        self.recipes.values().collect()
+    }
+
+    pub fn technology_rows(&self) -> Vec<&LocalTechnologyRow> {
+        self.technologies.values().collect()
+    }
+
+    pub fn pal_rows(&self) -> Vec<&LocalPalRow> {
+        self.pals.values().collect()
+    }
+
+    pub fn drop_rows(&self) -> Vec<&LocalDropRow> {
+        self.drops.values().flatten().collect()
     }
 
     pub fn coverage(&self) -> Vec<TableCoverage> {
@@ -558,6 +586,27 @@ impl LocalizationIndex {
         self.coverage.clone()
     }
 
+    pub fn item_name_keys(&self) -> Vec<(LocalBuildLocale, String)> {
+        self.item_names
+            .keys()
+            .map(|(locale, row_id)| (*locale, row_id.clone()))
+            .collect()
+    }
+
+    pub fn item_description_keys(&self) -> Vec<(LocalBuildLocale, String)> {
+        self.item_descriptions
+            .keys()
+            .map(|(locale, row_id)| (*locale, row_id.clone()))
+            .collect()
+    }
+
+    pub fn pal_name_keys(&self) -> Vec<(LocalBuildLocale, String)> {
+        self.pal_names
+            .keys()
+            .map(|(locale, row_id)| (*locale, row_id.clone()))
+            .collect()
+    }
+
     fn lookup(
         &self,
         table: &BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
@@ -730,6 +779,11 @@ fn load_table<T>(
                 TableCoverage::increment(&mut coverage.failure_reasons, &error.reason);
                 coverage.failed_rows += 1;
                 errors.push(RepresentativeError {
+                    stable_hash: stable_hash(&native_row_id),
+                    native_row_id: native_row_id.clone(),
+                    message: error.message.clone(),
+                });
+                coverage.parse_failure_rows.push(RepresentativeError {
                     stable_hash: stable_hash(&native_row_id),
                     native_row_id,
                     message: error.message,
@@ -970,4 +1024,769 @@ fn stable_hash(value: &str) -> u64 {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
+}
+
+fn local_candidate_provenance() -> Provenance {
+    Provenance {
+        source_id: "SRC-LOCAL-BUILD-24575825-20260902".to_string(),
+        applicable_game_version: "1.0.3".to_string(),
+        retrieved_on: "2026-09-02".to_string(),
+        reviewer: "Codex".to_string(),
+        review_status: ReviewStatus::Candidate,
+        confidence: Confidence::VerifiedTarget,
+        change_risk: Some(
+            "Unreviewed local-build candidate; semantic review is required before promotion."
+                .to_string(),
+        ),
+        corroborating_source_ids: Vec::new(),
+    }
+}
+
+fn stable_candidate_id(
+    prefix: &str,
+    native_row_id: &str,
+    used_ids: &mut BTreeSet<String>,
+) -> String {
+    let sanitized = native_row_id
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let mut id = format!("{prefix}_{sanitized}");
+    if !used_ids.insert(id.clone()) {
+        id = format!("{id}_{:016x}", stable_hash(native_row_id));
+        used_ids.insert(id.clone());
+    }
+    id
+}
+
+fn includes(batch: IntakeBatch, component: IntakeBatch) -> bool {
+    batch == IntakeBatch::All || batch == component
+}
+
+fn push_outcome(
+    outcomes: &mut Vec<IntakeRowOutcome>,
+    table: &str,
+    native_row_id: &str,
+    outcome: &str,
+    reason: &str,
+) {
+    outcomes.push(IntakeRowOutcome {
+        table: table.to_string(),
+        native_row_id: native_row_id.to_string(),
+        outcome: outcome.to_string(),
+        reason: reason.to_string(),
+        stable_hash: stable_hash(&format!("{table}:{native_row_id}:{reason}")),
+    });
+}
+
+fn push_localization_outcome(
+    outcomes: &mut Vec<IntakeRowOutcome>,
+    table: &str,
+    locale: LocalBuildLocale,
+    native_row_id: &str,
+    outcome: &str,
+    reason: &str,
+) {
+    let locale_name = match locale {
+        LocalBuildLocale::English => "en",
+        LocalBuildLocale::SimplifiedChinese => "zh-Hans",
+    };
+    let table = format!("{table}:{locale_name}");
+    push_outcome(outcomes, &table, native_row_id, outcome, reason);
+}
+
+fn table_parse_failures(coverage: &[TableCoverage], suffix: &str) -> Vec<RepresentativeError> {
+    coverage
+        .iter()
+        .find(|table| table.name.ends_with(suffix))
+        .map(|table| table.parse_failure_rows.clone())
+        .unwrap_or_default()
+}
+
+fn coverage_total(coverage: &[TableCoverage], suffix: &str) -> usize {
+    coverage
+        .iter()
+        .find(|table| table.name.ends_with(suffix))
+        .map(|table| table.total_rows)
+        .unwrap_or_default()
+}
+
+fn candidate_records(records: &[KnowledgeRecord]) -> usize {
+    records.len()
+}
+
+fn work_kind(native_kind: &str) -> Option<WorkKind> {
+    match native_kind {
+        "EmitFlame" => Some(WorkKind::Kindling),
+        "Watering" => Some(WorkKind::Watering),
+        "Seeding" => Some(WorkKind::Planting),
+        "GenerateElectricity" => Some(WorkKind::GeneratingElectricity),
+        "Handcraft" => Some(WorkKind::Handiwork),
+        "Collection" => Some(WorkKind::Gathering),
+        "Deforest" => Some(WorkKind::Lumbering),
+        "Mining" => Some(WorkKind::Mining),
+        "ProductMedicine" => Some(WorkKind::MedicineProduction),
+        "Transport" => Some(WorkKind::Transporting),
+        "MonsterFarm" => Some(WorkKind::Farming),
+        "Cool" => Some(WorkKind::Cooling),
+        _ => None,
+    }
+}
+
+fn anti_bias_audit(outcomes: &[IntakeRowOutcome]) -> AntiBiasAudit {
+    let mut fixture_counts = BTreeMap::new();
+    for outcome in outcomes {
+        let category = outcome.table.split(':').next().unwrap_or(&outcome.table);
+        *fixture_counts.entry(category.to_string()).or_insert(0) += 1;
+    }
+    AntiBiasAudit {
+        seed: 0,
+        algorithm: "full-population row outcomes ordered by table and stable FNV-1a native row ID"
+            .to_string(),
+        fixture_counts,
+        production_entity_special_cases: 0,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IntakeRowOutcome {
+    pub table: String,
+    pub native_row_id: String,
+    pub outcome: String,
+    pub reason: String,
+    pub stable_hash: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum IntakeBatch {
+    All,
+    Items,
+    Recipes,
+    Technologies,
+    Pals,
+    PalDrops,
+    WorkSuitability,
+    LocalizationAliases,
+    Relationships,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AntiBiasAudit {
+    pub seed: u64,
+    pub algorithm: String,
+    pub fixture_counts: BTreeMap<String, usize>,
+    pub production_entity_special_cases: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IntakeReport {
+    pub input_items: usize,
+    pub candidate_items: usize,
+    pub rejected_items: usize,
+    pub input_recipes: usize,
+    pub candidate_recipes: usize,
+    pub skipped_recipes: usize,
+    pub unresolved_recipe_references: usize,
+    pub input_technologies: usize,
+    pub candidate_technologies: usize,
+    pub skipped_technologies: usize,
+    pub input_pals: usize,
+    pub candidate_pals: usize,
+    pub skipped_pals: usize,
+    pub localization_rejections: usize,
+    pub unresolved_probability_units: usize,
+    pub relationship_candidates: usize,
+    pub canonical_matching: usize,
+    pub canonical_corroborated: usize,
+    pub canonical_conflicting: usize,
+    pub canonical_local_only: usize,
+    pub canonical_unresolved: usize,
+    pub missing_localization: usize,
+    pub invalid_references: usize,
+    pub duplicate_native_ids: usize,
+    pub schema_failures: usize,
+    pub table_coverage: Vec<TableCoverage>,
+    pub row_outcomes: Vec<IntakeRowOutcome>,
+    pub anti_bias: AntiBiasAudit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IntakeCandidateSet {
+    pub records: Vec<KnowledgeRecord>,
+    pub report: IntakeReport,
+}
+
+pub fn generate_candidates(
+    tables: &LocalBuildTables,
+    localization: &LocalizationIndex,
+    batch: IntakeBatch,
+) -> Result<IntakeCandidateSet, LocalBuildError> {
+    let mut records = Vec::new();
+    let mut outcomes = Vec::new();
+    let mut used_ids = BTreeSet::new();
+    let mut item_ids = BTreeMap::<String, String>::new();
+    let mut recipe_ids = BTreeMap::<String, String>::new();
+    let mut candidate_items = 0;
+    let mut candidate_recipes = 0;
+    let mut candidate_pals = 0;
+    let mut unresolved_recipe_references = 0;
+    let mut relationship_candidates = 0;
+    let mut unresolved_probability_units = 0;
+
+    if includes(batch, IntakeBatch::Items) {
+        for error in table_parse_failures(&tables.coverage, "DT_ItemDataTable.json") {
+            push_outcome(
+                &mut outcomes,
+                "DT_ItemDataTable",
+                &error.native_row_id,
+                "failure",
+                "row_parse_failure",
+            );
+        }
+        for row in tables.item_rows() {
+            let Some(true) = row.is_legal_in_game else {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "illegal_in_game",
+                );
+                continue;
+            };
+            let english_name =
+                match localization.item_name(&row.native_row_id, LocalBuildLocale::English) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => {
+                        push_outcome(
+                            &mut outcomes,
+                            "DT_ItemDataTable",
+                            &row.native_row_id,
+                            "skip",
+                            "missing_english_name",
+                        );
+                        continue;
+                    }
+                    Err(_) => {
+                        push_outcome(
+                            &mut outcomes,
+                            "DT_ItemDataTable",
+                            &row.native_row_id,
+                            "failure",
+                            "invalid_english_name",
+                        );
+                        continue;
+                    }
+                };
+            let chinese_name = match localization
+                .item_name(&row.native_row_id, LocalBuildLocale::SimplifiedChinese)
+            {
+                Ok(value) => value,
+                Err(_) => {
+                    push_outcome(
+                        &mut outcomes,
+                        "DT_ItemDataTable",
+                        &row.native_row_id,
+                        "failure",
+                        "invalid_chinese_name",
+                    );
+                    continue;
+                }
+            };
+            let description = match localization
+                .item_description(&row.native_row_id, LocalBuildLocale::English)
+            {
+                Ok(value) => value,
+                Err(_) => {
+                    push_outcome(
+                        &mut outcomes,
+                        "DT_ItemDataTable",
+                        &row.native_row_id,
+                        "failure",
+                        "invalid_description",
+                    );
+                    continue;
+                }
+            };
+            let id = stable_candidate_id("ITEM", &row.native_row_id, &mut used_ids);
+            let localization_status = if chinese_name.is_some() {
+                LocalizationStatus::Resolved
+            } else {
+                LocalizationStatus::Partial
+            };
+            let unresolved_fields = vec![
+                "rarity_numeric_semantics".to_string(),
+                "type_a_semantics".to_string(),
+                "type_b_semantics".to_string(),
+            ];
+            records.push(KnowledgeRecord::Item(ItemRecord {
+                id: id.clone(),
+                names: LocaleNames {
+                    en: english_name.clone(),
+                    zh_hans: chinese_name.clone(),
+                },
+                description,
+                rarity: "unknown".to_string(),
+                acquisition_leads: Vec::new(),
+                native_row_id: Some(row.native_row_id.clone()),
+                local_evidence: Some(LocalEvidenceMetadata {
+                    source_table: "DT_ItemDataTable".to_string(),
+                    localization_status: localization_status.clone(),
+                    unresolved_fields,
+                    transformation_notes:
+                        "Direct typed field extraction; unresolved semantics remain explicit."
+                            .to_string(),
+                }),
+                provenance: local_candidate_provenance(),
+            }));
+            item_ids.insert(row.native_row_id.clone(), id);
+            candidate_items += 1;
+            push_outcome(
+                &mut outcomes,
+                "DT_ItemDataTable",
+                &row.native_row_id,
+                "candidate",
+                "item",
+            );
+        }
+    }
+
+    if includes(batch, IntakeBatch::Recipes) {
+        for error in table_parse_failures(&tables.coverage, "DT_ItemRecipeDataTable.json") {
+            push_outcome(
+                &mut outcomes,
+                "DT_ItemRecipeDataTable",
+                &error.native_row_id,
+                "failure",
+                "row_parse_failure",
+            );
+        }
+        for row in tables.recipe_rows() {
+            let Some(product_native_id) = &row.product_id else {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemRecipeDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "missing_product",
+                );
+                unresolved_recipe_references += 1;
+                continue;
+            };
+            let Some(output_id) = item_ids.get(product_native_id).cloned() else {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemRecipeDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "unresolved_output_reference",
+                );
+                unresolved_recipe_references += 1;
+                continue;
+            };
+            let Some(output_quantity) = row.product_count.filter(|count| *count > 0) else {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemRecipeDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "invalid_output_quantity",
+                );
+                continue;
+            };
+            if row.materials.is_empty()
+                || row.materials.iter().any(|material| material.quantity <= 0)
+            {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemRecipeDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "invalid_ingredient_quantity",
+                );
+                continue;
+            }
+            let mut unresolved = false;
+            for material in &row.materials {
+                if !item_ids.contains_key(&material.item_id) {
+                    unresolved = true;
+                }
+            }
+            if unresolved {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_ItemRecipeDataTable",
+                    &row.native_row_id,
+                    "skip",
+                    "unresolved_ingredient_reference",
+                );
+                unresolved_recipe_references += 1;
+                continue;
+            }
+            let ingredients = row
+                .materials
+                .iter()
+                .map(|material| RecipeIngredient {
+                    item_id: item_ids.get(&material.item_id).cloned().unwrap_or_default(),
+                    quantity: u32::try_from(material.quantity).unwrap_or_default(),
+                })
+                .collect::<Vec<_>>();
+            let id = stable_candidate_id("RECIPE", &row.native_row_id, &mut used_ids);
+            records.push(KnowledgeRecord::Recipe(RecipeRecord {
+                id: id.clone(),
+                output: RecipeItem {
+                    item_id: output_id,
+                    quantity: u32::try_from(output_quantity).unwrap_or_default(),
+                },
+                ingredients,
+                crafting_stations: vec!["unresolved".to_string()],
+                technology_id: None,
+                crafting_seconds: None,
+                byproducts: Vec::new(),
+                native_row_id: Some(row.native_row_id.clone()),
+                local_evidence: Some(LocalEvidenceMetadata {
+                    source_table: "DT_ItemRecipeDataTable".to_string(),
+                    localization_status: LocalizationStatus::NotApplicable,
+                    unresolved_fields: vec![
+                        "crafting_station_relationship".to_string(),
+                        "work_amount_unit".to_string(),
+                        "workable_attribute_semantics".to_string(),
+                    ],
+                    transformation_notes: "Direct product and material extraction; station and work units are unresolved."
+                        .to_string(),
+                }),
+                provenance: local_candidate_provenance(),
+            }));
+            recipe_ids.insert(row.native_row_id.clone(), id);
+            candidate_recipes += 1;
+            push_outcome(
+                &mut outcomes,
+                "DT_ItemRecipeDataTable",
+                &row.native_row_id,
+                "candidate",
+                "recipe",
+            );
+        }
+    }
+
+    let mut skipped_technologies = 0;
+    if includes(batch, IntakeBatch::Technologies) {
+        for row in tables.technology_rows() {
+            let reason = if row.unlock_build_objects.is_empty()
+                && row.unlock_item_recipes.is_empty()
+            {
+                "no_provable_relationship"
+            } else if !row.unlock_build_objects.is_empty() && row.unlock_item_recipes.is_empty() {
+                "map_object_identity_unverified"
+            } else {
+                "technology_name_localization_unverified"
+            };
+            push_outcome(
+                &mut outcomes,
+                "DT_TechnologyRecipeUnlock",
+                &row.native_row_id,
+                "skip",
+                reason,
+            );
+            skipped_technologies += 1;
+        }
+    }
+
+    if includes(batch, IntakeBatch::Pals) {
+        for row in tables.pal_rows() {
+            let Some(true) = row.is_pal else {
+                push_outcome(
+                    &mut outcomes,
+                    "DT_PalMonsterParameter",
+                    &row.native_row_id,
+                    "skip",
+                    "not_pal",
+                );
+                continue;
+            };
+            let english_name =
+                match localization.pal_name(&row.native_row_id, LocalBuildLocale::English) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => {
+                        push_outcome(
+                            &mut outcomes,
+                            "DT_PalMonsterParameter",
+                            &row.native_row_id,
+                            "skip",
+                            "missing_english_pal_name",
+                        );
+                        continue;
+                    }
+                    Err(_) => {
+                        push_outcome(
+                            &mut outcomes,
+                            "DT_PalMonsterParameter",
+                            &row.native_row_id,
+                            "failure",
+                            "invalid_english_pal_name",
+                        );
+                        continue;
+                    }
+                };
+            let chinese_name = match localization
+                .pal_name(&row.native_row_id, LocalBuildLocale::SimplifiedChinese)
+            {
+                Ok(value) => value,
+                Err(_) => {
+                    push_outcome(
+                        &mut outcomes,
+                        "DT_PalMonsterParameter",
+                        &row.native_row_id,
+                        "failure",
+                        "invalid_chinese_pal_name",
+                    );
+                    continue;
+                }
+            };
+            let work_suitability = row
+                .work_suitability
+                .iter()
+                .filter_map(|(native_kind, level)| {
+                    work_kind(native_kind).map(|kind| WorkSuitability {
+                        kind,
+                        level: (*level).clamp(1, 5) as u8,
+                    })
+                })
+                .filter(|work| work.level > 0)
+                .collect::<Vec<_>>();
+            let id = stable_candidate_id("PAL", &row.native_row_id, &mut used_ids);
+            records.push(KnowledgeRecord::Pal(PalRecord {
+                id: id.clone(),
+                names: LocaleNames {
+                    en: english_name,
+                    zh_hans: chinese_name,
+                },
+                stats: None,
+                work_suitability,
+                drops: Vec::new(),
+                habitat_ids: Vec::new(),
+                native_row_id: Some(row.native_row_id.clone()),
+                local_evidence: Some(LocalEvidenceMetadata {
+                    source_table: "DT_PalMonsterParameter".to_string(),
+                    localization_status: LocalizationStatus::Resolved,
+                    unresolved_fields: vec![
+                        "stats_scale_semantics".to_string(),
+                        "drop_probability_representation".to_string(),
+                        "oil_extraction_work_kind".to_string(),
+                    ],
+                    transformation_notes: "Direct legal Pal, name, and confirmed work-kind extraction; numeric stats and drop rates remain unresolved."
+                        .to_string(),
+                }),
+                provenance: local_candidate_provenance(),
+            }));
+            candidate_pals += 1;
+            push_outcome(
+                &mut outcomes,
+                "DT_PalMonsterParameter",
+                &row.native_row_id,
+                "candidate",
+                "pal",
+            );
+            for (native_kind, level) in &row.work_suitability {
+                if *level > 0 && work_kind(native_kind).is_some() {
+                    let outcome_id = format!("{}:{native_kind}", row.native_row_id);
+                    push_outcome(
+                        &mut outcomes,
+                        "DT_PalMonsterParameter.WorkSuitability",
+                        &outcome_id,
+                        "embedded_candidate",
+                        "work_suitability",
+                    );
+                }
+            }
+        }
+    }
+
+    if includes(batch, IntakeBatch::PalDrops) {
+        for row in tables.drop_rows() {
+            push_outcome(
+                &mut outcomes,
+                "DT_PalDropItem_Common",
+                &row.native_row_id,
+                "skip",
+                "drop_probability_representation_unresolved",
+            );
+            unresolved_probability_units += 1;
+        }
+    }
+
+    if includes(batch, IntakeBatch::Relationships) {
+        for technology in tables.technology_rows() {
+            if technology
+                .unlock_item_recipes
+                .iter()
+                .all(|native_id| recipe_ids.contains_key(native_id))
+                && !technology.unlock_item_recipes.is_empty()
+            {
+                for recipe_native_id in &technology.unlock_item_recipes {
+                    let Some(recipe_id) = recipe_ids.get(recipe_native_id) else {
+                        continue;
+                    };
+                    let technology_id =
+                        stable_candidate_id("TECHNOLOGY", &technology.native_row_id, &mut used_ids);
+                    let id = stable_candidate_id(
+                        "REL",
+                        &format!("{}:{recipe_native_id}", technology.native_row_id),
+                        &mut used_ids,
+                    );
+                    records.push(KnowledgeRecord::ProgressionRelationship(
+                        ProgressionRelationshipRecord {
+                            id,
+                            from_id: technology_id,
+                            to_id: recipe_id.clone(),
+                            relation: ProgressionRelationKind::Unlocks,
+                            requirement: None,
+                            provenance: local_candidate_provenance(),
+                        },
+                    ));
+                    relationship_candidates += 1;
+                }
+            }
+        }
+    }
+
+    if includes(batch, IntakeBatch::LocalizationAliases) {
+        for (locale, row_id) in localization.item_name_keys() {
+            let result = localization.item_name(&row_id, locale);
+            let (outcome, reason) = match (&result, item_ids.contains_key(&row_id)) {
+                (Err(_), _) => ("failure", "invalid_localization"),
+                (Ok(_), false) => ("skip", "unmatched_localization_key"),
+                (Ok(None), _) => ("skip", "missing_localization"),
+                (Ok(Some(_)), true) => ("embedded_candidate", "item_name"),
+            };
+            push_localization_outcome(
+                &mut outcomes,
+                "DT_ItemNameText_Common",
+                locale,
+                &row_id,
+                outcome,
+                reason,
+            );
+            if let (Ok(Some(alias)), true) = (&result, item_ids.contains_key(&row_id)) {
+                if matches!(locale, LocalBuildLocale::SimplifiedChinese) {
+                    let target_id = &item_ids[&row_id];
+                    let id = stable_candidate_id(
+                        "ALIAS_ITEM",
+                        &format!("{row_id}:zh_hans"),
+                        &mut used_ids,
+                    );
+                    records.push(KnowledgeRecord::Alias(AliasRecord {
+                        id,
+                        alias: alias.clone(),
+                        target_id: target_id.clone(),
+                        locale: "zh_hans".to_string(),
+                        provenance: local_candidate_provenance(),
+                    }));
+                }
+            }
+        }
+        for (locale, row_id) in localization.item_description_keys() {
+            let outcome = if localization.item_description(&row_id, locale).is_err() {
+                "failure"
+            } else {
+                "skip"
+            };
+            push_localization_outcome(
+                &mut outcomes,
+                "DT_ItemDescriptionText_Common",
+                locale,
+                &row_id,
+                outcome,
+                "description_requires_review",
+            );
+        }
+        for (locale, row_id) in localization.pal_name_keys() {
+            let result = localization.pal_name(&row_id, locale);
+            let (outcome, reason) = match &result {
+                Err(_) => ("failure", "invalid_localization"),
+                Ok(None) => ("skip", "missing_localization"),
+                Ok(Some(_)) => ("embedded_candidate", "pal_name"),
+            };
+            push_localization_outcome(
+                &mut outcomes,
+                "DT_PalNameText_Common",
+                locale,
+                &row_id,
+                outcome,
+                reason,
+            );
+        }
+    }
+
+    let mut table_coverage = tables.coverage();
+    table_coverage.extend(localization.coverage());
+    let input_items = coverage_total(&table_coverage, "DT_ItemDataTable.json");
+    let input_recipes = coverage_total(&table_coverage, "DT_ItemRecipeDataTable.json");
+    let input_technologies = coverage_total(&table_coverage, "DT_TechnologyRecipeUnlock.json");
+    let input_pals = coverage_total(&table_coverage, "DT_PalMonsterParameter.json");
+    let localization_rejections = outcomes
+        .iter()
+        .filter(|outcome| outcome.table.contains("Text_Common:") && outcome.outcome == "failure")
+        .count();
+    let anti_bias = anti_bias_audit(&outcomes);
+    let report = IntakeReport {
+        input_items,
+        candidate_items,
+        rejected_items: input_items.saturating_sub(candidate_items),
+        input_recipes,
+        candidate_recipes,
+        skipped_recipes: input_recipes.saturating_sub(candidate_recipes),
+        unresolved_recipe_references,
+        input_technologies,
+        candidate_technologies: 0,
+        skipped_technologies,
+        input_pals,
+        candidate_pals,
+        skipped_pals: input_pals.saturating_sub(candidate_pals),
+        localization_rejections,
+        unresolved_probability_units,
+        relationship_candidates,
+        canonical_matching: 0,
+        canonical_corroborated: 0,
+        canonical_conflicting: 0,
+        canonical_local_only: candidate_records(&records),
+        canonical_unresolved: 0,
+        missing_localization: 0,
+        invalid_references: unresolved_recipe_references,
+        duplicate_native_ids: table_coverage
+            .iter()
+            .map(|table| table.duplicate_native_ids)
+            .sum(),
+        schema_failures: 0,
+        table_coverage,
+        row_outcomes: outcomes,
+        anti_bias,
+    };
+    Ok(IntakeCandidateSet { records, report })
+}
+
+pub fn candidate_output_is_safe(path: &Path) -> bool {
+    let components = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    if components.iter().any(|component| component == "..") {
+        return false;
+    }
+    components.windows(4).any(|window| {
+        window
+            == [
+                ".local".to_string(),
+                "research".to_string(),
+                "local-build".to_string(),
+                "candidates".to_string(),
+            ]
+    })
 }

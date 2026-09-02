@@ -7,9 +7,10 @@ mod store;
 
 pub use error::ValidationError;
 pub use local_build::{
-    LocalBuildError, LocalBuildLocale, LocalBuildTables, LocalDropRow, LocalItemRow, LocalPalRow,
-    LocalPalStats, LocalRecipeMaterial, LocalRecipeRow, LocalTechnologyRow, LocalizationIndex,
-    RepresentativeError, TableCoverage,
+    candidate_output_is_safe, generate_candidates, AntiBiasAudit, IntakeBatch, IntakeCandidateSet,
+    IntakeReport, IntakeRowOutcome, LocalBuildError, LocalBuildLocale, LocalBuildTables,
+    LocalDropRow, LocalItemRow, LocalPalRow, LocalPalStats, LocalRecipeMaterial, LocalRecipeRow,
+    LocalTechnologyRow, LocalizationIndex, RepresentativeError, TableCoverage,
 };
 pub use models::{
     AcquisitionLead, AliasRecord, BreedingRuleRecord, Confidence, ConflictRecord,
