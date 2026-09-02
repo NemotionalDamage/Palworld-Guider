@@ -31,11 +31,23 @@ No CLI, retrieval index, LLM, provider, adapter, server, save reader, or dynamic
 
 The source is fan-maintained. Only directly reviewed, transformed facts were stored. The site footer identified version 1.0.3 dated 2026-08-12.
 
+
+### SRC-PALDB-CORE-ITEMS-V1_0_3-20260902
+- Evidence: Paldb English and Simplified Chinese pages for Stone, Paldium Fragment, Pal Sphere, Gold Coin, Red Berries, and Baked Berries
+- Retrieved: 2026-09-02
+- Applicable version claimed by source: 1.0.3
+- Review result: reviewed-secondary
+- Normalized scope: six item records with localized names and reviewed acquisition leads; three recipes; Technology Level 2; its Pal Sphere unlock relationship; Simplified Chinese names; and common English colloquial aliases.
+
+Paldb current pages report Paldium Fragment as five Stone at a Crusher, Pal Sphere as one Paldium Fragment, and Baked Berries as one Red Berry at a Campfire. The basic Pal Sphere recipe therefore contains no Wood or Stone in this source snapshot. These facts have not been cross-checked against a second reviewed source.
+
 ## Durable Uncertainty
+
 
 - The seed facts have not been cross-checked against a second reviewed source.
 - Paldb is a community database and may lag behind a Palworld patch; each persisted fact carries a change-risk warning.
-- No habitat, breeding rule, localized alias, Pal stats, or item-use claim was promoted from this source.
+- The expanded core-item set has not been cross-checked against a second reviewed source.
+- No habitat, breeding rule, Pal stats, or broader item-use claim was promoted from the core-item source.
 - The current dataset is intentionally small and is not a complete game encyclopedia.
 
 ## Verification
@@ -45,6 +57,9 @@ The source is fan-maintained. Only directly reviewed, transformed facts were sto
 - Final format gate: `cargo-fmt --all -- --check` passed.
 - Final lint gate: `cargo-clippy --all-targets -- -D warnings` passed.
 - Post-audit test gate: `cargo test` passed with eight tests across schema validation and the canonical dataset.
+
+- Expanded-dataset gate: cargo test -p game-knowledge passed with nine tests across schema validation and the canonical dataset.
+- Expanded-dataset CLI spot checks resolved Stone, the Chinese Pal Sphere name, the Pal Sphere recipe, and the roasted-berry alias to reviewed records with provenance.
 
 ## Audit Correction
 

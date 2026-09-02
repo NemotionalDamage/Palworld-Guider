@@ -76,10 +76,12 @@ Completed:
 
 - Built the Rust workspace and validated `game-knowledge` schema.
 - Registered Paldb `v1.0.3` and normalized a small reviewed seed dataset.
+- Expanded the reviewed dataset with six core early-game items, three recipes, Technology Level 2, its Pal Sphere unlock relationship, and localized/common aliases.
 - Validated version format, ID charset, conflict shape, alias locale, dates, ranges, references, and provenance drift after two audit corrections.
-- Passed schema, provenance, reference-integrity, conflict, and canonical-data tests with nine `game-knowledge` tests.
+-- Revalidated the expanded canonical dataset and spot-checked English lookup, Chinese alias lookup, recipe lookup, and cooked-food alias lookup through the offline CLI.
 
 Detailed evidence remains in `docs/phase-records/phase-g1.md`.
+
 
 ## Phase G2 Progress
 
