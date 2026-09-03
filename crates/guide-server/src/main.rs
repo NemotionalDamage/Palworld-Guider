@@ -201,7 +201,7 @@ async fn run(options: Options) -> Result<(), String> {
         provider,
         AgentConfig {
             limits: AgentLimits {
-                max_tool_calls: 8,
+                max_tool_calls: 6,
                 timeout: ask_timeout,
             },
             max_reply_characters: 1200,

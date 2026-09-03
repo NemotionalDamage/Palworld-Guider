@@ -140,3 +140,24 @@ No game was launched and no live adapter validation was performed. The required 
 - Live replay after the fix confirmed both Lamball questions render normal drafted answers, including Lamball Mutton, without `model draft invalid` fallback.
 - Remaining known quality gaps are product/data decisions: seed-knowledge expansion, answer-language policy, general-advice boundaries, and observation coordinate rounding.
 - Live debugging also exposed a separate draft-protocol gap: some unknown-state drafts reference the `{v1}` version slot in text without declaring it in `slots`, which correctly falls back but produces terse entity-list replies.
+## G5 Live Chat UX Corrections (2026-09-03)
+
+### Scope Delivered
+
+- Fixed a live UTF-8 panic in `contains_entity_phrase` (byte-stepping `search_start` landed inside a multi-byte character when drafts or aliases contained CJK); scanning now advances by whole characters, with CJK boundary regression tests.
+- Cleaned deterministic fallback replies: internal entity lists, `{v1}`/slot syntax, and draft-error strings are no longer player-visible; fallback shows a short evidence phrase plus one generic note only when substantive uncertainty exists.
+- Added small-talk and opinion questions to the agent policy (no tool calls, no entity names, one-sentence scope reply) and reduced the guide-server tool budget from 8 to 6.
+
+### Live Evidence
+
+- The in-game adapter delivered 24/24 recorded events (2 pings plus 22 asks across sessions) with exactly one reply each, no crash, and no delivery error after the UTF-8 fix.
+- Replays after the corrections showed zero internal-text leaks (previously 4 of 14 fallback replies exposed `Reviewed data`, `{v1}`, or draft errors), clean grounded unknowns for uncovered fields, and 1-2 tool calls for most lookups.
+- Remaining quality gaps are data coverage (habitat, drops, work suitability, stats, riding rules for Chillet, Flambelle, Cattiva, Caprity, Anubis, Nox, Frostallion Noct) and the pending product decision on answer language.
+
+### Verification
+
+Fresh workspace gates on 2026-09-03: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, full `cargo test` (exit 0), and `git diff --check` all clean.
+
+### Remaining
+
+- Restart/fail-closed recovery, replacement-session, and clean-exit checks for the live single-player target; a resilience improvement (containing per-event panics in the adapter service loop) is recommended but not required for the current gate.

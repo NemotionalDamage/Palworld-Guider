@@ -254,14 +254,16 @@ Completed:
 - Added an opt-in, local-only chat debug log (`PALWORLD_GUIDER_CHAT_DEBUG_LOG`) that records questions, replies, statuses, errors, uncertainty, and tool names without entering Git.
 - Mapped entity IDs in tool results to canonical display names so multi-word entities such as Lamball Mutton remain renderable evidence instead of triggering the fallback.
 - Verified the entity-evidence correction in live single-player chat; both Lamball replays now render normal drafted answers.
+- Fixed a live UTF-8 panic in entity-phrase scanning when drafts or aliases contain multi-byte characters, with CJK boundary regression tests.
+- Cleaned player-facing fallback text (no internal entity lists, `{v1}`, or draft-error strings), added a small-talk scope rule to the agent prompt, and reduced the adapter tool budget to 6; live replay confirmed zero internal-text leaks and clean grounded unknowns for uncovered fields.
 
 Remaining:
 
-- Complete the approved save backup, adapter install, and local single-player read-only chat validation for world `3C2BA10146F65256FD1B889FBF5F854F`, then the restart/fail-closed and clean-exit checks.
+- Finish the remaining live read-only gates for world `3C2BA10146F65256FD1B889FBF5F854F`: restart/fail-closed recovery, replacement-session behavior, and clean-exit checks. Factual and chitchat replays are delivered; habitat, drop, work-suitability, stat, and riding-field coverage remains a data backlog for a later intake batch.
 
 ### Verification
 
-The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix and live-validation corrections also passed fresh formatting, Clippy, full-test, and whitespace gates. Detailed evidence is in `docs/phase-records/phase-g5.md`.
+The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix and live-validation corrections also passed fresh formatting, Clippy, full-test, and whitespace gates; the 2026-09-03 live chat corrections passed fresh workspace gates (full `cargo test` exit 0). Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 

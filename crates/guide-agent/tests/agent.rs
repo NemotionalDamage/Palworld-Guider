@@ -639,7 +639,7 @@ fn entity_outside_evidence_falls_back() {
         .answer
         .as_deref()
         .unwrap()
-        .contains("Reviewed data: Wood"));
+        .contains("Related reviewed records: Wood"));
     assert!(answer
         .uncertainty
         .iter()
@@ -738,7 +738,7 @@ fn budget_exhaustion_uses_fallback() {
         .answer
         .as_deref()
         .unwrap()
-        .contains("Reviewed data: Wood"));
+        .contains("Related reviewed records: Wood"));
     assert!(answer
         .errors
         .iter()

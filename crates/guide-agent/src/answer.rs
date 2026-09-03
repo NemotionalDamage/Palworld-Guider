@@ -450,20 +450,56 @@ pub fn fallback_render(
             .slots
             .iter()
             .filter_map(|slot| match slot {
-                FactSlot::Entity { name, .. } => Some(name.clone()),
+                FactSlot::Entity { name, .. } => Some(name.as_str()),
                 _ => None,
             })
+            .filter(|name| name.is_ascii())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .take(6)
             .collect::<Vec<_>>();
         if entities.is_empty() {
             lines.push("I don't have enough reviewed data to answer that.".to_string());
         } else {
-            lines.push(format!("Reviewed data: {}.", entities.join(", ")));
+            lines.push(format!(
+                "Related reviewed records: {}.",
+                entities.join(", ")
+            ));
         }
     }
-    if !uncertainty.is_empty() {
-        lines.push(format!("Uncertainty: {}", uncertainty.join("; ")));
+    if has_player_facing_uncertainty(uncertainty) {
+        lines.push(
+            "Note: some reviewed records are missing, conflicting, or out of date.".to_string(),
+        );
     }
     truncate_characters(&lines.join("\n"), max_reply_characters)
+}
+
+fn has_player_facing_uncertainty(uncertainty: &[String]) -> bool {
+    uncertainty
+        .iter()
+        .any(|message| !is_internal_uncertainty(message))
+}
+
+fn is_internal_uncertainty(message: &str) -> bool {
+    const INTERNAL_MARKERS: &[&str] = &[
+        "model draft",
+        "model did not call submit_answer",
+        "no deterministic tool evidence",
+        "tool call budget exhausted",
+        "unknown slot",
+        "unsupported entity",
+        "invalid slot reference",
+        "empty draft",
+        "numeric literal",
+        "numeric word",
+        "invalid arguments",
+    ];
+    INTERNAL_MARKERS
+        .iter()
+        .any(|marker| message.contains(marker))
+        || message.contains('{')
+        || message.contains('}')
 }
 
 struct ReplacedText {
@@ -589,7 +625,12 @@ fn contains_entity_phrase(text: &str, name: &str) -> bool {
         if before_supported && after_supported {
             return true;
         }
-        search_start = start + 1;
+        search_start = start
+            + lowered_text[start..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(1);
     }
     false
 }
@@ -759,4 +800,39 @@ fn truncate_characters(text: &str, max_characters: usize) -> String {
         return text.to_string();
     }
     text.chars().take(max_characters).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{contains_entity_phrase, is_internal_uncertainty};
+
+    #[test]
+    fn chinese_phrase_scan_never_slices_inside_a_code_point() {
+        assert!(contains_entity_phrase("疾旋鼬很可爱，疾旋鼬。", "疾旋鼬"));
+        assert!(!contains_entity_phrase("小疾旋鼬", "疾旋鼬"));
+    }
+
+    #[test]
+    fn ascii_phrase_boundaries_keep_previous_behavior() {
+        assert!(contains_entity_phrase(
+            "The Wooden Club recipe",
+            "Wooden Club"
+        ));
+        assert!(contains_entity_phrase("wooden club", "Wooden Club"));
+        assert!(!contains_entity_phrase("XWooden Club", "Wooden Club"));
+    }
+
+    #[test]
+    fn internal_uncertainty_is_hidden_from_player_text() {
+        assert!(is_internal_uncertainty(
+            "model draft invalid: numeric word in model draft"
+        ));
+        assert!(is_internal_uncertainty("Version {v1} facts shown"));
+        assert!(is_internal_uncertainty(
+            "no deterministic tool evidence was used"
+        ));
+        assert!(!is_internal_uncertainty(
+            "conflicting values remain for RECIPE_WOODEN_CLUB"
+        ));
+    }
 }
