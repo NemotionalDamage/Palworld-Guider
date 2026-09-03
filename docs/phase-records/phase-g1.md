@@ -193,3 +193,22 @@ Final Pal-batch verification passed:
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`
 - `git -c core.autocrlf=false diff --check`
+
+## Recipe, Alias, And Progression Triage
+
+The project owner requested promoting only field-complete Recipe, Alias, and Progression Relationship records. The candidate audit found:
+
+- Recipe: 0 of 915 eligible. All 915 crafting-station lists contain `unresolved`; all technology links and crafting durations are null, and empty-byproduct semantics are not reviewed. Twenty-three rows currently have all output and ingredient IDs represented by canonical Items, but they remain blocked by these unresolved fields.
+- Alias: 2 newly eligible records. Of 1,520 candidates, 357 were already promoted with the clear Item batch, 1,159 target Items that are not yet canonical, and 4 target legacy canonical Items. Two of those four added new Simplified Chinese coverage (`木材` for Wood and `羊毛` for Wool); `石头` and `烤野莓` duplicate existing legacy aliases and were not added again.
+- Progression Relationship: 0 of 369 eligible. Every `from_id` references a Technology record absent from both candidates and canonical data, and no edge has both endpoints in the current canonical store.
+
+The canonical set now contains 674 Aliases. The Wood query through `木材` correctly resolves to `ITEM_WOOD` and remains explicitly ambiguous because of the preserved Wooden Club recipe conflict; `羊毛` resolves to `ITEM_WOOL` without conflict. Recipe and progression counts remain unchanged, preventing defective candidates from entering canonical storage.
+
+The refreshed audit covers 1,350 canonical records and 2,488 field facts: 1,790 exact, 286 partial, 6 conflicting, 37 not represented locally, and 369 unresolved mappings. Missing localization, ambiguous mappings, schema failures, provenance failures, and unclassified facts are all zero. Mapping success is 98.9550%. The report SHA-256 is `1a7755973077ea281c173e532e6a5b262fe5d944efce7630052b69caa5348767`; raw exports and generated reports remain uncommitted.
+
+Final verification passed:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test`
+- `git -c core.autocrlf=false diff --check`

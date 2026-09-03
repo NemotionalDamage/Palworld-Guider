@@ -68,6 +68,20 @@ fn cli_resolves_new_local_build_pals_through_chinese_names() {
 }
 
 #[test]
+fn cli_resolves_complete_local_build_item_aliases_through_chinese_names() {
+    for (query, expected_id, expected_status, expected_code) in [
+        ("木材", "ITEM_WOOD", "ambiguous", 1),
+        ("羊毛", "ITEM_WOOL", "ok", 0),
+    ] {
+        let (answer, code) = run(&["--data", "../../data/reviewed", "lookup", "item", query]);
+
+        assert_eq!(code, expected_code);
+        assert_eq!(answer["status"], expected_status);
+        assert_eq!(answer["data"]["id"], expected_id);
+    }
+}
+
+#[test]
 fn cli_calculates_materials_and_shortage_offline() {
     let (answer, code) = run(&[
         "--data",

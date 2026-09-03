@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, and first 298-Pal clear identity/localization promotion are complete; broader item and Pal enrichment and other record-class promotions remain future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, and recipe/alias/progression candidate triage are complete; broader enrichment and semantic review remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -126,6 +126,20 @@ Completed:
 Remaining:
 
 None for the accepted clear-field Pal batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Pal stats, work suitability, drops, and habitats remain explicit unknowns until their semantics are reviewed.
+
+### Recipe, Alias, And Progression Batch Triage
+
+Completed:
+
+- Added the only two newly eligible complete aliases: Simplified Chinese `木材` for `ITEM_WOOD` and `羊毛` for `ITEM_WOOL`.
+- Preserved the 357 Item and 298 Pal aliases already promoted; rejected `石头` and `烤野莓` local-build aliases because equivalent legacy aliases already exist.
+- Promoted zero of 915 recipe candidates because every crafting-station list is `unresolved`; technology, duration, and empty-byproduct semantics also remain unreviewed.
+- Promoted zero of 369 progression relationships because every `from_id` references an absent Technology record and current canonical `to_id` resolution also fails.
+- Refreshed the audit to 1,350 canonical records and 2,488 field facts; zero unclassified, missing-localization, schema, provenance, or ambiguity failures. Report SHA-256 is `1a7755973077ea281c173e532e6a5b262fe5d944efce7630052b69caa5348767`.
+
+Remaining:
+
+None for the requested complete-record intake. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Deferred recipes, aliases, and progression relationships remain in the local candidate set until their semantic and reference blockers are reviewed.
 
 ### Blocker
 

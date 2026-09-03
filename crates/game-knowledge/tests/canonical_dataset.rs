@@ -222,3 +222,34 @@ fn loads_first_reviewed_local_build_pal_batch() {
             .any(|field| field == "work_suitability_semantics")));
     }
 }
+
+#[test]
+fn promotes_only_complete_recipe_alias_and_progression_candidates() {
+    let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
+        .expect("canonical reviewed dataset must be valid");
+
+    assert_eq!(store.aliases().count(), 674);
+    for (alias_id, alias_value, target_id) in [
+        ("ALIAS_ITEM_WOOD_ZH_HANS", "木材", "ITEM_WOOD"),
+        ("ALIAS_ITEM_WOOL_ZH_HANS", "羊毛", "ITEM_WOOL"),
+    ] {
+        let alias = store
+            .aliases()
+            .find(|alias| alias.id == alias_id)
+            .expect("complete local-build Item alias exists");
+        assert_eq!(alias.alias, alias_value);
+        assert_eq!(alias.target_id, target_id);
+        assert_eq!(alias.locale, "zh_hans");
+        assert_eq!(alias.provenance.source_id, LOCAL_BUILD_SOURCE_ID);
+        assert_eq!(alias.provenance.review_status, ReviewStatus::Reviewed);
+    }
+
+    assert_eq!(store.recipes().count(), 4);
+    assert_eq!(store.progression_relationships().count(), 2);
+    assert!(store
+        .recipes()
+        .all(|recipe| recipe.provenance.source_id != LOCAL_BUILD_SOURCE_ID));
+    assert!(store
+        .progression_relationships()
+        .all(|relationship| relationship.provenance.source_id != LOCAL_BUILD_SOURCE_ID));
+}
