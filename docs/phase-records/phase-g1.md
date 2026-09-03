@@ -212,3 +212,26 @@ Final verification passed:
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`
 - `git -c core.autocrlf=false diff --check`
+
+## Full Reviewed Item Batch (Rich-Text Promotion)
+
+The project owner approved a second full Item batch against the local build only; the Palworld Paldex API remained a corroboration reference and no Paldex-derived facts entered canonical storage. The first batch had deferred every item description containing unresolved inline markup. This batch resolved that markup against the target-build localization tables and promoted the remaining field-complete Item candidates.
+
+Completed:
+
+- Extended the localization index with Pal-name, map-object-name, skill-name, and uiCommon tables, and implemented case-insensitive description-key lookup (`ITEM_DESC_HEAD001` versus native row `Head001`).
+- Expanded inline rich-text tags into reviewed display text: item names (exact, then rank-suffix fallback to the base row), Pal names, map-object names, active and passive skill names, uiCommon text, element-icon tags (dropped as text-free), and `/>s` plural merges (`Fire Arrows`). Implant rows share the reviewed generic `PalPassiveSkillChange` description.
+- Promoted 1,153 remaining Items into `data/reviewed/items.jsonl` and 1,131 matching Simplified Chinese aliases into `data/reviewed/aliases.jsonl`. Canonical coverage is now 1,520 Items and 1,805 Aliases including the legacy records in `facts.jsonl`.
+- Deferred six Item rows whose native rows duplicate legacy seed identities and their six matching alias records: `ITEM_AXE_TIER_00` (Stone Axe) versus legacy `ITEM_WOODEN_CLUB`, `ITEM_BERRIES` versus `ITEM_RED_BERRIES`, `ITEM_MEAT_SHEEPBALL` versus `ITEM_LAMBALL_MUTTON`, `ITEM_MONEY` versus `ITEM_GOLD_COIN`, `ITEM_PALSPHERE` versus `ITEM_PAL_SPHERE`, and `ITEM_PAL_CRYSTAL_S` versus `ITEM_PALDIUM_FRAGMENT`. These need a project-owner identity decision between the reviewed local rows and the preserved legacy seed records.
+- Skipped 22 alias records whose `(alias, locale)` already resolves to a canonical record: PalEgg `_02`/`_04` rows share the `_01`/`_03` Chinese display name, and `ITEM_SWEET` shares the `PAL_SWEETSSHEEP` Chinese display name. Their Item records were still promoted without duplicate aliases.
+- Corrected the backfill audit to use the same case-insensitive rich-text expansion when the exact description lookup is empty, so promoted rich-text descriptions are corroborated instead of misreported as conflicting.
+- Refreshed the canonical audit to 3,634 records and 8,231 field facts: 6,380 exact, 286 partial, 6 conflicting, 37 not represented locally, and 1,522 unresolved mappings. Missing localization, ambiguous mappings, schema failures, provenance failures, and unclassified facts are all zero. Mapping success is 99.6841%. The report SHA-256 is `f584c54a2e1048bae45247c5dfbcaf113b6dccef8b63d2cc89251a78087bc872`; raw exports and generated reports remain uncommitted.
+
+Final verification passed:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test`
+- `git diff --check`
+
+Remaining Item coverage is limited to the six deferred native-row identity duplicates, duplicate-locale alias coverage, and the already explicit rarity and acquisition-lead unknowns.

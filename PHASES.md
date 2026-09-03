@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, and recipe/alias/progression candidate triage are complete; broader enrichment and semantic review remain future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, and a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and broader enrichment and semantic review remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -140,6 +140,10 @@ Completed:
 Remaining:
 
 None for the requested complete-record intake. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Deferred recipes, aliases, and progression relationships remain in the local candidate set until their semantic and reference blockers are reviewed.
+
+### Full Reviewed Item Batch
+
+The second full local-build Item batch resolved item-description inline markup against the target-build localization tables (case-insensitive key fallback, rank-suffix item names, Pal/map/skill/uiCommon text, element-icon drops, `/>s` plurals, and the shared generic implant description). It promoted 1,153 Items and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805 including legacy records, and deferred six native-row identity duplicates (Wooden Club, Red Berries, Lamball Mutton, Gold Coin, Pal Sphere, and Paldium Fragment rows) with their aliases plus 22 duplicate-locale aliases for project-owner resolution. The refreshed audit covers 3,634 canonical records and 8,231 field facts with zero unclassified, missing-localization, schema, provenance, or ambiguity failures; report SHA-256 is `f584c54a2e1048bae45247c5dfbcaf113b6dccef8b63d2cc89251a78087bc872`.
 
 ### Blocker
 

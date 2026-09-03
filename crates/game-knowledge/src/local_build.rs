@@ -390,6 +390,9 @@ pub struct LocalizationIndex {
     item_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
     item_descriptions: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
     pal_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    map_object_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    skill_names: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+    ui_common_text: BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
     coverage: Vec<TableCoverage>,
 }
 
@@ -399,6 +402,9 @@ impl LocalizationIndex {
             item_names: BTreeMap::new(),
             item_descriptions: BTreeMap::new(),
             pal_names: BTreeMap::new(),
+            map_object_names: BTreeMap::new(),
+            skill_names: BTreeMap::new(),
+            ui_common_text: BTreeMap::new(),
             coverage: Vec::new(),
         };
         for (locale, locale_path) in [
@@ -443,6 +449,51 @@ impl LocalizationIndex {
                     index.pal_names.insert((locale, row_id.to_string()), entry);
                 },
             )?;
+            let map_object_path = format!("{locale_path}/DT_MapObjectNameText_Common.json");
+            if root.join(&map_object_path).exists() {
+                index.load_table(
+                    root,
+                    &map_object_path,
+                    locale,
+                    "MAPOBJECT_NAME_",
+                    "map_object_name",
+                    |index, row_id, entry| {
+                        index
+                            .map_object_names
+                            .insert((locale, row_id.to_string()), entry);
+                    },
+                )?;
+            }
+            let skill_path = format!("{locale_path}/DT_SkillNameText_Common.json");
+            if root.join(&skill_path).exists() {
+                index.load_table(
+                    root,
+                    &skill_path,
+                    locale,
+                    "",
+                    "skill_name",
+                    |index, row_id, entry| {
+                        index
+                            .skill_names
+                            .insert((locale, row_id.to_string()), entry);
+                    },
+                )?;
+            }
+            let ui_common_path = format!("{locale_path}/DT_UI_Common_Text_Common.json");
+            if root.join(&ui_common_path).exists() {
+                index.load_table(
+                    root,
+                    &ui_common_path,
+                    locale,
+                    "",
+                    "ui_common_text",
+                    |index, row_id, entry| {
+                        index
+                            .ui_common_text
+                            .insert((locale, row_id.to_string()), entry);
+                    },
+                )?;
+            }
         }
         Ok(index)
     }
@@ -582,6 +633,169 @@ impl LocalizationIndex {
         self.lookup(&self.pal_names, "DT_PalNameText_Common", pal_row_id, locale)
     }
 
+    /// Returns the target-build item description with its inline rich-text tags
+    /// expanded into reviewed display text. Tag families resolved: itemName
+    /// (exact, then rank-suffix fallback to the base row), characterName,
+    /// mapObjectName/MapObjectName, activeSkillName (whole key then
+    /// ACTION_SKILL_/PASSIVE_ prefixed), uiCommon, and element icon (`img`
+    /// `ElemIcon_*`) which carries no textual content and is dropped when it
+    /// immediately precedes the matching element-name tag. Raw description
+    /// keys are matched case-insensitively because localization export keys can
+    /// differ in case from DataTable row ids (for example `ITEM_DESC_HEAD001`
+    /// versus row `Head001`). Whitespace is normalized to single spaces.
+    pub fn expanded_item_description(
+        &self,
+        item_row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<String>, LocalBuildError> {
+        let raw = self
+            .localized_entry_ci(
+                &self.item_descriptions,
+                "DT_ItemDescriptionText_Common",
+                item_row_id,
+                locale,
+            )?
+            .map(|entry| entry.localized_value.clone());
+        let Some(raw) = raw else {
+            return Ok(None);
+        };
+        Ok(Some(self.expand_rich_text(&raw, locale)))
+    }
+
+    fn localized_entry_ci<'a>(
+        &'a self,
+        table: &'a BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+        table_name: &str,
+        row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Result<Option<&'a LocalizationEntry>, LocalBuildError> {
+        let entry = table.get(&(locale, row_id.to_string())).or_else(|| {
+            table
+                .iter()
+                .find(|((entry_locale, key), _)| {
+                    *entry_locale == locale && key.eq_ignore_ascii_case(row_id)
+                })
+                .map(|(_, entry)| entry)
+        });
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        if let Some(reason) = &entry.rejection_reason {
+            return Err(LocalBuildError::InvalidLocalization {
+                table: table_name.to_string(),
+                row_id: row_id.to_string(),
+                reason: reason.clone(),
+            });
+        }
+        if entry.values_conflict {
+            return Err(LocalBuildError::LocalizationConflict {
+                table: table_name.to_string(),
+                row_id: row_id.to_string(),
+                localized_value: entry.localized_value.clone(),
+                source_value: entry.source_value.clone(),
+            });
+        }
+        Ok(Some(entry))
+    }
+
+    fn rich_text_lookup(
+        &self,
+        table: &BTreeMap<(LocalBuildLocale, String), LocalizationEntry>,
+        row_id: &str,
+        locale: LocalBuildLocale,
+    ) -> Option<String> {
+        self.localized_entry_ci(table, "", row_id, locale)
+            .ok()
+            .flatten()
+            .map(|entry| entry.localized_value.clone())
+    }
+
+    fn expand_rich_text(&self, raw: &str, locale: LocalBuildLocale) -> String {
+        let mut output = String::with_capacity(raw.len());
+        let mut remaining = raw;
+        while let Some(open) = remaining.find('<') {
+            output.push_str(&remaining[..open]);
+            let after_open = &remaining[open + 1..];
+            let Some(close) = after_open.find('>') else {
+                output.push_str(&remaining[open..]);
+                break;
+            };
+            let tag_text = &after_open[..close];
+            let (resolved, drop_tag) = self.resolve_tag(tag_text, locale);
+            if drop_tag {
+                // Element icon tags carry no textual content.
+            } else if let Some(text) = resolved {
+                output.push_str(&text);
+            } else {
+                output.push_str(&remaining[open..open + close + 2]);
+            }
+            remaining = &after_open[close + 1..];
+        }
+        output.push_str(remaining);
+        output.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    fn resolve_tag(&self, tag_text: &str, locale: LocalBuildLocale) -> (Option<String>, bool) {
+        let mut parts = tag_text.split_whitespace();
+        let Some(kind) = parts.next() else {
+            return (None, false);
+        };
+        let id = parts.find_map(|part| {
+            let rest = part.strip_prefix("id=|")?;
+            let end = rest.find('|')?;
+            Some(rest[..end].to_string())
+        });
+        let Some(id) = id else {
+            return (None, false);
+        };
+        match kind {
+            "img" => {
+                let is_element_icon = id.starts_with("ElemIcon_");
+                (None, is_element_icon)
+            }
+            "itemName" => {
+                let exact = self.rich_text_lookup(&self.item_names, &id, locale);
+                if exact.is_some() {
+                    (exact, false)
+                } else {
+                    let base = strip_item_rank_suffix(&id);
+                    (
+                        base.and_then(|base| self.rich_text_lookup(&self.item_names, base, locale)),
+                        false,
+                    )
+                }
+            }
+            "characterName" => (self.rich_text_lookup(&self.pal_names, &id, locale), false),
+            "mapObjectName" | "MapObjectName" => (
+                self.rich_text_lookup(&self.map_object_names, &id, locale),
+                false,
+            ),
+            "activeSkillName" => {
+                let direct = self.rich_text_lookup(&self.skill_names, &id, locale);
+                if direct.is_some() {
+                    (direct, false)
+                } else {
+                    let action = format!("ACTION_SKILL_{id}");
+                    let action_value = self.rich_text_lookup(&self.skill_names, &action, locale);
+                    if action_value.is_some() {
+                        (action_value, false)
+                    } else {
+                        let passive = format!("PASSIVE_{id}");
+                        (
+                            self.rich_text_lookup(&self.skill_names, &passive, locale),
+                            false,
+                        )
+                    }
+                }
+            }
+            "uiCommon" => (
+                self.rich_text_lookup(&self.ui_common_text, &id, locale),
+                false,
+            ),
+            _ => (None, false),
+        }
+    }
+
     pub fn coverage(&self) -> Vec<TableCoverage> {
         self.coverage.clone()
     }
@@ -633,6 +847,15 @@ impl LocalizationIndex {
             });
         }
         Ok(Some(entry.localized_value.clone()))
+    }
+}
+
+fn strip_item_rank_suffix(row_id: &str) -> Option<&str> {
+    let (base, suffix) = row_id.rsplit_once('_')?;
+    if matches!(suffix, "2" | "3" | "4" | "5") {
+        Some(base)
+    } else {
+        None
     }
 }
 

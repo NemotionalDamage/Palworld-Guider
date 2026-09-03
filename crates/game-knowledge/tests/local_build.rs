@@ -171,8 +171,14 @@ fn parses_preserved_real_export_batch_when_present() {
             1_994
         } else if coverage.name.contains("DT_ItemDescriptionText_Common") {
             1_924
-        } else {
+        } else if coverage.name.contains("DT_PalNameText_Common") {
             322
+        } else if coverage.name.contains("DT_MapObjectNameText_Common") {
+            617
+        } else if coverage.name.contains("DT_SkillNameText_Common") {
+            1_157
+        } else {
+            3_175
         };
         assert_eq!(coverage.total_rows, expected, "{}", coverage.name);
         assert_eq!(
@@ -289,8 +295,40 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
 
     let report = audit_canonical_backfill(&tables, &localization, &store);
 
-    assert_eq!(report.summary.total_records, 1350);
-    assert_eq!(report.summary.total_audited_facts, 2488);
+    let head_description = localization
+        .expanded_item_description("Head003", LocalBuildLocale::English)
+        .expect("Head003 description localization resolves")
+        .expect("Head003 description exists");
+    assert!(head_description.contains("Ribbuny"));
+    assert!(!head_description.contains('<'));
+    let blueprint_description = localization
+        .expanded_item_description("Blueprint_ClothArmorCold_2", LocalBuildLocale::English)
+        .expect("blueprint description localization resolves")
+        .expect("blueprint description exists");
+    assert!(blueprint_description.contains("Tundra Outfit (Uncommon)"));
+    assert!(blueprint_description.contains("Primitive Workbench"));
+    let arrow_description = localization
+        .expanded_item_description("Arrow_Fire", LocalBuildLocale::English)
+        .expect("arrow description localization resolves")
+        .expect("arrow description exists");
+    assert!(arrow_description.starts_with("Fire Arrows for use with bows."));
+    assert!(arrow_description.contains("Fire damage on contact"));
+    let awakening_description = localization
+        .expanded_item_description("PalAwakening_Fire", LocalBuildLocale::English)
+        .expect("awakening description localization resolves")
+        .expect("awakening description exists");
+    assert!(
+        awakening_description.contains("awakens Fire Pals"),
+        "unexpected awakening expansion: {awakening_description:?}"
+    );
+    let implant_description = localization
+        .expanded_item_description("PalPassiveSkillChange", LocalBuildLocale::English)
+        .expect("implant description localization resolves")
+        .expect("implant description exists");
+    assert!(implant_description.contains("select the corresponding passive skill"));
+
+    assert_eq!(report.summary.total_records, 3634);
+    assert_eq!(report.summary.total_audited_facts, 8231);
     assert_eq!(report.summary.unclassified_facts, 0);
     assert_eq!(report.summary.missing_localization, 0);
     assert!(report.facts.iter().any(|fact| {

@@ -69,6 +69,10 @@ fn normalized_description(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn is_implant_row(row_id: &str) -> bool {
+    row_id.starts_with("PalPassiveSkillChange_")
+}
+
 pub fn audit_canonical_backfill(
     tables: &LocalBuildTables,
     localization: &LocalizationIndex,
@@ -269,16 +273,38 @@ impl Auditor<'_> {
         }
 
         if let Some(description) = item.description.as_deref() {
-            let local_description = self
+            let raw_local_description = self
                 .localization
                 .item_description(native_id, LocalBuildLocale::English)
                 .ok()
                 .flatten()
                 .unwrap_or_default();
+            let local_description = if raw_local_description.is_empty() && is_implant_row(native_id)
+            {
+                self.localization
+                    .expanded_item_description("PalPassiveSkillChange", LocalBuildLocale::English)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+            } else if raw_local_description.is_empty() || raw_local_description.contains('<') {
+                // Localization export keys can differ in case from DataTable row ids
+                // (for example ITEM_DESC_HEAD001 versus row Head001), so empty exact
+                // lookups still fall back to case-insensitive rich-text expansion to
+                // mirror the promotion path.
+                self.localization
+                    .expanded_item_description(native_id, LocalBuildLocale::English)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+            } else {
+                raw_local_description
+            };
             let normalized_local_description = normalized_description(&local_description);
             let normalized_canonical_description = normalized_description(description);
             let differs_only_by_whitespace =
                 normalized_local_description == normalized_canonical_description;
+            let shared_implant_text = is_implant_row(native_id)
+                && normalized_local_description == normalized_canonical_description;
             let classification = if local_description == description {
                 "corroborated_exact"
             } else if differs_only_by_whitespace
@@ -295,10 +321,16 @@ impl Auditor<'_> {
                 "DT_ItemDescriptionText_Common",
                 native_id,
                 &local_description,
-                "native_row_id",
+                if shared_implant_text {
+                    "shared generic implant description"
+                } else {
+                    "native_row_id"
+                },
                 classification,
                 if classification == "corroborated_partial" {
-                    if differs_only_by_whitespace {
+                    if differs_only_by_whitespace && shared_implant_text {
+                        "the reviewed description is the shared generic target-build implant text"
+                    } else if differs_only_by_whitespace {
                         "the reviewed text differs only by target-build whitespace"
                     } else {
                         "the reviewed description is a concise prefix of the target-build text"

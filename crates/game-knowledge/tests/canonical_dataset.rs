@@ -103,7 +103,7 @@ fn loads_first_reviewed_local_build_item_batch() {
     let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
         .expect("canonical reviewed dataset must be valid");
 
-    assert_eq!(store.items().count(), 367);
+    assert_eq!(store.items().count(), 1520);
     let pendant = store
         .item("ITEM_ACCESSORY_AT_1")
         .expect("first clear local-build item exists");
@@ -228,7 +228,7 @@ fn promotes_only_complete_recipe_alias_and_progression_candidates() {
     let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
         .expect("canonical reviewed dataset must be valid");
 
-    assert_eq!(store.aliases().count(), 674);
+    assert_eq!(store.aliases().count(), 1805);
     for (alias_id, alias_value, target_id) in [
         ("ALIAS_ITEM_WOOD_ZH_HANS", "木材", "ITEM_WOOD"),
         ("ALIAS_ITEM_WOOL_ZH_HANS", "羊毛", "ITEM_WOOL"),
