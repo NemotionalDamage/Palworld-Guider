@@ -5,6 +5,19 @@ use std::path::Path;
 use crate::models::{Confidence, KnowledgeRecord, ReviewStatus, SourceRecord};
 use crate::ValidationError;
 
+const FACT_FILE_NAMES: [&str; 10] = [
+    "facts.jsonl",
+    "items.jsonl",
+    "pals.jsonl",
+    "technologies.jsonl",
+    "recipes.jsonl",
+    "habitats.jsonl",
+    "breeding_rules.jsonl",
+    "aliases.jsonl",
+    "progression_relationships.jsonl",
+    "conflicts.jsonl",
+];
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct KnowledgeStore {
     sources: BTreeMap<String, SourceRecord>,
@@ -361,7 +374,12 @@ impl KnowledgeStore {
     pub fn load_directory(path: impl AsRef<Path>) -> Result<Self, Vec<ValidationError>> {
         let path = path.as_ref();
         let mut records = read_jsonl(&path.join("sources.jsonl"))?;
-        records.extend(read_jsonl(&path.join("facts.jsonl"))?);
+        for file_name in FACT_FILE_NAMES {
+            let file_path = path.join(file_name);
+            if file_path.exists() {
+                records.extend(read_jsonl(&file_path)?);
+            }
+        }
         Self::from_records(records)
     }
 

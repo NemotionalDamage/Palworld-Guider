@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified per-class intake standard and current canonical and candidate completeness audit are complete; broader candidate promotion remains future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, and first 357-item clear-field promotion are complete; broader item enrichment and other record-class promotions remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -98,6 +98,20 @@ The field-level canonical backfill gate passed. The Rust audit covers all 38 exi
 The second reopened G1 subphase added `docs/schemas/knowledge-intake.md`, defining required, conditional, and explicit-unknown fields for Source, Item, Pal, Recipe, Technology, Habitat, Breeding Rule, Alias, Progression Relationship, and Conflict records. The audit covered all 38 canonical facts and all 4,633 local-build candidates.
 
 The canonical set has zero structural-validation failures. Its durable optional-field gaps are seven missing Simplified Chinese names, four missing item descriptions, Lamball stats and habitat coverage, four missing crafting durations, and two missing recipe technology links. The candidate set has complete shared intake fields, but promotion is blocked by item description and acquisition uncertainty, Pal habitat uncertainty, unresolved recipe stations, technology, duration, and byproducts, and 369 progression edges whose Technology endpoints are absent. No unreviewed candidate entered canonical data.
+
+### Item Batch Promotion
+
+Completed:
+
+- Added classified canonical loading for record-type JSONL files.
+- Promoted 357 clear local-build Items into `data/reviewed/items.jsonl`: bilingual names, reviewed whitespace-normalized descriptions, native row identity, local evidence, and explicit rarity/acquisition uncertainty.
+- Added 357 matching Simplified Chinese aliases into `data/reviewed/aliases.jsonl` so deterministic lookup can resolve new Chinese item names.
+- Preserved all existing seed Items and the two explicit Wooden Club conflicts without overwrite.
+- Refreshed the local-build audit to 752 canonical records and 1,890 field facts: zero unclassified, schema, provenance, or ambiguity failures; only the six field facts from the two preserved conflicts remain conflicting. Report SHA-256 is `59bb62ea03afd95ffd73e2825b2ed947df96b6d3e31027e40ea08c762ed44ea6`.
+
+Remaining:
+
+None for the accepted clear-field Item batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Remaining Item coverage is limited to descriptions with unresolved inline markup, missing descriptions, acquisition enrichment, rarity semantics, and any future changed-build review.
 
 Remaining:
 

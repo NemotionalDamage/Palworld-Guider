@@ -3,7 +3,8 @@
 Knowledge v1 is the Phase G1 canonical record format. Canonical data is stored as one JSON object per line in:
 
 - `data/reviewed/sources.jsonl`
-- `data/reviewed/facts.jsonl` (or a future validated split by record class)
+- `data/reviewed/facts.jsonl` for the legacy mixed seed set
+- classified fact files such as `data/reviewed/items.jsonl` and `data/reviewed/aliases.jsonl`
 
 ## Source Records
 

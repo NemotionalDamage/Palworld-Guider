@@ -289,9 +289,17 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
 
     let report = audit_canonical_backfill(&tables, &localization, &store);
 
-    assert_eq!(report.summary.total_records, 38);
+    assert_eq!(report.summary.total_records, 752);
     assert_eq!(report.summary.unclassified_facts, 0);
     assert!(report.facts.len() >= 90);
+    let whitespace_description_conflicts = report
+        .facts
+        .iter()
+        .filter(|fact| {
+            fact.canonical_field == "description" && fact.classification == "conflicting"
+        })
+        .count();
+    assert_eq!(whitespace_description_conflicts, 0);
     assert!(report
         .summary
         .classification_counts
@@ -329,7 +337,7 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
             && fact.canonical_field == "description"
             && fact.classification == "corroborated_partial"
             && fact.difference_explanation
-                == "the reviewed text differs only by target-build line endings"
+                == "the reviewed text differs only by target-build whitespace"
     }));
 }
 

@@ -30,6 +30,26 @@ fn cli_answers_exact_lookup_with_provenance() {
 }
 
 #[test]
+fn cli_resolves_new_local_build_items_through_chinese_names() {
+    let (answer, code) = run(&[
+        "--data",
+        "../../data/reviewed",
+        "lookup",
+        "item",
+        "攻击吊坠",
+    ]);
+
+    assert_eq!(code, 0);
+    assert_eq!(answer["status"], "ok");
+    assert_eq!(answer["data"]["id"], "ITEM_ACCESSORY_AT_1");
+    assert_eq!(answer["data"]["names"]["zh_hans"], "攻击吊坠");
+    assert_eq!(
+        answer["data"]["description"],
+        "An accessory that slightly raises Attack."
+    );
+}
+
+#[test]
 fn cli_calculates_materials_and_shortage_offline() {
     let (answer, code) = run(&[
         "--data",

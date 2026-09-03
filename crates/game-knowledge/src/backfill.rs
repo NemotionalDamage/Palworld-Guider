@@ -65,6 +65,10 @@ pub fn canonical_backfill_output_is_safe(path: &Path) -> bool {
         })
 }
 
+fn normalized_description(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn audit_canonical_backfill(
     tables: &LocalBuildTables,
     localization: &LocalizationIndex,
@@ -271,11 +275,15 @@ impl Auditor<'_> {
                 .ok()
                 .flatten()
                 .unwrap_or_default();
-            let normalized_description = local_description.replace("\r\n", " ");
-            let differs_only_by_line_endings = normalized_description == description;
+            let normalized_local_description = normalized_description(&local_description);
+            let normalized_canonical_description = normalized_description(description);
+            let differs_only_by_whitespace =
+                normalized_local_description == normalized_canonical_description;
             let classification = if local_description == description {
                 "corroborated_exact"
-            } else if differs_only_by_line_endings || local_description.starts_with(description) {
+            } else if differs_only_by_whitespace
+                || normalized_local_description.starts_with(&normalized_canonical_description)
+            {
                 "corroborated_partial"
             } else {
                 "conflicting"
@@ -290,8 +298,8 @@ impl Auditor<'_> {
                 "native_row_id",
                 classification,
                 if classification == "corroborated_partial" {
-                    if differs_only_by_line_endings {
-                        "the reviewed text differs only by target-build line endings"
+                    if differs_only_by_whitespace {
+                        "the reviewed text differs only by target-build whitespace"
                     } else {
                         "the reviewed description is a concise prefix of the target-build text"
                     }

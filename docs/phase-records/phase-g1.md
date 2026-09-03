@@ -152,3 +152,27 @@ The 4,633-row candidate audit found no missing shared intake fields: every candi
 - Progression relationship: all 369 rows are structurally complete, but every `from_id` references a Technology record absent from the candidate set, so reference integrity blocks promotion.
 
 The safe first promotion surface is therefore not all 4,633 records. Item identity and localization can be reviewed after adding explicit description and acquisition uncertainty; Pal identity and localization can be reviewed after adding explicit habitat uncertainty; Recipe and Progression batches require station, technology, duration, and byproduct semantic review. No candidate was promoted during this audit.
+
+## First Reviewed Item Batch
+
+The project owner approved promoting the clear-field Item subset first. The batch selected local-build candidates with:
+
+- English and Simplified Chinese names present
+- a nonempty English description
+- no unresolved inline markup in the description
+- no existing canonical ID or native Item row identity
+
+Canonical storage now uses classified JSONL files. `data/reviewed/items.jsonl` contains 357 promoted Item records, and `data/reviewed/aliases.jsonl` contains their 357 matching Simplified Chinese aliases. Descriptions preserve the reviewed text with whitespace normalized to single spaces. Rarity remains `unknown`, acquisition leads remain empty, and `local_evidence.unresolved_fields` names both blockers along with the unresolved native rarity/type semantics. Existing seed Items and their provenance were not overwritten.
+
+The loader reads both the legacy mixed `facts.jsonl` and validated class files. The canonical dataset now contains 367 Items and 374 Aliases across the legacy and classified files. A CLI regression resolves the new Attack Pendant item through `攻击吊坠`, proving that the matching alias is usable by the deterministic guide rather than only present in storage.
+
+The refreshed field-level audit covers all 752 canonical records and 1,890 field facts. It reports 1,192 exact, 286 partial, 6 conflicting, 37 not-represented, and 369 unresolved mappings with zero unclassified facts, schema failures, provenance failures, or ambiguous mappings. The only conflicts remain the two preserved Wooden Club product and recipe conflicts. The report SHA-256 is `59bb62ea03afd95ffd73e2825b2ed947df96b6d3e31027e40ea08c762ed44ea6`; raw exports and generated reports remain uncommitted.
+
+Final item-batch verification passed:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test`
+- `git diff --check`
+
+The full workspace test suite passed after the classified-file loader, canonical item/alias batch, Chinese lookup regression, refreshed backfill audit, and whitespace-equivalence correction. No required command was skipped.

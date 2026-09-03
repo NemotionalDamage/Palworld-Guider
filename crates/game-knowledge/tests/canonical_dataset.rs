@@ -97,3 +97,70 @@ fn canonical_reviewed_dataset_loads_and_propagates_provenance() {
             && drop.probability_percent == 100.0
     }));
 }
+
+#[test]
+fn loads_first_reviewed_local_build_item_batch() {
+    let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
+        .expect("canonical reviewed dataset must be valid");
+
+    assert_eq!(store.items().count(), 367);
+    let pendant = store
+        .item("ITEM_ACCESSORY_AT_1")
+        .expect("first clear local-build item exists");
+    assert_eq!(pendant.names.en, "Attack Pendant");
+    assert_eq!(pendant.names.zh_hans.as_deref(), Some("攻击吊坠"));
+    assert_eq!(
+        pendant.description.as_deref(),
+        Some("An accessory that slightly raises Attack.")
+    );
+    assert_eq!(pendant.rarity, "unknown");
+    assert!(pendant.acquisition_leads.is_empty());
+    assert_eq!(pendant.native_row_id.as_deref(), Some("Accessory_AT_1"));
+    let evidence = pendant
+        .local_evidence
+        .as_ref()
+        .expect("promoted local-build item carries evidence metadata");
+    assert!(evidence
+        .unresolved_fields
+        .iter()
+        .any(|field| field == "acquisition_leads"));
+    assert!(evidence
+        .unresolved_fields
+        .iter()
+        .any(|field| field == "rarity_numeric_semantics"));
+    assert_eq!(pendant.provenance.source_id, LOCAL_BUILD_SOURCE_ID);
+    assert_eq!(pendant.provenance.review_status, ReviewStatus::Reviewed);
+
+    for item in store.items() {
+        if item.provenance.source_id != LOCAL_BUILD_SOURCE_ID {
+            continue;
+        }
+        assert!(!item.names.en.trim().is_empty());
+        assert!(item
+            .names
+            .zh_hans
+            .as_deref()
+            .is_some_and(|name| !name.trim().is_empty()));
+        let description = item.description.as_deref().unwrap_or_default();
+        assert!(!description.trim().is_empty());
+        assert!(!description.contains('<') && !description.contains('>'));
+        assert!(!description.contains("\r") && !description.contains("\n"));
+        let evidence = item
+            .local_evidence
+            .as_ref()
+            .unwrap_or_else(|| panic!("local-build item {} must carry evidence metadata", item.id));
+        assert!(!evidence.transformation_notes.trim().is_empty());
+        if item.acquisition_leads.is_empty() {
+            assert!(evidence
+                .unresolved_fields
+                .iter()
+                .any(|field| field == "acquisition_leads"));
+        }
+        if item.rarity == "unknown" {
+            assert!(evidence
+                .unresolved_fields
+                .iter()
+                .any(|field| field == "rarity_numeric_semantics"));
+        }
+    }
+}

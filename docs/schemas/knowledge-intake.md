@@ -4,8 +4,8 @@ This standard defines the fields required for each canonical Knowledge v1 record
 
 ## Storage And Classification
 
-- Canonical reviewed records are JSONL objects under `data/reviewed/`.
-- Every fact line is self-describing through `record_type`; a future batch may split fact lines by class, but loading and validation remain record-type based rather than filename based.
+- Canonical reviewed records are JSONL objects under `data/reviewed/`. The legacy mixed set remains in `facts.jsonl`; new batches use classified files such as `items.jsonl` and `aliases.jsonl`.
+- Every fact line is self-describing through `record_type`; loading and validation remain record-type based rather than filename based.
 - Candidate output remains under gitignored `.local/research/local-build/candidates/`. A candidate may use `review_status: candidate` and explicit `unresolved` values, but neither may enter canonical reviewed data until its field semantics are reviewed.
 - A field is either structurally required, conditionally required, or explicitly unknown. Silence is not uncertainty: an unknown value must use the schema null/empty form plus `local_evidence.unresolved_fields` or a provenance change-risk note.
 

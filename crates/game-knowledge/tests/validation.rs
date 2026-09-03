@@ -5,8 +5,34 @@ use game_knowledge::{
     RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord, TechnologyRecord,
     WorkKind, WorkSuitability,
 };
+use std::fs;
 
 const SOURCE_ID: &str = "SRC-PALDB-20260831";
+
+#[test]
+fn load_directory_reads_class_files_without_a_monolithic_facts_file() {
+    let unique = format!("palworld-guider-class-files-{}", std::process::id());
+    let root = std::env::temp_dir().join(unique);
+    fs::create_dir_all(&root).expect("create temporary knowledge directory");
+    fs::write(
+        root.join("sources.jsonl"),
+        serde_json::to_string(&KnowledgeRecord::Source(source())).unwrap(),
+    )
+    .expect("write sources");
+    fs::write(
+        root.join("items.jsonl"),
+        serde_json::to_string(&item_record("ITEM_CLASS_FILE", None)).unwrap(),
+    )
+    .expect("write items");
+
+    let store = KnowledgeStore::load_directory(&root)
+        .expect("classified item file must load without facts.jsonl");
+    assert!(store.item("ITEM_CLASS_FILE").is_some());
+
+    fs::remove_file(root.join("items.jsonl")).expect("remove items");
+    fs::remove_file(root.join("sources.jsonl")).expect("remove sources");
+    fs::remove_dir(&root).expect("remove temporary knowledge directory");
+}
 
 fn source() -> SourceRecord {
     SourceRecord {
