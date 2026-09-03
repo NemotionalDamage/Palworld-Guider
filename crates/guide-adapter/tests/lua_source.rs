@@ -165,21 +165,27 @@ fn chat_send_uses_only_system_chat_api() {
 }
 
 #[test]
-fn chat_hook_is_guarded_and_reregistered() {
+fn chat_hook_is_guarded_and_registered_once() {
     let main = main_lua();
     assert_contains(&main, "RegisterHook", "chat hook");
-    assert_contains(&main, "UnregisterHook", "chat hook unregister");
     assert_contains(
         &main,
         "/Script/Pal.PalGameStateInGame:BroadcastChatMessage",
         "chat hook target",
     );
+    assert_contains(&main, "chat_hook_registered", "guarded registration flag");
+    assert_contains(&main, "ensure_chat_hook()", "hook registration tick");
+    assert_not_contains(
+        &main,
+        "UnregisterHook",
+        "hook must never unregister from inside its own callback",
+    );
+    assert_contains(&main, "publish_once", "deduplicated chat publish");
     assert_contains(
         &main,
-        "chat_hook_registered",
-        "guarded re-registration flag",
+        "last_published_text",
+        "repeat-broadcast deduplication window",
     );
-    assert_contains(&main, "ensure_chat_hook()", "hook re-registration tick");
 }
 
 #[test]

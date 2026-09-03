@@ -310,41 +310,46 @@ if not PalTransport.connect() then
 end
 
 local chat_hook_registered = false
+local last_published_text = nil
+local last_published_second = -1
+
+local function publish_once(instruction)
+    -- BroadcastChatMessage can fire more than once for the same player
+    -- message (local send plus server echo). Drop repeat broadcasts of the
+    -- same instruction within a short window instead of unregistering the
+    -- hook from inside its own callback, which was unstable in live play.
+    local now = os.time()
+    if instruction == last_published_text and now - last_published_second < 2 then
+        return
+    end
+    last_published_text = instruction
+    last_published_second = now
+    publish_chat_event(instruction)
+end
 
 local function chat_hook_callback(_, parameter)
     if not chat_hook_registered then
         return
     end
-    local unregistered, unregister_error = pcall(
-        UnregisterHook,
-        "/Script/Pal.PalGameStateInGame:BroadcastChatMessage",
-        chat_hook_callback
-    )
-    if unregistered then
-        chat_hook_registered = false
-    else
-        print(TAG .. " chat hook unregister failed: " .. tostring(unregister_error))
-    end
-    chat_trace("callback", -1, false)
+    -- Read-only dispatch: never mutate hook state while UE4SS is dispatching
+    -- this callback. Live crashes traced to the unregister-on-callback path.
     local message
     local ok = pcall(function()
         local raw = parameter and parameter:get()
         message = raw and raw.Message and raw.Message:ToString()
     end)
-    if not ok then
-        chat_trace("parameter-error", -1, false)
+    if not ok or type(message) ~= "string" then
+        chat_trace("parameter-error", type(message) == "string" and #message or -1, false)
         return
     end
-    local message_chars = type(message) == "string" and #message or -1
-    local prefix_matched = type(message) == "string"
-        and #message >= #COMMAND_PREFIX
+    local has_prefix = #message >= #COMMAND_PREFIX
         and message:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX
-    chat_trace("received", message_chars, prefix_matched)
-    if ok and type(message) == "string" and message:sub(1, #COMMAND_PREFIX) == COMMAND_PREFIX then
+    chat_trace("received", #message, has_prefix)
+    if has_prefix then
         local instruction = message:sub(#COMMAND_PREFIX + 1):match("^%s*(.-)%s*$")
         if instruction ~= "" then
             chat_trace("accepted", #message, true)
-            publish_chat_event(instruction)
+            publish_once(instruction)
         end
     end
 end

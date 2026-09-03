@@ -158,6 +158,32 @@ No game was launched and no live adapter validation was performed. The required 
 
 Fresh workspace gates on 2026-09-03: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, full `cargo test` (exit 0), and `git diff --check` all clean.
 
+## Live Chat Hook Crash Fix (2026-09-04)
+
+### Live Finding
+
+Two live crashes (2026-09-03 22:28 and 23:50, Asia/Shanghai) reproduced the same failure: a plain chat broadcast without the `!guide ` prefix triggered the `PalGameStateInGame:BroadcastChatMessage` hook path and the game exited with `EXCEPTION_ACCESS_VIOLATION`. The UE4SS crash call stack is `VCRUNTIME140 -> UE4SS -> Palworld` chat call chain; `dlls/main.dll` is absent from the stack, so the native transport shim is not implicated. The second crash occurred during the replacement-session (B2) live check after a clean game restart, before any `!guide ` event reached the gateway.
+
+### Root Cause Candidate
+
+The Lua chat hook callback executed `UnregisterHook` on every broadcast. Against UE4SS 3.0.1 Beta #0 the call failed on every invocation (`chat hook unregister failed: function: ...`) while UE4SS was mid-dispatch, and the process crashed after the Lua callback returned during UE4SS dispatch recovery. Unregistering or re-registering a hook from inside its own callback is not a safe pattern on this UE4SS build.
+
+### Fix Delivered
+
+- Removed the unregister-on-callback and re-registration ping-pong. The chat hook is now registered once and stays resident; the 50 ms tick only retries when registration initially failed.
+- Added `publish_once` repeat-broadcast deduplication: the same instruction text is published at most once per two-second window, covering local-send plus server-echo double broadcasts without touching hook state.
+- Updated the Lua source-contract test (`crates/guide-adapter/tests/lua_source.rs`) to forbid `UnregisterHook` in `main.lua` and to require the deduplication window.
+- Rebuilt and redeployed the `PalworldGuider` package; deployed `Scripts/main.lua` matches the repository source (SHA256 verified by the install script manifest).
+
+### Verification
+
+- `cargo test -p guide-adapter --test lua_source`: 20/20 passing.
+- Fresh workspace gates on 2026-09-04: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, full `cargo test`, and `git diff --check` (rerun after documentation update).
+
+### Remaining Live Check
+
+Replay after the fix: send `!guide ping` (functional), then send a plain non-prefixed chat message and confirm the game no longer crashes before continuing the B2 replacement-session, B3 server-stop, and C clean-exit checks.
+
 ### Remaining
 
 - Restart/fail-closed recovery, replacement-session, and clean-exit checks for the live single-player target; a resilience improvement (containing per-event panics in the adapter service loop) is recommended but not required for the current gate.
