@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at both its original acceptance boundary and the reopened local-build DataTable intake/backfill boundary; the canonical foundation remains typed, validated, provenance-bearing, conflict-visible, and audit-corrected.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified per-class intake standard and current canonical and candidate completeness audit are complete; broader candidate promotion remains future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -92,6 +92,12 @@ The local-build export gate passed. The preserved manifest contains 518 JSON exp
 The local source and provenance-identity schema are complete. The Rust parser and localization resolver cover Item (2,466 rows), Item Recipe (1,414), Technology Unlock (588), Pal Parameter (753), Pal Drop (1,044), EN/zh-Hans Item Name (1,994 each), Item Description (1,924 each), and Pal Name (322 each). Core-table parse failures are zero; every row has parsed, skipped, or failed coverage. The all-row candidate CLI remains local-only and is deterministic across repeated runs. Its current reviewed-machine audit reports 1,520 item candidates, 915 recipe candidates, 309 Pal candidates, 369 provable unlock relationships, 499 unresolved recipe references, and 4,094 drop-rate units left unresolved. It reports 461 localization rejections, matching the raw tables exactly. These are candidates or explicit skips, not promoted facts.
 
 The field-level canonical backfill gate passed. The Rust audit covers all 38 existing canonical records and 105 field-level facts with zero unclassified facts: 42 exact, 8 partial, 6 conflicting, 37 not represented locally, and 12 unresolved mappings. Mapping success is 75.24%; ambiguous mappings, missing localization, schema failures, and provenance failures are zero. The only explicit disagreements are the two preserved Wooden Club product and recipe conflicts. The report path is restricted to `.local/research/local-build/reports/canonical-backfill.json`, and the final generated report has SHA-256 `ee10be12a962f72da841d7572412fb7c043611da3c966a03069e6dcbe4acccc7`.
+
+### Completed Intake Standard And Completeness Audit
+
+The second reopened G1 subphase added `docs/schemas/knowledge-intake.md`, defining required, conditional, and explicit-unknown fields for Source, Item, Pal, Recipe, Technology, Habitat, Breeding Rule, Alias, Progression Relationship, and Conflict records. The audit covered all 38 canonical facts and all 4,633 local-build candidates.
+
+The canonical set has zero structural-validation failures. Its durable optional-field gaps are seven missing Simplified Chinese names, four missing item descriptions, Lamball stats and habitat coverage, four missing crafting durations, and two missing recipe technology links. The candidate set has complete shared intake fields, but promotion is blocked by item description and acquisition uncertainty, Pal habitat uncertainty, unresolved recipe stations, technology, duration, and byproducts, and 369 progression edges whose Technology endpoints are absent. No unreviewed candidate entered canonical data.
 
 Remaining:
 

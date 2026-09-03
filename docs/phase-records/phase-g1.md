@@ -128,3 +128,27 @@ Reviewed backfill actions add unique native row IDs, add local corroboration onl
 Crafting stations, map objects, stat scales, rarity semantics, and drop-probability units remain unresolved. Technology identities also remain unverified, so local corroboration is not claimed for those records.
 
 The final reopened-G1 gate passed `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, and `git -c core.autocrlf=false diff --check`. Runtime adapter, agent, planner, calculator, and tool-registry tests use stable conflict-free views or non-conflicting records so their behavioral assertions remain independent of the two preserved canonical conflicts; explicit conflict propagation remains separately tested. No required command was skipped.
+
+## Unified Intake Standard And Completeness Audit
+
+The project owner approved a second reopened G1 subphase to define one field standard per record class before expanding the local-build candidate set. The durable standard is `docs/schemas/knowledge-intake.md`. It distinguishes structural validity from knowledge completeness, requires local-build Item, Pal, Technology, and Recipe records to carry native-row and local-evidence metadata, and requires every null, empty, or unresolved semantic field to be documented explicitly.
+
+The canonical dataset audit covered all 38 reviewed facts. The Rust loader reports zero structural-validation failures. Literal optional-field gaps are:
+
+- Seven records have null `names.zh_hans`: four Items, one Pal, and both Technologies.
+- Four Items have null `description`: Wood, Wooden Club, Wool, and Lamball Mutton.
+- Three Items have empty direct `acquisition_leads`; Wooden Club is covered by its recipe and Wool and Lamball Mutton by Lamball drops, so these are relational rather than unknown acquisition paths.
+- Lamball has null `stats` and an empty `habitat_ids` list; the latter remains a known map and habitat coverage gap.
+- All four Recipes have null `crafting_seconds`; Paldium Fragment and Baked Berries also have null `technology_id`.
+- Both Progression relationships have null `requirement`, which the standard defines as no additional requirement rather than a missing field.
+- All 17 Aliases omit `change_risk`; this is allowed because their primary sources and target records retain version risk.
+
+The 4,633-row candidate audit found no missing shared intake fields: every candidate has its class fields, provenance, and, where applicable, native and local evidence metadata. Knowledge-completeness blockers are material:
+
+- Item: 78 of 1,520 descriptions are null without a listed description blocker, and all 1,520 acquisition-lead lists are empty without a listed acquisition blocker. Rarity is explicitly unknown and its numeric-semantics blocker is recorded.
+- Pal: all 309 stats are null with a recorded stats-scale blocker, all 309 drop lists are empty with a recorded drop-probability blocker, and all 309 habitat lists are empty without an explicit habitat blocker.
+- Recipe: all 915 station lists contain only `unresolved`, so the batch cannot be promoted as reviewed recipe knowledge yet. Technology and duration are null for all 915, and empty-byproduct semantics are not explicit.
+- Alias: all 1,520 rows are structurally complete; Chinese values intentionally mirror canonical localized names for current locale resolution.
+- Progression relationship: all 369 rows are structurally complete, but every `from_id` references a Technology record absent from the candidate set, so reference integrity blocks promotion.
+
+The safe first promotion surface is therefore not all 4,633 records. Item identity and localization can be reviewed after adding explicit description and acquisition uncertainty; Pal identity and localization can be reviewed after adding explicit habitat uncertainty; Recipe and Progression batches require station, technology, duration, and byproduct semantic review. No candidate was promoted during this audit.

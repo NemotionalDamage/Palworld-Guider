@@ -3,7 +3,7 @@
 Knowledge v1 is the Phase G1 canonical record format. Canonical data is stored as one JSON object per line in:
 
 - `data/reviewed/sources.jsonl`
-- `data/reviewed/facts.jsonl`
+- `data/reviewed/facts.jsonl` (or a future validated split by record class)
 
 ## Source Records
 
@@ -47,7 +47,7 @@ Validation requires the source to exist, the fact to be reviewed, the confidence
 - English names are required; localized names cannot be blank when present.
 - `applicable_game_version` uses dot-separated numeric segments with at least two segments, for both sources and fact provenance.
 - Alias locales are restricted to `en` and `zh_hans`.
-- Dates use a valid `YYYY-MM-DD` Gregorian calendar date; evidence URLs use HTTP or HTTPS.
+- Dates use a valid `YYYY-MM-DD` Gregorian calendar date; evidence URLs use HTTP(S) or a reviewed `local://` path.
 - Fact IDs are globally unique, and source IDs are unique.
 - Recipes require at least one ingredient and one crafting station.
 - Recipe ingredient, output, by-product, and technology references resolve to the exact required record type.
