@@ -694,23 +694,42 @@ impl Auditor<'_> {
     }
 
     fn audit_alias(&mut self, alias: &crate::models::AliasRecord) {
-        let native_id = self.item_native(&alias.target_id).to_string();
+        let target_is_pal = self.store.pal(&alias.target_id).is_some();
+        let native_id = if target_is_pal {
+            self.store
+                .pal(&alias.target_id)
+                .and_then(|pal| pal.native_row_id.clone())
+                .unwrap_or_default()
+        } else {
+            self.item_native(&alias.target_id).to_string()
+        };
         let locale = if alias.locale == "zh_hans" {
             LocalBuildLocale::SimplifiedChinese
         } else {
             LocalBuildLocale::English
         };
-        let local_value = self
-            .localization
-            .item_name(native_id.as_str(), locale)
-            .ok()
-            .flatten();
+        let localization_table = if target_is_pal {
+            "DT_PalNameText_Common"
+        } else {
+            "DT_ItemNameText_Common"
+        };
+        let local_value = if target_is_pal {
+            self.localization
+                .pal_name(native_id.as_str(), locale)
+                .ok()
+                .flatten()
+        } else {
+            self.localization
+                .item_name(native_id.as_str(), locale)
+                .ok()
+                .flatten()
+        };
         match local_value {
             Some(value) if value == alias.alias => self.push(
                 &alias.id,
                 "alias",
                 &alias.alias,
-                "DT_ItemNameText_Common",
+                localization_table,
                 native_id.as_str(),
                 &value,
                 "target native_row_id plus localization key",
@@ -722,7 +741,7 @@ impl Auditor<'_> {
                 &alias.id,
                 "alias",
                 &alias.alias,
-                "DT_ItemNameText_Common",
+                localization_table,
                 native_id.as_str(),
                 &value,
                 "target native_row_id plus localization key",
@@ -734,7 +753,7 @@ impl Auditor<'_> {
                 &alias.id,
                 "alias",
                 &alias.alias,
-                "DT_ItemNameText_Common",
+                localization_table,
                 native_id.as_str(),
                 "",
                 "target native_row_id plus localization key",

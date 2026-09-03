@@ -207,8 +207,35 @@ impl GuideEngine {
         } else {
             AnswerStatus::Ambiguous
         };
-        self.context()
-            .answer(status, Some(lookup), vec![&pal.provenance], conflicts)
+        let mut answer =
+            self.context()
+                .answer(status, Some(lookup), vec![&pal.provenance], conflicts);
+        if let Some(evidence) = pal.local_evidence.as_ref() {
+            let mut unknown_fields = BTreeSet::new();
+            for field in &evidence.unresolved_fields {
+                match field.as_str() {
+                    "stats_scale_semantics" => {
+                        unknown_fields.insert("stats are unknown");
+                    }
+                    "work_suitability_semantics" => {
+                        unknown_fields.insert("work suitability is unknown");
+                    }
+                    "drops" | "drop_probability_representation" => {
+                        unknown_fields.insert("drops are unknown");
+                    }
+                    "habitat_ids" => {
+                        unknown_fields.insert("habitats are unknown");
+                    }
+                    _ => {}
+                }
+            }
+            for field in unknown_fields {
+                answer
+                    .uncertainty
+                    .push(format!("{field} for this local-build Pal record"));
+            }
+        }
+        answer
     }
 
     pub fn lookup_technology(&self, query: &str) -> crate::GuideAnswer<TechnologyLookup> {

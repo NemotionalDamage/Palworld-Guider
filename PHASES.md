@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, and first 357-item clear-field promotion are complete; broader item enrichment and other record-class promotions remain future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, and first 298-Pal clear identity/localization promotion are complete; broader item and Pal enrichment and other record-class promotions remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -113,9 +113,19 @@ Remaining:
 
 None for the accepted clear-field Item batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Remaining Item coverage is limited to descriptions with unresolved inline markup, missing descriptions, acquisition enrichment, rarity semantics, and any future changed-build review.
 
+### Pal Batch Promotion
+
+Completed:
+
+- Promoted 298 clear local-build Pals into `data/reviewed/pals.jsonl`: bilingual names, native row identity, local evidence, and explicit stats/work-suitability/drops/habitats uncertainty.
+- Added 298 matching Simplified Chinese aliases into `data/reviewed/aliases.jsonl`; canonical Pal coverage is 299 including the existing Lamball record.
+- Excluded placeholder-name rows, unresolved placeholder localizations, and the SheepBall native row already represented by Lamball.
+- Propagated local-evidence uncertainty into Pal lookup answers and corrected alias auditing to use the Pal localization table for Pal targets.
+- Refreshed the local-build audit to 1,348 canonical records and 2,486 field facts with zero unclassified, missing-localization, schema, provenance, or ambiguity failures. Report SHA-256 is `42dfeeb8d801bf1b98eee47ddea8275bb893bf68a4a843bc08dc58001aa67529`.
+
 Remaining:
 
-None. The reopened G1 scope passed the full formatting, Clippy, test, and whitespace gates. Broader reviewed batch expansion is future knowledge maintenance, not unfinished G1 intake work.
+None for the accepted clear-field Pal batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Pal stats, work suitability, drops, and habitats remain explicit unknowns until their semantics are reviewed.
 
 ### Blocker
 

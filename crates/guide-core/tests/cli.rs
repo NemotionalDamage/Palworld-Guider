@@ -50,6 +50,24 @@ fn cli_resolves_new_local_build_items_through_chinese_names() {
 }
 
 #[test]
+fn cli_resolves_new_local_build_pals_through_chinese_names() {
+    let (answer, code) = run(&["--data", "../../data/reviewed", "lookup", "pal", "美露帕"]);
+
+    assert_eq!(code, 0);
+    assert_eq!(answer["status"], "ok");
+    assert_eq!(answer["data"]["id"], "PAL_ALPACA");
+    assert_eq!(answer["data"]["names"]["zh_hans"], "美露帕");
+    assert!(answer["uncertainty"]
+        .as_array()
+        .expect("uncertainty is an array")
+        .iter()
+        .any(|message| message
+            .as_str()
+            .expect("message is text")
+            .contains("work suitability is unknown")));
+}
+
+#[test]
 fn cli_calculates_materials_and_shortage_offline() {
     let (answer, code) = run(&[
         "--data",

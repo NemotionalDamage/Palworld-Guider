@@ -176,3 +176,20 @@ Final item-batch verification passed:
 - `git diff --check`
 
 The full workspace test suite passed after the classified-file loader, canonical item/alias batch, Chinese lookup regression, refreshed backfill audit, and whitespace-equivalence correction. No required command was skipped.
+
+## First Reviewed Pal Batch
+
+The project owner approved promoting the clear identity and localization subset of the 309 local-build Pal candidates. The batch required a native Pal row, a non-placeholder English name, and a resolved Simplified Chinese name. It excluded six `en_text`/`zh_Hans_Text` placeholder rows, `SheepBall` because it duplicates the native identity already represented by Lamball, and five additional rows with unresolved Chinese placeholder localization (including `Unidentified Pal` English values).
+
+`data/reviewed/pals.jsonl` now contains 298 promoted Pal records with bilingual names, native row IDs, local evidence, and explicit uncertainty blockers for stats, work suitability, drops, and habitats. `data/reviewed/aliases.jsonl` contains their 298 matching Simplified Chinese aliases. Stats remain null and work suitability, drops, and habitats remain empty rather than promoting unresolved DataTable semantics. The canonical dataset now contains 299 Pals including the existing Lamball record.
+
+`lookup_pal` now converts local-evidence blockers into answer-level uncertainty, so a query such as `美露帕` resolves deterministically to `PAL_ALPACA` while explicitly reporting that stats, work suitability, drops, and habitats are unknown. The canonical audit was also corrected to resolve Pal aliases through `DT_PalNameText_Common` instead of treating every alias as an Item alias.
+
+The refreshed audit covers 1,348 canonical records and 2,486 field facts: 1,788 exact, 286 partial, 6 conflicting, 37 not represented locally, and 369 unresolved mappings. Missing localization, ambiguous mappings, schema failures, provenance failures, and unclassified facts are all zero. Mapping success is 98.9541%. The report SHA-256 is `42dfeeb8d801bf1b98eee47ddea8275bb893bf68a4a843bc08dc58001aa67529`; raw exports and generated reports remain uncommitted.
+
+Final Pal-batch verification passed:
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo test`
+- `git -c core.autocrlf=false diff --check`

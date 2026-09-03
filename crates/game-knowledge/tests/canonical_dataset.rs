@@ -164,3 +164,61 @@ fn loads_first_reviewed_local_build_item_batch() {
         }
     }
 }
+
+#[test]
+fn loads_first_reviewed_local_build_pal_batch() {
+    let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
+        .expect("canonical reviewed dataset must be valid");
+
+    assert_eq!(store.pals().count(), 299);
+    let melpaca = store
+        .pal("PAL_ALPACA")
+        .expect("first clear local-build Pal exists");
+    assert_eq!(melpaca.names.en, "Melpaca");
+    assert_eq!(melpaca.names.zh_hans.as_deref(), Some("美露帕"));
+    assert!(melpaca.stats.is_none());
+    assert!(melpaca.work_suitability.is_empty());
+    assert!(melpaca.drops.is_empty());
+    assert!(melpaca.habitat_ids.is_empty());
+    assert_eq!(melpaca.native_row_id.as_deref(), Some("Alpaca"));
+    let evidence = melpaca
+        .local_evidence
+        .as_ref()
+        .expect("promoted local-build Pal carries evidence metadata");
+    for blocker in [
+        "stats_scale_semantics",
+        "work_suitability_semantics",
+        "drop_probability_representation",
+        "habitat_ids",
+    ] {
+        assert!(evidence
+            .unresolved_fields
+            .iter()
+            .any(|field| field == blocker));
+    }
+    assert_eq!(melpaca.provenance.source_id, LOCAL_BUILD_SOURCE_ID);
+    assert_eq!(melpaca.provenance.review_status, ReviewStatus::Reviewed);
+
+    for pal in store.pals() {
+        if pal.provenance.source_id != LOCAL_BUILD_SOURCE_ID {
+            continue;
+        }
+        assert!(!pal.names.en.trim().is_empty());
+        assert!(pal
+            .names
+            .zh_hans
+            .as_deref()
+            .is_some_and(|name| !name.trim().is_empty()));
+        assert!(!pal.names.en.eq_ignore_ascii_case("en_text"));
+        assert_ne!(pal.names.en, "Unidentified Pal");
+        assert_ne!(pal.names.zh_hans.as_deref(), Some("zh_Hans_Text"));
+        assert!(pal.stats.is_none());
+        assert!(pal.work_suitability.is_empty());
+        assert!(pal.drops.is_empty());
+        assert!(pal.habitat_ids.is_empty());
+        assert!(pal.local_evidence.as_ref().is_some_and(|evidence| evidence
+            .unresolved_fields
+            .iter()
+            .any(|field| field == "work_suitability_semantics")));
+    }
+}

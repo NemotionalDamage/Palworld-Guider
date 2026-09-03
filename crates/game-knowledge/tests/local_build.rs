@@ -289,8 +289,16 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
 
     let report = audit_canonical_backfill(&tables, &localization, &store);
 
-    assert_eq!(report.summary.total_records, 752);
+    assert_eq!(report.summary.total_records, 1348);
+    assert_eq!(report.summary.total_audited_facts, 2486);
     assert_eq!(report.summary.unclassified_facts, 0);
+    assert_eq!(report.summary.missing_localization, 0);
+    assert!(report.facts.iter().any(|fact| {
+        fact.canonical_record_id == "ALIAS_PAL_ALPACA_ZH_HANS"
+            && fact.canonical_field == "alias"
+            && fact.classification == "corroborated_exact"
+            && fact.current_value.contains("美露帕")
+    }));
     assert!(report.facts.len() >= 90);
     let whitespace_description_conflicts = report
         .facts
