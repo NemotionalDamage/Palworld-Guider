@@ -194,6 +194,12 @@ Final Pal-batch verification passed:
 - `cargo test`
 - `git -c core.autocrlf=false diff --check`
 
+## Unreleased Pal Candidate Closeout
+
+The ten remaining local-build Pal candidates were reviewed on 2026-09-03. Their exported name texts are placeholders: five rows carry `en_text` English placeholders (`BeardedDragon`, `DarkMutant`, `GrassDragon`, `PinkKangaroo`, `WaterLizard`), three rows carry `Unidentified Pal` English values (`CandleWitch`, `StrawHatCat`, `VolcanicTurtle`), and all ten rows carry `zh_Hans_Text` Simplified Chinese placeholders. Two rows have real English names (`BlackFurDragon` = Dragostrophe, `ElecLion` = Boltmane) but still carry Chinese placeholders.
+
+The project owner confirmed on 2026-09-03 that all ten rows are unreleased Pals that do not exist in the current game build, so none were promoted and no canonical record, alias, or conflict was added. The rows are excluded from canonical intake rather than recorded with placeholder names. If a later game build ships real names or these Pals, the rows can be re-reviewed against that build's exports. Canonical Pal coverage remains 299 and no further Pal candidate rows remain open.
+
 ## Recipe, Alias, And Progression Triage
 
 The project owner requested promoting only field-complete Recipe, Alias, and Progression Relationship records. The candidate audit found:

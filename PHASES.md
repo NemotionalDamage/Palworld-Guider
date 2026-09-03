@@ -4,7 +4,7 @@ Last updated: 2026-09-03, Asia/Shanghai.
 
 ## Current Status
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, and a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and broader enrichment and semantic review remain future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and Pal candidate intake closed with ten unreleased placeholder rows excluded after project-owner confirmation. Broader enrichment and semantic review remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -126,6 +126,10 @@ Completed:
 Remaining:
 
 None for the accepted clear-field Pal batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Pal stats, work suitability, drops, and habitats remain explicit unknowns until their semantics are reviewed.
+### Unreleased Pal Candidate Closeout
+
+The project owner confirmed the ten remaining local-build Pal rows (placeholder `en_text`/`Unidentified Pal` names with `zh_Hans_Text` placeholders, including Dragostrophe and Boltmane which have real English names only) are unreleased Pals absent from the current game build. None were promoted and no canonical record, alias, or conflict was added; canonical Pal coverage stays 299. Re-review these rows only after a later build ships real names or localization.
+
 
 ### Recipe, Alias, And Progression Batch Triage
 
