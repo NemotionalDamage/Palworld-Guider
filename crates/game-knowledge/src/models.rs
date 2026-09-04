@@ -294,6 +294,15 @@ pub struct TypeEffectivenessRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkKindDescriptionRecord {
+    pub id: String,
+    pub work_kind: WorkKind,
+    pub names: LocaleNames,
+    pub description: String,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "record_type", rename_all = "snake_case")]
 pub enum KnowledgeRecord {
     Source(SourceRecord),
@@ -307,4 +316,5 @@ pub enum KnowledgeRecord {
     ProgressionRelationship(ProgressionRelationshipRecord),
     Conflict(ConflictRecord),
     TypeEffectiveness(TypeEffectivenessRecord),
+    WorkKindDescription(WorkKindDescriptionRecord),
 }

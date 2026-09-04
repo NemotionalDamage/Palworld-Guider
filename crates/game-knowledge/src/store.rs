@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::models::{Confidence, KnowledgeRecord, ReviewStatus, SourceRecord};
 use crate::ValidationError;
 
-const FACT_FILE_NAMES: [&str; 11] = [
+const FACT_FILE_NAMES: [&str; 12] = [
     "facts.jsonl",
     "items.jsonl",
     "pals.jsonl",
@@ -17,6 +17,7 @@ const FACT_FILE_NAMES: [&str; 11] = [
     "progression_relationships.jsonl",
     "conflicts.jsonl",
     "type_effectiveness.jsonl",
+    "work_kind_descriptions.jsonl",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -32,6 +33,7 @@ pub struct KnowledgeStore {
     progression_relationships: BTreeMap<String, crate::models::ProgressionRelationshipRecord>,
     conflicts: BTreeMap<String, crate::models::ConflictRecord>,
     type_effectiveness: BTreeMap<String, crate::models::TypeEffectivenessRecord>,
+    work_kind_descriptions: BTreeMap<String, crate::models::WorkKindDescriptionRecord>,
 }
 
 impl KnowledgeStore {
@@ -381,6 +383,33 @@ impl KnowledgeStore {
                         &mut errors,
                     );
                 }
+                KnowledgeRecord::WorkKindDescription(record) => {
+                    validate_id(
+                        &record.id,
+                        "work_kind_description.id",
+                        &record.id,
+                        &mut errors,
+                    );
+                    if let Some(error) = validate_locale_names(&record.id, &record.names) {
+                        errors.push(error);
+                    }
+                    require_nonempty(
+                        Some(record.id.clone()),
+                        "description",
+                        &record.description,
+                        &mut errors,
+                    );
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.work_kind_descriptions.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
             }
         }
 
@@ -475,6 +504,12 @@ impl KnowledgeStore {
         &self,
     ) -> impl Iterator<Item = &crate::models::TypeEffectivenessRecord> {
         self.type_effectiveness.values()
+    }
+
+    pub fn work_kind_descriptions(
+        &self,
+    ) -> impl Iterator<Item = &crate::models::WorkKindDescriptionRecord> {
+        self.work_kind_descriptions.values()
     }
 
     pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {

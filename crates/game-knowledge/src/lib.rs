@@ -22,6 +22,7 @@ pub use models::{
     ConflictResolution, DropSource, ElementType, HabitatRecord, ItemRecord, KnowledgeRecord,
     LocaleNames, PalRecord, PalStats, ProgressionRelationKind, ProgressionRelationshipRecord,
     Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
-    TechnologyRecord, TypeEffectivenessRecord, WorkKind, WorkSuitability,
+    TechnologyRecord, TypeEffectivenessRecord, WorkKind, WorkKindDescriptionRecord,
+    WorkSuitability,
 };
 pub use store::KnowledgeStore;
