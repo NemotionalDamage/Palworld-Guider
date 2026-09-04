@@ -1,8 +1,12 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-04, Asia/Shanghai.
+Last updated: 2026-09-04, Asia/Shanghai (G6 complete).
 
 ## Current Status
+
+All phases G0–G6 are complete. Release Stage 1 (public static-information agent) and Release Stage 2 (single-user dynamic-state guide) are complete. Release Stage 3 (private multi-player guide) is deferred until a separate specification is written.
+
+Phase G6 added version compatibility checks, knowledge audit and batch validation CLI, answer regression suites covering lookup, calculation, retrieval, grounding, and version-warning behavior, log rotation with secret redaction for the chat debug log, and comprehensive installation, configuration, troubleshooting, data-updates, deployment, and operations documentation. The workspace has 327 tests across 13 crates.
 
 Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and Pal candidate intake closed with ten unreleased placeholder rows excluded after project-owner confirmation. Broader enrichment and semantic review remain future knowledge maintenance.
 
@@ -32,14 +36,14 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Complete | Add state-aware advice and progression planning |
 | G5 | Complete | Build Web and read-only in-game interfaces |
-| G6 | Not started | Harden versioning, knowledge maintenance, and operations |
+| G6 | Complete | Harden versioning, knowledge maintenance, and operations |
 
 ## Release Stage Summary
 
 | Stage | Phases | Status | Purpose |
 |---|---|---|---|
 | Stage 1: Public Static-Information Agent | G0–G3 | Complete | Answer public game-knowledge and calculation questions without a running game |
-| Stage 2: Single-User Dynamic-State Guide | G4–G6 | In progress; G4 complete, G5 next | Add consented player and world snapshots for one configured user |
+| Stage 2: Single-User Dynamic-State Guide | G4–G6 | Complete | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
 
 ## Phase G0 Progress
@@ -266,8 +270,35 @@ The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline 
 
 None. Knowledge coverage gaps are a G6 data-maintenance backlog, not a G5 interface-safety blocker.
 
+## Phase G6 Progress
+
+Completed:
+
+- Added the `guide-maintenance` crate with `VersionReport`, `VersionDimension`, `KnowledgeAudit`, `SourceSummary`, `ConflictSummary`, `StaleRecord`, and `BatchValidation` types.
+- Implemented version compatibility checks across game, knowledge, index, and embedding dimensions with mismatch, mixed-version, and unknown-version warnings.
+- Implemented knowledge audit functions: `audit_sources` (all registered sources with fact counts), `audit_conflicts` (all conflicts with resolution status), `audit_stale` (records whose game version does not match), and `validate_batch` (JSONL validation without persisting).
+- Added the `guide-maintenance` CLI with commands: `version-check`, `audit-sources`, `audit-conflicts`, `audit-stale`, `validate-batch`.
+- Added the `guide-regression` crate with 42 end-to-end regression tests covering lookup accuracy, calculation correctness, retrieval hit rate, hallucination rate (grounding gate), and version-warning behavior.
+- Added log rotation with secret redaction to `guide-server`: 10 MB file threshold, 5 rotated files, redaction of Bearer tokens, API keys, and gateway tokens on rotation.
+- Added documentation: `docs/installation.md`, `docs/configuration.md`, `docs/troubleshooting.md`, `docs/data-updates.md`, `docs/deployment.md`, `docs/operations.md`.
+- Added `sources()` iterator to `KnowledgeStore` for public source auditing.
+
+Remaining:
+
+None.
+
+### Verification
+
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` with 327 tests, and `git diff --check` all passed. Detailed evidence remains in `docs/phase-records/phase-g6.md`.
+
+### Blockers
+
+None.
+
 ## Phase Boundaries
 
+- Release Stage 1 (G0–G3) and Release Stage 2 (G4–G6) are complete.
+- Release Stage 3 (private multi-player guide) is deferred until a separate specification is written.
 - Current scope is the explicit, read-only single-user state-aware guide: imported user state, deterministic planning, redacted model summaries, and bounded LLM synthesis.
 - Game integration, adapter work, save parsing, server APIs, and all runtime game I/O remain deferred to the defined later phases.
 - Detailed game coverage remains intentionally incomplete until later reviewed intakes.
