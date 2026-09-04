@@ -187,3 +187,25 @@ Replay after the fix: send `!guide ping` (functional), then send a plain non-pre
 ### Remaining
 
 - Restart/fail-closed recovery, replacement-session, and clean-exit checks for the live single-player target; a resilience improvement (containing per-event panics in the adapter service loop) is recommended but not required for the current gate.
+
+## Final Live Read-Only Validation (2026-09-04)
+
+### Target And Safety State
+
+- The project owner explicitly approved launching Palworld for the remaining G5 gate.
+- Pre-live checks confirmed Palworld build `24575825`, UE4SS `3.0.1 Beta #0` SHA256 `8ac18fbffc1ef96b0662d4a2d537b3f224c26d65caaba7989a9404c566102b26`, the approved save backup, the hash-verified deployed package, no running Palworld/guide-server process, and no listener already bound to ports 8070 or 8071.
+- The guide server and adapter gateway bound only to `127.0.0.1`. Provider configuration remained environment-only and no credential was printed or committed. The final connectivity gate used ping, which bypasses the provider.
+- After validation, the guide server was stopped and `scripts/Uninstall-G5Ue4ss.ps1` removed exactly `Mods/PalworldGuider` and its enabled entry. The older Pal mods remain disabled.
+
+### Gate Results
+
+- Initial live connection: hello, four-tool capability manifest, and one player-visible `!guide ping` reply were delivered.
+- Plain-chat stability: several non-prefixed broadcasts were observed safely after the resident-hook fix. The player manually exited that session rather than experiencing a crash; no new crash directory was created.
+- Game restart/replacement: after Palworld restarted, the gateway accepted a replacement session and delivered another player-visible ping.
+- Guide-server restart: with Palworld still running, the server restarted, both loopback listeners returned, the adapter reconnected, and another player-visible ping was delivered.
+- Fail-closed/outage recovery: with the server stopped, the player sent `!guide ping`, received no reply, and Palworld remained running. After the server restarted, the adapter reconnected and the player received a visible ping.
+- Final clean exit: the player manually exited Palworld. The final chat evidence contained four ping records, four successful deliveries, zero delivery errors, and no new crash directory created during the run.
+
+### Durable Result
+
+G5 is complete. The validated adapter is not installed by default; reinstall requires the recorded build/package/hash checks and explicit project-owner approval. Knowledge-coverage gaps remain future G6 intake work and do not weaken the G5 read-only interface-safety result.

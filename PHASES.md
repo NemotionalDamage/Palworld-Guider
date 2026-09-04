@@ -1,6 +1,6 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-03, Asia/Shanghai.
+Last updated: 2026-09-04, Asia/Shanghai.
 
 ## Current Status
 
@@ -8,9 +8,9 @@ Phase G0 is complete. G1 is complete at its original boundary and reopened local
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
-Phase G5 is in progress. The loopback-only Axum Web API, bounded sessions, and browser UI are complete. The approved UE4SS read-only in-game chat path is implemented and has passed its full offline acceptance gate (gateway, runtime tool composition, adapter bridge, observation grounding, server adapter mode, Lua/native transport, and safety scripts). Only the approved live single-player validation remains, and it requires explicit project-owner approval to launch Palworld.
+Phase G5 is complete. The loopback-only Web interface and approved UE4SS read-only in-game chat path passed their offline and live gates for the recorded local single-player target. Live validation covered visible replies, non-prefixed chat stability, game-restart replacement, guide-server restart and outage recovery, and a manual clean exit with no new crash directory. The validated adapter was uninstalled after the run.
 
-The approved G5 grounding fix has passed its offline gate: model drafts use Rust-assigned evidence slots, Rust validates and renders numeric output, and invalid drafts receive deterministic fallback answers. Its live replay remains part of the G5 live validation blocker.
+The approved G5 grounding fix passed its offline gate: model drafts use Rust-assigned evidence slots, Rust validates and renders numeric output, and invalid drafts receive deterministic fallback answers.
 
 Phase G2 is complete after a fifth audit correction. Byproduct item provenance and conflicts now propagate into material calculations, item lookup exposes byproduct acquisition relationships, shortage and craftable calculations offset requirements with same-item and cross-item byproducts in an ingredient-order-independent way, credit recipe byproducts only after the craft completes, and apply a first-batch bootstrap seed when a byproduct is also an ingredient of the same recipe. Related-record conflicts propagate through Pal, technology, and recipe lookups. The deterministic offline guide core passes its acceptance gates.
 
@@ -31,7 +31,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G2 | Complete | Build the deterministic offline guide CLI |
 | G3 | Complete | Add hybrid retrieval and grounded LLM answers |
 | G4 | Complete | Add state-aware advice and progression planning |
-| G5 | In progress | Build Web and read-only in-game interfaces |
+| G5 | Complete | Build Web and read-only in-game interfaces |
 | G6 | Not started | Harden versioning, knowledge maintenance, and operations |
 
 ## Release Stage Summary
@@ -231,9 +231,7 @@ None.
 
 ## Phase G5 Progress
 
-In progress:
-
-- Complete the approved live read-only validation after explicit project-owner approval to launch Palworld.
+Complete.
 
 Completed:
 
@@ -256,18 +254,17 @@ Completed:
 - Verified the entity-evidence correction in live single-player chat; both Lamball replays now render normal drafted answers.
 - Fixed a live UTF-8 panic in entity-phrase scanning when drafts or aliases contain multi-byte characters, with CJK boundary regression tests.
 - Cleaned player-facing fallback text (no internal entity lists, `{v1}`, or draft-error strings), added a small-talk scope rule to the agent prompt, and reduced the adapter tool budget to 6; live replay confirmed zero internal-text leaks and clean grounded unknowns for uncovered fields.
-
-Remaining:
-
-- Finish the remaining live read-only gates for world `3C2BA10146F65256FD1B889FBF5F854F`: restart/fail-closed recovery, replacement-session behavior, and clean-exit checks. Factual and chitchat replays are delivered; habitat, drop, work-suitability, stat, and riding-field coverage remains a data backlog for a later intake batch.
+- Completed the approved live read-only gate for world `3C2BA10146F65256FD1B889FBF5F854F`: `!guide ping` was visible across initial connection, game restart/replacement, guide-server restart, and outage recovery; four replies were delivered with no delivery error.
+- Verified that a plain non-prefixed chat message does not crash the fixed adapter and that Palworld can exit manually with no new crash directory.
+- Stopped the guide server and uninstalled `PalworldGuider` after validation; the older Pal mods remain disabled.
 
 ### Verification
 
-The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix and live-validation corrections also passed fresh formatting, Clippy, full-test, and whitespace gates; the 2026-09-03 live chat corrections passed fresh workspace gates (full `cargo test` exit 0). Detailed evidence is in `docs/phase-records/phase-g5.md`.
+The Web milestone passed full-workspace gates with 166 tests; the UE4SS offline milestone passed fresh gates with 250 tests, a verified native build, and a loopback rehearsal. The grounding fix, live-validation corrections, and final live completion passed fresh formatting, Clippy, full-test, and whitespace gates where applicable. Detailed evidence is in `docs/phase-records/phase-g5.md`.
 
 ### Blockers
 
-- Live validation remains. It requires explicit project-owner approval to launch Palworld: back up world `3C2BA10146F65256FD1B889FBF5F854F` to `.local/backups/g5/3C2BA10146F65256FD1B889FBF5F854F/` (30-day retention), install the hash-verified package, then validate ping, the Wood, Food, and Lamball-spawn factual replays, position, and active-Otomo questions plus restart/fail-closed and clean-exit checks.
+None. Knowledge coverage gaps are a G6 data-maintenance backlog, not a G5 interface-safety blocker.
 
 ## Phase Boundaries
 
