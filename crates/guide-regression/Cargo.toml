@@ -1,0 +1,13 @@
+[package]
+name = "guide-regression"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+game-knowledge = { path = "../game-knowledge" }
+guide-core = { path = "../guide-core" }
+guide-agent = { path = "../guide-agent" }
+guide-tools = { path = "../guide-tools" }
+knowledge-index = { path = "../knowledge-index" }
+provider = { path = "../provider" }
+serde_json = "1.0"
