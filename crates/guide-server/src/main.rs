@@ -187,6 +187,12 @@ async fn run(options: Options) -> Result<(), String> {
                 },
             );
             if let Some(path) = chat_debug_log_from_environment() {
+                if let Err(error) = guide_server::rotate_log_if_needed(
+                    std::path::Path::new(&path),
+                    &guide_server::LogRotationConfig::default(),
+                ) {
+                    eprintln!("log rotation warning: {error}");
+                }
                 println!("chat-debug-log={path}");
                 bridge = bridge.with_debug_log(path);
             }

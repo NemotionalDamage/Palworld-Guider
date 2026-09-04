@@ -3,6 +3,7 @@
 mod adapter_service;
 mod api;
 mod error;
+mod log_rotation;
 mod session;
 mod ui;
 
@@ -12,6 +13,7 @@ pub use adapter_service::{
 };
 pub use api::{GuideServer, GuideServerState};
 pub use error::{ApiErrorCode, ApiErrorResponse};
+pub use log_rotation::{rotate_log_if_needed, LogRotationConfig};
 
 pub use session::{
     ExchangeRecord, ServerLimits, SessionError, SessionRecord, SessionStore, SnapshotMetadata,
