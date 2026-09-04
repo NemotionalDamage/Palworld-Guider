@@ -1,12 +1,14 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-04, Asia/Shanghai (G6 complete).
+Last updated: 2026-09-04, Asia/Shanghai (G6 complete; Pal element-type enrichment in progress).
 
 ## Current Status
 
 All phases G0–G6 are complete. Release Stage 1 (public static-information agent) and Release Stage 2 (single-user dynamic-state guide) are complete. Release Stage 3 (private multi-player guide) is deferred until a separate specification is written.
 
-Phase G6 added version compatibility checks, knowledge audit and batch validation CLI, answer regression suites covering lookup, calculation, retrieval, grounding, and version-warning behavior, log rotation with secret redaction for the chat debug log, and comprehensive installation, configuration, troubleshooting, data-updates, deployment, and operations documentation. The workspace has 327 tests across 13 crates.
+Post-G6 knowledge enrichment: Pal element types (ElementType1/ElementType2) were promoted for all 299 canonical Pals from the local build `DT_PalMonsterParameter`. A new `ElementType` enum, `TypeEffectivenessRecord` schema, and `type_effectiveness.jsonl` data file were added. The type chart (9 super-effective relationships, 2x/0.5x/1x multipliers, dual-type multiplication) was registered from project-owner provision as source `SRC-TYPE-CHART-20260904`. The local-build intake now extracts element types for candidate Pal records. The workspace has 331 tests across 13 crates.
+
+Phase G6 added version compatibility checks, knowledge audit and batch validation CLI, answer regression suites covering lookup, calculation, retrieval, grounding, and version-warning behavior, log rotation with secret redaction for the chat debug log, and comprehensive installation, configuration, troubleshooting, data-updates, deployment, and operations documentation.
 
 Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and Pal candidate intake closed with ten unreleased placeholder rows excluded after project-owner confirmation. Broader enrichment and semantic review remain future knowledge maintenance.
 

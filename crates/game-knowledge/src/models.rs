@@ -154,6 +154,38 @@ pub struct WorkSuitability {
     pub level: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ElementType {
+    Normal,
+    Fire,
+    Water,
+    Leaf,
+    Earth,
+    Ice,
+    Electricity,
+    Dark,
+    Dragon,
+}
+
+impl ElementType {
+    pub fn from_native(value: &str) -> Option<Self> {
+        let stripped = value.strip_prefix("EPalElementType::").unwrap_or(value);
+        match stripped {
+            "Normal" => Some(Self::Normal),
+            "Fire" => Some(Self::Fire),
+            "Water" => Some(Self::Water),
+            "Leaf" => Some(Self::Leaf),
+            "Earth" => Some(Self::Earth),
+            "Ice" => Some(Self::Ice),
+            "Electricity" => Some(Self::Electricity),
+            "Dark" => Some(Self::Dark),
+            "Dragon" => Some(Self::Dragon),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PalStats {
     pub hp: u32,
@@ -177,6 +209,10 @@ pub struct PalRecord {
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element_type1: Option<ElementType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element_type2: Option<ElementType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_row_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -248,6 +284,16 @@ pub struct ConflictRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TypeEffectivenessRecord {
+    pub id: String,
+    pub attacking_type: ElementType,
+    pub defending_type: ElementType,
+    pub multiplier: f32,
+    pub notes: Option<String>,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "record_type", rename_all = "snake_case")]
 pub enum KnowledgeRecord {
     Source(SourceRecord),
@@ -260,4 +306,5 @@ pub enum KnowledgeRecord {
     Alias(AliasRecord),
     ProgressionRelationship(ProgressionRelationshipRecord),
     Conflict(ConflictRecord),
+    TypeEffectiveness(TypeEffectivenessRecord),
 }

@@ -19,9 +19,9 @@ pub use local_build::{
 };
 pub use models::{
     AcquisitionLead, AliasRecord, BreedingRuleRecord, Confidence, ConflictRecord,
-    ConflictResolution, DropSource, HabitatRecord, ItemRecord, KnowledgeRecord, LocaleNames,
-    PalRecord, PalStats, ProgressionRelationKind, ProgressionRelationshipRecord, Provenance,
-    RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord, TechnologyRecord,
-    WorkKind, WorkSuitability,
+    ConflictResolution, DropSource, ElementType, HabitatRecord, ItemRecord, KnowledgeRecord,
+    LocaleNames, PalRecord, PalStats, ProgressionRelationKind, ProgressionRelationshipRecord,
+    Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
+    TechnologyRecord, TypeEffectivenessRecord, WorkKind, WorkSuitability,
 };
 pub use store::KnowledgeStore;

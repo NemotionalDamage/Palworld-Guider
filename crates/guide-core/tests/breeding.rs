@@ -43,6 +43,8 @@ fn pal(id: &str, name: &str) -> KnowledgeRecord {
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],
+        element_type1: None,
+        element_type2: None,
         native_row_id: None,
         local_evidence: None,
         provenance: provenance(),

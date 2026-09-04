@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::{
-    AliasRecord, Confidence, ItemRecord, KnowledgeRecord, LocalEvidenceMetadata, LocaleNames,
-    LocalizationStatus, PalRecord, ProgressionRelationKind, ProgressionRelationshipRecord,
-    Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, WorkKind,
-    WorkSuitability,
+    AliasRecord, Confidence, ElementType, ItemRecord, KnowledgeRecord, LocalEvidenceMetadata,
+    LocaleNames, LocalizationStatus, PalRecord, ProgressionRelationKind,
+    ProgressionRelationshipRecord, Provenance, RecipeIngredient, RecipeItem, RecipeRecord,
+    ReviewStatus, WorkKind, WorkSuitability,
 };
 
 const ITEM_FIELDS: &[&str] = &[
@@ -58,6 +58,8 @@ const PAL_FIELDS: &[&str] = &[
     "Defense",
     "Support",
     "CraftSpeed",
+    "ElementType1",
+    "ElementType2",
     "WorkSuitability_EmitFlame",
     "WorkSuitability_Watering",
     "WorkSuitability_Seeding",
@@ -238,6 +240,8 @@ pub struct LocalPalRow {
     pub native_row_id: String,
     pub is_pal: Option<bool>,
     pub stats: Option<LocalPalStats>,
+    pub element_type1: Option<String>,
+    pub element_type2: Option<String>,
     pub work_suitability: BTreeMap<String, i64>,
 }
 
@@ -952,6 +956,8 @@ fn parse_pal(native_row_id: &str, row: &Value) -> Result<LocalPalRow, RowParseEr
         native_row_id: native_row_id.to_string(),
         is_pal,
         stats,
+        element_type1: optional_enum(row, "ElementType1")?,
+        element_type2: optional_enum(row, "ElementType2")?,
         work_suitability,
     })
 }
@@ -1785,6 +1791,14 @@ pub fn generate_candidates(
                 .filter(|work| work.level > 0)
                 .collect::<Vec<_>>();
             let id = stable_candidate_id("PAL", &row.native_row_id, &mut used_ids);
+            let element_type1 = row
+                .element_type1
+                .as_deref()
+                .and_then(ElementType::from_native);
+            let element_type2 = row
+                .element_type2
+                .as_deref()
+                .and_then(ElementType::from_native);
             records.push(KnowledgeRecord::Pal(PalRecord {
                 id: id.clone(),
                 names: LocaleNames {
@@ -1795,6 +1809,8 @@ pub fn generate_candidates(
                 work_suitability,
                 drops: Vec::new(),
                 habitat_ids: Vec::new(),
+                element_type1,
+                element_type2,
                 native_row_id: Some(row.native_row_id.clone()),
                 local_evidence: Some(LocalEvidenceMetadata {
                     source_table: "DT_PalMonsterParameter".to_string(),
@@ -1804,7 +1820,7 @@ pub fn generate_candidates(
                         "drop_probability_representation".to_string(),
                         "oil_extraction_work_kind".to_string(),
                     ],
-                    transformation_notes: "Direct legal Pal, name, and confirmed work-kind extraction; numeric stats and drop rates remain unresolved."
+                    transformation_notes: "Direct legal Pal, name, element type, and confirmed work-kind extraction; numeric stats and drop rates remain unresolved."
                         .to_string(),
                 }),
                 provenance: local_candidate_provenance(),

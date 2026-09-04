@@ -67,6 +67,27 @@ fn loads_core_local_build_tables_and_reports_every_row() {
             .work_suitability("Handcraft"),
         Some(1)
     );
+    assert_eq!(
+        tables
+            .pal("FixturePal00")
+            .expect("Pal exists")
+            .element_type1,
+        Some("EPalElementType::Normal".to_string())
+    );
+    assert_eq!(
+        tables
+            .pal("FixturePal01")
+            .expect("Pal exists")
+            .element_type1,
+        Some("EPalElementType::Fire".to_string())
+    );
+    assert_eq!(
+        tables
+            .pal("FixturePal05")
+            .expect("Pal exists")
+            .element_type2,
+        Some("EPalElementType::Dark".to_string())
+    );
     assert_eq!(tables.drops_for("FixturePal00").len(), 2);
 
     let all_coverage = tables.coverage();
@@ -496,6 +517,22 @@ fn write_core_fixtures(root: &Path) {
         pal.insert("MeleeAttack".into(), json!(70));
         pal.insert("ShotAttack".into(), json!(70));
         pal.insert("Defense".into(), json!(70));
+        pal.insert(
+            "ElementType1".into(),
+            json!(match index % 3 {
+                0 => "EPalElementType::Normal",
+                1 => "EPalElementType::Fire",
+                _ => "EPalElementType::Water",
+            }),
+        );
+        pal.insert(
+            "ElementType2".into(),
+            json!(if index == 5 {
+                "EPalElementType::Dark"
+            } else {
+                "EPalElementType::None"
+            }),
+        );
         for field in [
             "EmitFlame",
             "Watering",

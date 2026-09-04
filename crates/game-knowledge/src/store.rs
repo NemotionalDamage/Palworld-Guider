@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::models::{Confidence, KnowledgeRecord, ReviewStatus, SourceRecord};
 use crate::ValidationError;
 
-const FACT_FILE_NAMES: [&str; 10] = [
+const FACT_FILE_NAMES: [&str; 11] = [
     "facts.jsonl",
     "items.jsonl",
     "pals.jsonl",
@@ -16,6 +16,7 @@ const FACT_FILE_NAMES: [&str; 10] = [
     "aliases.jsonl",
     "progression_relationships.jsonl",
     "conflicts.jsonl",
+    "type_effectiveness.jsonl",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -30,6 +31,7 @@ pub struct KnowledgeStore {
     aliases: BTreeMap<String, crate::models::AliasRecord>,
     progression_relationships: BTreeMap<String, crate::models::ProgressionRelationshipRecord>,
     conflicts: BTreeMap<String, crate::models::ConflictRecord>,
+    type_effectiveness: BTreeMap<String, crate::models::TypeEffectivenessRecord>,
 }
 
 impl KnowledgeStore {
@@ -359,6 +361,26 @@ impl KnowledgeStore {
                         &mut errors,
                     );
                 }
+                KnowledgeRecord::TypeEffectiveness(record) => {
+                    validate_id(&record.id, "type_effectiveness.id", &record.id, &mut errors);
+                    if record.multiplier <= 0.0 || !record.multiplier.is_finite() {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "multiplier",
+                            "multiplier must be a finite positive number",
+                        ));
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.type_effectiveness.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
             }
         }
 
@@ -447,6 +469,12 @@ impl KnowledgeStore {
         &self,
     ) -> impl Iterator<Item = &crate::models::ProgressionRelationshipRecord> {
         self.progression_relationships.values()
+    }
+
+    pub fn type_effectiveness(
+        &self,
+    ) -> impl Iterator<Item = &crate::models::TypeEffectivenessRecord> {
+        self.type_effectiveness.values()
     }
 
     pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {
