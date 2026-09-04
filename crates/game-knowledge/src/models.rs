@@ -302,6 +302,108 @@ pub struct WorkKindDescriptionRecord {
     pub provenance: Provenance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WazaCategory {
+    Shot,
+    Melee,
+}
+
+impl WazaCategory {
+    pub fn from_native(value: &str) -> Option<Self> {
+        let stripped = value.strip_prefix("EPalWazaCategory::").unwrap_or(value);
+        match stripped {
+            "Shot" => Some(Self::Shot),
+            "Melee" => Some(Self::Melee),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WazaStrength {
+    None,
+    Weak,
+    Medium,
+    Strong,
+}
+
+impl WazaStrength {
+    pub fn from_native(value: &str) -> Option<Self> {
+        let stripped = value.strip_prefix("EPalWazaStrength::").unwrap_or(value);
+        match stripped {
+            "None" => Some(Self::None),
+            "Weak" => Some(Self::Weak),
+            "Medium" => Some(Self::Medium),
+            "Strong" => Some(Self::Strong),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdditionalEffectType {
+    None,
+    Burn,
+    Wetness,
+    Electrical,
+    Freeze,
+    Darkness,
+    IvyCling,
+    Muddy,
+    Poison,
+    Stun,
+}
+
+impl AdditionalEffectType {
+    pub fn from_native(value: &str) -> Option<Self> {
+        let stripped = value
+            .strip_prefix("EPalAdditionalEffectType::")
+            .unwrap_or(value);
+        match stripped {
+            "None" => Some(Self::None),
+            "Burn" => Some(Self::Burn),
+            "Wetness" => Some(Self::Wetness),
+            "Electrical" => Some(Self::Electrical),
+            "Freeze" => Some(Self::Freeze),
+            "Darkness" => Some(Self::Darkness),
+            "IvyCling" => Some(Self::IvyCling),
+            "Muddy" => Some(Self::Muddy),
+            "Poison" => Some(Self::Poison),
+            "Stun" => Some(Self::Stun),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WazaRecord {
+    pub id: String,
+    pub native_waza_id: String,
+    pub names: LocaleNames,
+    pub element: Option<ElementType>,
+    pub category: Option<WazaCategory>,
+    pub power: u32,
+    pub cool_time: f32,
+    pub strength: WazaStrength,
+    pub effect_type1: AdditionalEffectType,
+    pub effect_value1: u32,
+    pub effect_type2: AdditionalEffectType,
+    pub effect_value2: u32,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PalWazaUnlock {
+    pub id: String,
+    pub pal_id: String,
+    pub waza_id: String,
+    pub unlock_level: u32,
+    pub provenance: Provenance,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "record_type", rename_all = "snake_case")]
 pub enum KnowledgeRecord {
@@ -317,4 +419,6 @@ pub enum KnowledgeRecord {
     Conflict(ConflictRecord),
     TypeEffectiveness(TypeEffectivenessRecord),
     WorkKindDescription(WorkKindDescriptionRecord),
+    Waza(WazaRecord),
+    PalWazaUnlock(PalWazaUnlock),
 }

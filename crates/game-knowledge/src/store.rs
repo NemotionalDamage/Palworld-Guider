@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::models::{Confidence, KnowledgeRecord, ReviewStatus, SourceRecord};
 use crate::ValidationError;
 
-const FACT_FILE_NAMES: [&str; 12] = [
+const FACT_FILE_NAMES: [&str; 14] = [
     "facts.jsonl",
     "items.jsonl",
     "pals.jsonl",
@@ -18,6 +18,8 @@ const FACT_FILE_NAMES: [&str; 12] = [
     "conflicts.jsonl",
     "type_effectiveness.jsonl",
     "work_kind_descriptions.jsonl",
+    "waza.jsonl",
+    "pal_waza_unlocks.jsonl",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -34,6 +36,8 @@ pub struct KnowledgeStore {
     conflicts: BTreeMap<String, crate::models::ConflictRecord>,
     type_effectiveness: BTreeMap<String, crate::models::TypeEffectivenessRecord>,
     work_kind_descriptions: BTreeMap<String, crate::models::WorkKindDescriptionRecord>,
+    waza: BTreeMap<String, crate::models::WazaRecord>,
+    pal_waza_unlocks: BTreeMap<String, crate::models::PalWazaUnlock>,
 }
 
 impl KnowledgeStore {
@@ -410,6 +414,48 @@ impl KnowledgeStore {
                         &mut errors,
                     );
                 }
+                KnowledgeRecord::Waza(record) => {
+                    validate_id(&record.id, "waza.id", &record.id, &mut errors);
+                    require_nonempty(
+                        Some(record.id.clone()),
+                        "native_waza_id",
+                        &record.native_waza_id,
+                        &mut errors,
+                    );
+                    if let Some(error) = validate_locale_names(&record.id, &record.names) {
+                        errors.push(error);
+                    }
+                    if record.cool_time < 0.0 || !record.cool_time.is_finite() {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "cool_time",
+                            "cool_time must be a finite non-negative number",
+                        ));
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.waza.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
+                KnowledgeRecord::PalWazaUnlock(record) => {
+                    validate_id(&record.id, "pal_waza_unlock.id", &record.id, &mut errors);
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.pal_waza_unlocks.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
             }
         }
 
@@ -510,6 +556,18 @@ impl KnowledgeStore {
         &self,
     ) -> impl Iterator<Item = &crate::models::WorkKindDescriptionRecord> {
         self.work_kind_descriptions.values()
+    }
+
+    pub fn waza(&self) -> impl Iterator<Item = &crate::models::WazaRecord> {
+        self.waza.values()
+    }
+
+    pub fn waza_by_id(&self, id: &str) -> Option<&crate::models::WazaRecord> {
+        self.waza.get(id)
+    }
+
+    pub fn pal_waza_unlocks(&self) -> impl Iterator<Item = &crate::models::PalWazaUnlock> {
+        self.pal_waza_unlocks.values()
     }
 
     pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {
@@ -687,6 +745,23 @@ impl KnowledgeStore {
                     ));
                 }
             }
+        }
+
+        for record in self.pal_waza_unlocks.values() {
+            require_reference(
+                &record.id,
+                "pal_waza_unlock.pal_id",
+                &record.pal_id,
+                self.pals.keys(),
+                errors,
+            );
+            require_reference(
+                &record.id,
+                "pal_waza_unlock.waza_id",
+                &record.waza_id,
+                self.waza.keys(),
+                errors,
+            );
         }
 
         for (record_id, provenance) in self.provenances() {

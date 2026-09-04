@@ -18,11 +18,11 @@ pub use local_build::{
     LocalTechnologyRow, LocalizationIndex, RepresentativeError, TableCoverage,
 };
 pub use models::{
-    AcquisitionLead, AliasRecord, BreedingRuleRecord, Confidence, ConflictRecord,
-    ConflictResolution, DropSource, ElementType, HabitatRecord, ItemRecord, KnowledgeRecord,
-    LocaleNames, PalRecord, PalStats, ProgressionRelationKind, ProgressionRelationshipRecord,
-    Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
-    TechnologyRecord, TypeEffectivenessRecord, WorkKind, WorkKindDescriptionRecord,
-    WorkSuitability,
+    AcquisitionLead, AdditionalEffectType, AliasRecord, BreedingRuleRecord, Confidence,
+    ConflictRecord, ConflictResolution, DropSource, ElementType, HabitatRecord, ItemRecord,
+    KnowledgeRecord, LocaleNames, PalRecord, PalStats, PalWazaUnlock, ProgressionRelationKind,
+    ProgressionRelationshipRecord, Provenance, RecipeIngredient, RecipeItem, RecipeRecord,
+    ReviewStatus, SourceRecord, TechnologyRecord, TypeEffectivenessRecord, WazaCategory,
+    WazaRecord, WazaStrength, WorkKind, WorkKindDescriptionRecord, WorkSuitability,
 };
 pub use store::KnowledgeStore;
