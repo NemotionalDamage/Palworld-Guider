@@ -387,6 +387,10 @@ impl KnowledgeStore {
         self.sources.get(id)
     }
 
+    pub fn sources(&self) -> impl Iterator<Item = &SourceRecord> {
+        self.sources.values()
+    }
+
     pub fn item(&self, id: &str) -> Option<&crate::models::ItemRecord> {
         self.items.get(id)
     }

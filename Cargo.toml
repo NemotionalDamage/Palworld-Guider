@@ -11,5 +11,6 @@ members = [
     "crates/guide-planner",
     "crates/guide-server",
     "crates/guide-adapter",
+    "crates/guide-maintenance",
 ]
 resolver = "2"
