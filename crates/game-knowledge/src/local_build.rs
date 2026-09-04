@@ -1785,7 +1785,7 @@ pub fn generate_candidates(
                 .filter_map(|(native_kind, level)| {
                     work_kind(native_kind).map(|kind| WorkSuitability {
                         kind,
-                        level: (*level).clamp(1, 5) as u8,
+                        level: (*level).clamp(1, 8) as u8,
                     })
                 })
                 .filter(|work| work.level > 0)

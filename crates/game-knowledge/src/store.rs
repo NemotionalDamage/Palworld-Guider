@@ -111,11 +111,11 @@ impl KnowledgeStore {
                         errors.push(error);
                     }
                     for work in &record.work_suitability {
-                        if work.level < 1 || work.level > 5 {
+                        if work.level < 1 || work.level > 8 {
                             errors.push(ValidationError::new(
                                 Some(record.id.clone()),
                                 "work_suitability.level",
-                                "work level must be between 1 and 5",
+                                "work level must be between 1 and 8",
                             ));
                         }
                     }

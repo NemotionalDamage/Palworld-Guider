@@ -349,7 +349,7 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
     assert!(implant_description.contains("select the corresponding passive skill"));
 
     assert_eq!(report.summary.total_records, 3634);
-    assert_eq!(report.summary.total_audited_facts, 8231);
+    assert_eq!(report.summary.total_audited_facts, 8980);
     assert_eq!(report.summary.unclassified_facts, 0);
     assert_eq!(report.summary.missing_localization, 0);
     assert!(report.facts.iter().any(|fact| {
