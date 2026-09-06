@@ -19,10 +19,22 @@ Implemented the M0 map foundation and M1 Pal habitat mapping boundaries from `PA
 | Fast-travel points | 152 |
 | Boss towers | 8 |
 | Joined spawner placements | 8,182 |
-| Pal habitat zones | 8,164 |
-| Canonical Pals with structured habitats | 164 |
+| Pal habitat zones | 67,952 |
+| Canonical Pals with structured habitats | 282 of 299 |
 
-The intake report explicitly excludes 71 unmatched placements and 58 unresolved raw Pal references. No unresolved row was silently converted into a location fact.
+The intake report explicitly excludes 71 unmatched placements and 678 unresolved raw Pal references. No unresolved row was silently converted into a location fact.
+
+## Habitat Completion Pass (2026-09-06)
+
+A follow-up widened the M1 spawner join after the first promote left 135 Pals without `habitat_ids`. The root cause was that `DT_PalWildSpawner` stores one row per Pal slot for the same `SpawnerName`; the original join kept only one row per name, dropping most slot Pals. Fixes:
+
+- Emit every wild-spawner row for a placement name; zone IDs now include the spawner row key so multi-row names stay unique.
+- Added a supplementary pass that resolves unplaced spawners through `DT_BossSpawnerLoactionData` by `CharacterID`, then falls back to biome-area coordinate estimation for named area spawners.
+- Invalid inverted level ranges from the source (for example `LvMin_2=35, LvMax_2=34`) are skipped instead of persisted.
+- `promote-map-intake` now replaces reviewed map files with the generated set and skips empty record families, preventing stale or duplicated canonical state.
+- Habitat backfill also updates legacy Pal records that live in `facts.jsonl` (for example the Lamball record, `PAL_LAMBALL`, whose canonical identity lives there); untouched lines are preserved byte-for-byte.
+- Integration fixtures in `guide-agent`, `guide-planner`, `guide-tools`, and `guide-regression` load only `sources.jsonl` and `facts.jsonl`, so they now share a helper that appends the referenced habitat-zone and map records to keep the conflict-free test store valid.
+- Remaining 17 uncovered Pals are raid bosses, tower or legendary encounters, or breeding-limited variants with no wild field spawner.
 
 ## Implementation
 
@@ -38,6 +50,6 @@ Region boundary geometry was not reviewed, so coordinate-to-region answers remai
 
 ## Verification
 
-- Candidate intake was validated in canonical context before promotion: 17,479 records, valid.
+- Candidate intake `map-foundation-v1.jsonl` (68,237 records: 2 maps, 123 regions, 160 points, 67,952 habitat zones) validates in canonical context before promotion.
 - Canonical `version-check --game-version 1.0.3` passes with no warnings.
-- Full formatting, Clippy, workspace tests, and whitespace checks were run at closeout.
+- Full formatting, Clippy, workspace tests (all green), and whitespace checks were re-run after the 2026-09-06 habitat completion pass.

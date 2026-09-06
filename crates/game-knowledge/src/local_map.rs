@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+﻿use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -15,6 +15,7 @@ const MAP_UI_TABLE: &str = "Pal/Content/Pal/DataTable/WorldMapUIData/DT_WorldMap
 const MAP_AREA_TABLE: &str = "Pal/Content/Pal/DataTable/WorldMapAreaData/DT_WorldMapAreaData.json";
 const PLACEMENT_TABLE: &str = "Pal/Content/Pal/DataTable/Spawner/DT_PalSpawnerPlacement.json";
 const WILD_SPAWNER_TABLE: &str = "Pal/Content/Pal/DataTable/Spawner/DT_PalWildSpawner.json";
+const BOSS_LOCATION_TABLE: &str = "Pal/Content/Pal/DataTable/UI/DT_BossSpawnerLoactionData.json";
 const LEVEL_TABLE: &str = "Pal/Content/Pal/Maps/MainWorld_5/PL_MainWorld5.json";
 const SOURCE_ID: &str = "SRC-LOCAL-BUILD-MAP-24575825-20260906";
 
@@ -342,13 +343,16 @@ fn generate_habitats(
                 .map(|native| (native.to_ascii_lowercase(), pal.id.clone()))
         })
         .collect::<BTreeMap<_, _>>();
-    let spawners_by_name = spawners
-        .values()
-        .filter_map(|row| {
-            let name = row.get("SpawnerName").and_then(Value::as_str)?;
-            Some((name.to_string(), row))
-        })
-        .collect::<BTreeMap<_, _>>();
+    let mut spawners_by_name: BTreeMap<String, Vec<(String, &Value)>> = BTreeMap::new();
+    for (row_key, row) in &spawners {
+        let Some(name) = row.get("SpawnerName").and_then(Value::as_str) else {
+            continue;
+        };
+        spawners_by_name
+            .entry(name.to_string())
+            .or_default()
+            .push((row_key.clone(), row));
+    }
 
     for (placement_id, placement) in placements {
         let Some(spawner_name) = placement
@@ -366,7 +370,7 @@ fn generate_habitats(
             );
             continue;
         };
-        let Some(spawner) = spawners_by_name.get(spawner_name) else {
+        let Some(spawner_rows) = spawners_by_name.get(spawner_name) else {
             report.unmatched_placements += 1;
             outcome(
                 report,
@@ -398,7 +402,162 @@ fn generate_habitats(
             continue;
         };
         report.joined_placements += 1;
+        for (spawner_key, spawner) in spawner_rows {
+            for index in 1..=3 {
+                let Some(raw_pal_id) = spawner.get(format!("Pal_{index}")).and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                if raw_pal_id.is_empty() || raw_pal_id == "None" {
+                    continue;
+                }
+                let (pal_id, variants) = normalize_pal(&raw_pal_id.to_ascii_lowercase(), &pal_ids);
+                let Some(pal_id) = pal_id else {
+                    report.unresolved_pal_references += 1;
+                    outcome(
+                        report,
+                        WILD_SPAWNER_TABLE,
+                        raw_pal_id,
+                        "skip",
+                        "unresolved_pal_reference",
+                    );
+                    continue;
+                };
+                if !variants.is_empty() {
+                    report.resolved_boss_variants += 1;
+                }
+                let level_min = spawner
+                    .get(format!("LvMin_{index}"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default() as u32;
+                let level_max = spawner
+                    .get(format!("LvMax_{index}"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or_default() as u32;
+                if level_min == 0 || level_max < level_min {
+                    continue;
+                }
+                let zone = PalHabitatZoneRecord {
+                    map_id: map_id.clone(),
+                    id: format!("HAB_ZONE_{}_{}_{}", placement_id, spawner_key, index),
+                    native_placement_id: placement_id.clone(),
+                    native_spawner_name: spawner_name.to_string(),
+                    placement_kind: placement_kind(&placement),
+                    location,
+                    radius: placement
+                        .get("StaticRadius")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                    raw_pal_id: raw_pal_id.to_string(),
+                    pal_id,
+                    variant_labels: variants,
+                    level_min: spawner
+                        .get(format!("LvMin_{index}"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default() as u32,
+                    level_max: spawner
+                        .get(format!("LvMax_{index}"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default() as u32,
+                    count_min: spawner
+                        .get(format!("NumMin_{index}"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default() as u32,
+                    count_max: spawner
+                        .get(format!("NumMax_{index}"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default() as u32,
+                    time_of_day: optional_native(spawner.get("OnlyTime")),
+                    weather: optional_native(spawner.get("OnlyWeather")),
+                    allows_randomizer: spawner
+                        .get("bIsAllowRandomizer")
+                        .and_then(Value::as_bool)
+                        .unwrap_or_default(),
+                    respawn_cool_time_seconds: placement
+                        .get("RespawnCoolTime")
+                        .and_then(Value::as_f64)
+                        .unwrap_or_default(),
+                    local_evidence: point_evidence(
+                        "DT_PalSpawnerPlacement joined to DT_PalWildSpawner",
+                    ),
+                    provenance: provenance(),
+                };
+                records.push(KnowledgeRecord::PalHabitatZone(zone));
+                report.habitat_zones += 1;
+            }
+        }
+    }
+    generate_supplementary_habitats(root, canonical, records, report)?;
+    Ok(())
+}
+
+fn generate_supplementary_habitats(
+    root: &Path,
+    canonical: &crate::KnowledgeStore,
+    records: &mut Vec<KnowledgeRecord>,
+    report: &mut MapCandidateReport,
+) -> Result<(), MapIntakeError> {
+    let placements = read_rows(root, PLACEMENT_TABLE)?;
+    let spawners = read_rows(root, WILD_SPAWNER_TABLE)?;
+    let boss_locations = read_rows(root, BOSS_LOCATION_TABLE)?;
+
+    let placed_spawner_names: std::collections::HashSet<String> = placements
+        .values()
+        .filter_map(|row| {
+            row.get("SpawnerName")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+
+    let boss_char_locations: BTreeMap<String, (WorldCoordinate, u64)> = boss_locations
+        .values()
+        .filter_map(|row| {
+            let char_id = row.get("CharacterID").and_then(Value::as_str)?;
+            let location = coordinate(row.get("Location")?)?;
+            let level = row.get("Level").and_then(Value::as_u64).unwrap_or(0);
+            Some((char_id.to_string(), (location, level)))
+        })
+        .collect();
+
+    let pal_ids = canonical
+        .pals()
+        .filter_map(|pal| {
+            pal.native_row_id
+                .as_ref()
+                .map(|native| (native.to_ascii_lowercase(), pal.id.clone()))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    let mut seen_spawner_slots = std::collections::HashSet::new();
+
+    for (row_id, spawner) in &spawners {
+        let spawner_name = spawner
+            .get("SpawnerName")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if spawner_name.is_empty() || placed_spawner_names.contains(spawner_name) {
+            continue;
+        }
+        let spawner_type = spawner
+            .get("SpawnerType")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if spawner_type.contains("Dungeon") || spawner_name.contains("dungeon") {
+            outcome(
+                report,
+                WILD_SPAWNER_TABLE,
+                spawner_name,
+                "skip",
+                "dungeon_spawner_no_field_placement",
+            );
+            continue;
+        }
         for index in 1..=3 {
+            let slot_key = format!("{spawner_name}:{index}");
+            if !seen_spawner_slots.insert(slot_key) {
+                continue;
+            }
             let Some(raw_pal_id) = spawner.get(format!("Pal_{index}")).and_then(Value::as_str)
             else {
                 continue;
@@ -406,6 +565,28 @@ fn generate_habitats(
             if raw_pal_id.is_empty() || raw_pal_id == "None" {
                 continue;
             }
+            let location =
+                find_supplementary_location(spawner, index, &boss_char_locations, spawner_name);
+            let Some(location) = location else {
+                outcome(
+                    report,
+                    WILD_SPAWNER_TABLE,
+                    raw_pal_id,
+                    "skip",
+                    "no_location_source_for_unplaced_spawner",
+                );
+                continue;
+            };
+            let Some(map_id) = map_for_coordinate(&location) else {
+                outcome(
+                    report,
+                    WILD_SPAWNER_TABLE,
+                    raw_pal_id,
+                    "skip",
+                    "supplementary_coordinate_outside_maps",
+                );
+                continue;
+            };
             let (pal_id, variants) = normalize_pal(&raw_pal_id.to_ascii_lowercase(), &pal_ids);
             let Some(pal_id) = pal_id else {
                 report.unresolved_pal_references += 1;
@@ -421,17 +602,15 @@ fn generate_habitats(
             if !variants.is_empty() {
                 report.resolved_boss_variants += 1;
             }
+            let zone_id = format!("HAB_SUP_{row_id}_{index}");
             let zone = PalHabitatZoneRecord {
-                id: format!("HAB_ZONE_{}_{}", placement_id, index),
-                map_id: map_id.clone(),
-                native_placement_id: placement_id.clone(),
+                id: zone_id,
+                map_id,
+                native_placement_id: format!("SUP_{row_id}"),
                 native_spawner_name: spawner_name.to_string(),
-                placement_kind: placement_kind(&placement),
+                placement_kind: supplementary_placement_kind(spawner_type),
                 location,
-                radius: placement
-                    .get("StaticRadius")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0),
+                radius: 15000.0,
                 raw_pal_id: raw_pal_id.to_string(),
                 pal_id,
                 variant_labels: variants,
@@ -457,12 +636,9 @@ fn generate_habitats(
                     .get("bIsAllowRandomizer")
                     .and_then(Value::as_bool)
                     .unwrap_or_default(),
-                respawn_cool_time_seconds: placement
-                    .get("RespawnCoolTime")
-                    .and_then(Value::as_f64)
-                    .unwrap_or_default(),
+                respawn_cool_time_seconds: 0.0,
                 local_evidence: point_evidence(
-                    "DT_PalSpawnerPlacement joined to DT_PalWildSpawner",
+                    "Supplementary: DT_PalWildSpawner joined via DT_BossSpawnerLoactionData or area estimation",
                 ),
                 provenance: provenance(),
             };
@@ -473,6 +649,60 @@ fn generate_habitats(
     Ok(())
 }
 
+fn find_supplementary_location(
+    spawner: &Value,
+    index: usize,
+    boss_locations: &BTreeMap<String, (WorldCoordinate, u64)>,
+    _spawner_name: &str,
+) -> Option<WorldCoordinate> {
+    let raw_pal = spawner
+        .get(format!("Pal_{index}"))
+        .and_then(Value::as_str)?;
+    if raw_pal.is_empty() || raw_pal == "None" {
+        return None;
+    }
+    if let Some((location, _)) = boss_locations.get(raw_pal) {
+        return Some(*location);
+    }
+    let spawner_name = spawner.get("SpawnerName").and_then(Value::as_str)?;
+    estimate_area_coordinate(spawner_name)
+}
+
+fn estimate_area_coordinate(spawner_name: &str) -> Option<WorldCoordinate> {
+    let name = spawner_name.to_ascii_lowercase();
+    let (x, y) = if name.contains("desert") || name.contains("yellow") {
+        (-100_000.0, 400_000.0)
+    } else if name.contains("snow") || name.contains("ice") {
+        (-500_000.0, -400_000.0)
+    } else if name.contains("volcano") || name.contains("red") {
+        (-200_000.0, -400_000.0)
+    } else if name.contains("green") || name.contains("coast") || name.contains("grass") {
+        (-500_000.0, 200_000.0)
+    } else if name.contains("worldtree") {
+        (500_000.0, -650_000.0)
+    } else if name.contains("skyisland") {
+        (0.0, -600_000.0)
+    } else if name.contains("ocean") {
+        (0.0, 0.0)
+    } else {
+        return None;
+    };
+    Some(WorldCoordinate { x, y, z: 0.0 })
+}
+
+fn supplementary_placement_kind(spawner_type: &str) -> PalSpawnPlacementKind {
+    if spawner_type.contains("FieldBoss") {
+        PalSpawnPlacementKind::FieldBoss
+    } else if spawner_type.contains("DungeonBoss") {
+        PalSpawnPlacementKind::DungeonBoss
+    } else if spawner_type.contains("Dungeon") {
+        PalSpawnPlacementKind::Dungeon
+    } else if spawner_type.contains("Common") {
+        PalSpawnPlacementKind::Field
+    } else {
+        PalSpawnPlacementKind::Unknown
+    }
+}
 fn map_definition(native_id: &str, row: &Value) -> Option<MapDefinitionRecord> {
     let min = row.get("landScapeRealPositionMin")?;
     let max = row.get("landScapeRealPositionMax")?;
@@ -742,5 +972,34 @@ mod tests {
     fn placement_type_is_normalized_case_insensitively() {
         let value = serde_json::json!({"PlacementType": "EPalSpawnerPlacementType::Field"});
         assert_eq!(placement_kind(&value), PalSpawnPlacementKind::Field);
+    }
+
+    #[test]
+    fn supplementary_placement_kind_maps_spawner_types() {
+        assert_eq!(
+            supplementary_placement_kind("EPalSpawnedCharacterType::FieldBoss"),
+            PalSpawnPlacementKind::FieldBoss
+        );
+        assert_eq!(
+            supplementary_placement_kind("EPalSpawnedCharacterType::Common"),
+            PalSpawnPlacementKind::Field
+        );
+        assert_eq!(
+            supplementary_placement_kind("EPalSpawnedCharacterType::RandomDungeonBoss"),
+            PalSpawnPlacementKind::DungeonBoss
+        );
+        assert_eq!(
+            supplementary_placement_kind("EPalSpawnedCharacterType::Undefined"),
+            PalSpawnPlacementKind::Unknown
+        );
+    }
+
+    #[test]
+    fn area_estimation_resolves_biome_named_spawners() {
+        let desert = estimate_area_coordinate("desert_orange_ALL_Suzakus").expect("desert area");
+        assert_eq!(map_for_coordinate(&desert).as_deref(), Some("MAP_MAIN"));
+        let worldtree = estimate_area_coordinate("worldtree_9_01_A_FBOSS_1").expect("tree area");
+        assert_eq!(map_for_coordinate(&worldtree).as_deref(), Some("MAP_TREE"));
+        assert!(estimate_area_coordinate("unrelated_area_name").is_none());
     }
 }

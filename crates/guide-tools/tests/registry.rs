@@ -3,7 +3,7 @@ use game_knowledge::KnowledgeStore;
 use guide_core::GuideEngine;
 use guide_tools::{ToolBudget, ToolRegistry, ToolStatus};
 use knowledge_index::KnowledgeIndex;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::fs;
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,7 @@ fn test_registry(configured: Option<&str>) -> ToolRegistry {
                 .map(str::to_string),
         );
     }
+    lines.extend(referenced_habitat_support_lines(&lines));
     let records = lines
         .iter()
         .filter(|line| !line.contains("\"record_type\":\"conflict\""))
@@ -30,6 +31,49 @@ fn test_registry(configured: Option<&str>) -> ToolRegistry {
     let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
     let engine = GuideEngine::new(store, configured);
     ToolRegistry::new(engine, index)
+}
+
+fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
+    let mut needed_zones = std::collections::BTreeSet::new();
+    for line in base_lines {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if value.get("record_type").and_then(Value::as_str) != Some("pal") {
+            continue;
+        }
+        let Some(zone_ids) = value.get("habitat_ids").and_then(Value::as_array) else {
+            continue;
+        };
+        for zone_id in zone_ids.iter().filter_map(Value::as_str) {
+            needed_zones.insert(zone_id.to_string());
+        }
+    }
+    if needed_zones.is_empty() {
+        return Vec::new();
+    }
+    let mut support = Vec::new();
+    let maps_path = format!("{DATA_DIRECTORY}/maps.jsonl");
+    support.extend(
+        fs::read_to_string(&maps_path)
+            .expect("maps file reads")
+            .lines()
+            .map(str::to_string),
+    );
+    let zones_path = format!("{DATA_DIRECTORY}/pal_habitat_zones.jsonl");
+    support.extend(
+        fs::read_to_string(&zones_path)
+            .expect("habitat zones file reads")
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()
+                    .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+                    .is_some_and(|id| needed_zones.contains(&id))
+            })
+            .map(str::to_string),
+    );
+    support
 }
 
 fn fresh_budget(max_calls: usize) -> ToolBudget {

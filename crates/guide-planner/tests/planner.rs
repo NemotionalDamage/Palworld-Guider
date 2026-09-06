@@ -2,20 +2,22 @@ use chrono::{TimeZone, Utc};
 use game_knowledge::{KnowledgeStore, WorkKind};
 use guide_core::GuideEngine;
 use guide_planner::{GuidePlanner, PlannerStatus};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::fs;
 
+const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/reviewed");
+
 fn engine() -> GuideEngine {
-    let data_directory = "../../data/reviewed";
     let mut lines = Vec::new();
     for file_name in ["sources.jsonl", "facts.jsonl"] {
         lines.extend(
-            fs::read_to_string(format!("{data_directory}/{file_name}"))
+            fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
                 .expect("reviewed knowledge reads")
                 .lines()
                 .map(str::to_string),
         );
     }
+    lines.extend(referenced_habitat_support_lines(&lines));
     let records = lines
         .iter()
         .filter(|line| !line.contains("\"record_type\":\"conflict\""))
@@ -24,6 +26,49 @@ fn engine() -> GuideEngine {
         .expect("conflict-free fixtures parse");
     let store = KnowledgeStore::from_records(records).expect("test store validates");
     GuideEngine::new(store, Some("1.0.3".to_string()))
+}
+
+fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
+    let mut needed_zones = std::collections::BTreeSet::new();
+    for line in base_lines {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if value.get("record_type").and_then(Value::as_str) != Some("pal") {
+            continue;
+        }
+        let Some(zone_ids) = value.get("habitat_ids").and_then(Value::as_array) else {
+            continue;
+        };
+        for zone_id in zone_ids.iter().filter_map(Value::as_str) {
+            needed_zones.insert(zone_id.to_string());
+        }
+    }
+    if needed_zones.is_empty() {
+        return Vec::new();
+    }
+    let mut support = Vec::new();
+    let maps_path = format!("{DATA_DIRECTORY}/maps.jsonl");
+    support.extend(
+        fs::read_to_string(&maps_path)
+            .expect("maps file reads")
+            .lines()
+            .map(str::to_string),
+    );
+    let zones_path = format!("{DATA_DIRECTORY}/pal_habitat_zones.jsonl");
+    support.extend(
+        fs::read_to_string(&zones_path)
+            .expect("habitat zones file reads")
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()
+                    .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+                    .is_some_and(|id| needed_zones.contains(&id))
+            })
+            .map(str::to_string),
+    );
+    support
 }
 
 fn snapshot() -> state_snapshot::PlayerStateSnapshot {

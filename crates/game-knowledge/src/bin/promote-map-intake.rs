@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use game_knowledge::{candidate_output_is_safe, KnowledgeRecord, LocalEvidenceMetadata, PalRecord};
+use game_knowledge::{candidate_output_is_safe, KnowledgeRecord, LocalEvidenceMetadata};
 
 struct Arguments {
     candidate: PathBuf,
@@ -62,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         KnowledgeRecord::PalHabitatZone,
     )?;
     update_pal_habitats(&arguments.canonical.join("pals.jsonl"), &zone_ids_by_pal)?;
+    update_pal_habitats(&arguments.canonical.join("facts.jsonl"), &zone_ids_by_pal)?;
     println!(
         "{}",
         serde_json::json!({
@@ -80,20 +81,16 @@ fn append_records<T: serde::Serialize + Clone>(
     records: &[T],
     wrapper: fn(T) -> KnowledgeRecord,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut lines = fs::read_to_string(path)
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    lines.extend(
-        records
-            .iter()
-            .cloned()
-            .map(wrapper)
-            .map(|record| serde_json::to_string(&record))
-            .collect::<Result<Vec<_>, _>>()?,
-    );
-    fs::write(path, lines.join("\n") + "\n")?;
+    if records.is_empty() {
+        return Ok(());
+    }
+    let serialized = records
+        .iter()
+        .cloned()
+        .map(wrapper)
+        .map(|record| serde_json::to_string(&record))
+        .collect::<Result<Vec<_>, _>>()?;
+    fs::write(path, serialized.join("\n") + "\n")?;
     Ok(())
 }
 
@@ -106,50 +103,57 @@ fn update_pal_habitats(
     let records = content
         .lines()
         .map(|line| {
-            let mut pal: PalRecord = serde_json::from_str(line)?;
-            if let Some(zone_ids) = zone_ids_by_pal.get(&pal.id) {
-                pal.habitat_ids = zone_ids.clone();
-                if let Some(evidence) = pal.local_evidence.as_mut() {
+            let mut record: KnowledgeRecord = match serde_json::from_str(line) {
+                Ok(record) => record,
+                Err(_) => return Ok(line.to_string()),
+            };
+            let KnowledgeRecord::Pal(pal) = &mut record else {
+                return Ok(line.to_string());
+            };
+            let Some(zone_ids) = zone_ids_by_pal.get(&pal.id) else {
+                return Ok(line.to_string());
+            };
+            pal.habitat_ids = zone_ids.clone();
+            if let Some(evidence) = pal.local_evidence.as_mut() {
+                evidence
+                    .unresolved_fields
+                    .retain(|field| field != "habitat_ids");
+                evidence.transformation_notes = evidence.transformation_notes.replace(
+                    "habitats remain unresolved.; habitats resolved",
+                    "habitats resolved",
+                );
+                if !evidence
+                    .transformation_notes
+                    .contains("habitats resolved from target-build spawner volumes")
+                {
                     evidence
-                        .unresolved_fields
-                        .retain(|field| field != "habitat_ids");
-                    evidence.transformation_notes = evidence.transformation_notes.replace(
-                        "habitats remain unresolved.; habitats resolved",
-                        "habitats resolved",
-                    );
-                    if !evidence
                         .transformation_notes
-                        .contains("habitats resolved from target-build spawner volumes")
-                    {
-                        evidence
-                            .transformation_notes
-                            .push_str("; habitats resolved from target-build spawner volumes.");
-                    }
-                } else {
-                    pal.local_evidence = Some(LocalEvidenceMetadata {
-                        source_table: "DT_PalSpawnerPlacement + DT_PalWildSpawner".to_string(),
-                        localization_status: game_knowledge::LocalizationStatus::NotApplicable,
-                        unresolved_fields: Vec::new(),
-                        transformation_notes:
-                            "habitats resolved from target-build spawner volumes.".to_string(),
-                    });
+                        .push_str("; habitats resolved from target-build spawner volumes.");
                 }
-                let map_source = "SRC-LOCAL-BUILD-MAP-24575825-20260906".to_string();
-                if !pal
-                    .provenance
-                    .corroborating_source_ids
-                    .contains(&map_source)
-                {
-                    pal.provenance.corroborating_source_ids.push(map_source);
-                }
-                if pal.provenance.change_risk.as_deref()
-                    == Some("habitats remain unresolved; patches can change Pal data.")
-                {
-                    pal.provenance.change_risk = Some("patches can change Pal data.".to_string());
-                }
-                updated += 1;
+            } else {
+                pal.local_evidence = Some(LocalEvidenceMetadata {
+                    source_table: "DT_PalSpawnerPlacement + DT_PalWildSpawner".to_string(),
+                    localization_status: game_knowledge::LocalizationStatus::NotApplicable,
+                    unresolved_fields: Vec::new(),
+                    transformation_notes: "habitats resolved from target-build spawner volumes."
+                        .to_string(),
+                });
             }
-            serde_json::to_string(&KnowledgeRecord::Pal(pal))
+            let map_source = "SRC-LOCAL-BUILD-MAP-24575825-20260906".to_string();
+            if !pal
+                .provenance
+                .corroborating_source_ids
+                .contains(&map_source)
+            {
+                pal.provenance.corroborating_source_ids.push(map_source);
+            }
+            if pal.provenance.change_risk.as_deref()
+                == Some("habitats remain unresolved; patches can change Pal data.")
+            {
+                pal.provenance.change_risk = Some("patches can change Pal data.".to_string());
+            }
+            updated += 1;
+            serde_json::to_string(&record).map_err(Box::<dyn std::error::Error>::from)
         })
         .collect::<Result<Vec<_>, _>>()?;
     fs::write(path, records.join("\n") + "\n")?;
