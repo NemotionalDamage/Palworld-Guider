@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::models::{Confidence, KnowledgeRecord, ReviewStatus, SourceRecord};
 use crate::ValidationError;
 
-const FACT_FILE_NAMES: [&str; 14] = [
+const FACT_FILE_NAMES: [&str; 18] = [
     "facts.jsonl",
     "items.jsonl",
     "pals.jsonl",
@@ -20,6 +20,10 @@ const FACT_FILE_NAMES: [&str; 14] = [
     "work_kind_descriptions.jsonl",
     "waza.jsonl",
     "pal_waza_unlocks.jsonl",
+    "maps.jsonl",
+    "map_regions.jsonl",
+    "map_points.jsonl",
+    "pal_habitat_zones.jsonl",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -38,6 +42,10 @@ pub struct KnowledgeStore {
     work_kind_descriptions: BTreeMap<String, crate::models::WorkKindDescriptionRecord>,
     waza: BTreeMap<String, crate::models::WazaRecord>,
     pal_waza_unlocks: BTreeMap<String, crate::models::PalWazaUnlock>,
+    maps: BTreeMap<String, crate::models::MapDefinitionRecord>,
+    map_regions: BTreeMap<String, crate::models::MapRegionRecord>,
+    map_points: BTreeMap<String, crate::models::MapPointRecord>,
+    pal_habitat_zones: BTreeMap<String, crate::models::PalHabitatZoneRecord>,
 }
 
 impl KnowledgeStore {
@@ -456,6 +464,91 @@ impl KnowledgeStore {
                         &mut errors,
                     );
                 }
+                KnowledgeRecord::MapDefinition(record) => {
+                    validate_id(&record.id, "map.id", &record.id, &mut errors);
+                    validate_map_bounds(&record.id, &record.bounds, &mut errors);
+                    if let Some(error) = validate_locale_names(&record.id, &record.names) {
+                        errors.push(error);
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.maps.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
+                KnowledgeRecord::MapRegion(record) => {
+                    validate_id(&record.id, "map_region.id", &record.id, &mut errors);
+                    if let Some(error) = validate_locale_names(&record.id, &record.names) {
+                        errors.push(error);
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.map_regions.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
+                KnowledgeRecord::MapPoint(record) => {
+                    validate_id(&record.id, "map_point.id", &record.id, &mut errors);
+                    validate_coordinate(&record.id, &record.location, &mut errors);
+                    if let Some(error) = validate_locale_names(&record.id, &record.names) {
+                        errors.push(error);
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.map_points.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
+                KnowledgeRecord::PalHabitatZone(record) => {
+                    validate_id(&record.id, "pal_habitat_zone.id", &record.id, &mut errors);
+                    validate_coordinate(&record.id, &record.location, &mut errors);
+                    if !(record.radius.is_finite() && record.radius >= 0.0) {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "radius",
+                            "radius must be finite and non-negative",
+                        ));
+                    }
+                    if record.level_min == 0 || record.level_max < record.level_min {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "level_range",
+                            "level range must be positive and ordered",
+                        ));
+                    }
+                    if record.count_min == 0 || record.count_max < record.count_min {
+                        errors.push(ValidationError::new(
+                            Some(record.id.clone()),
+                            "count_range",
+                            "count range must be positive and ordered",
+                        ));
+                    }
+                    push_optional_error(
+                        validate_provenance(&record.provenance, &record.id),
+                        &mut errors,
+                    );
+                    insert_fact(
+                        store.pal_habitat_zones.entry(record.id.clone()),
+                        record,
+                        &mut fact_ids,
+                        &mut errors,
+                    );
+                }
             }
         }
 
@@ -570,6 +663,38 @@ impl KnowledgeStore {
         self.pal_waza_unlocks.values()
     }
 
+    pub fn map(&self, id: &str) -> Option<&crate::models::MapDefinitionRecord> {
+        self.maps.get(id)
+    }
+
+    pub fn maps(&self) -> impl Iterator<Item = &crate::models::MapDefinitionRecord> {
+        self.maps.values()
+    }
+
+    pub fn map_region(&self, id: &str) -> Option<&crate::models::MapRegionRecord> {
+        self.map_regions.get(id)
+    }
+
+    pub fn map_regions(&self) -> impl Iterator<Item = &crate::models::MapRegionRecord> {
+        self.map_regions.values()
+    }
+
+    pub fn map_point(&self, id: &str) -> Option<&crate::models::MapPointRecord> {
+        self.map_points.get(id)
+    }
+
+    pub fn map_points(&self) -> impl Iterator<Item = &crate::models::MapPointRecord> {
+        self.map_points.values()
+    }
+
+    pub fn pal_habitat_zone(&self, id: &str) -> Option<&crate::models::PalHabitatZoneRecord> {
+        self.pal_habitat_zones.get(id)
+    }
+
+    pub fn pal_habitat_zones(&self) -> impl Iterator<Item = &crate::models::PalHabitatZoneRecord> {
+        self.pal_habitat_zones.values()
+    }
+
     pub fn conflicts_for_subject(&self, subject_id: &str) -> Vec<&crate::models::ConflictRecord> {
         self.conflicts
             .values()
@@ -604,6 +729,18 @@ impl KnowledgeStore {
             result.push((id, &record.provenance));
         }
         for (id, record) in &self.conflicts {
+            result.push((id, &record.provenance));
+        }
+        for (id, record) in &self.maps {
+            result.push((id, &record.provenance));
+        }
+        for (id, record) in &self.map_regions {
+            result.push((id, &record.provenance));
+        }
+        for (id, record) in &self.map_points {
+            result.push((id, &record.provenance));
+        }
+        for (id, record) in &self.pal_habitat_zones {
             result.push((id, &record.provenance));
         }
         result
@@ -677,7 +814,7 @@ impl KnowledgeStore {
                     &record.id,
                     "habitat_ids",
                     habitat_id,
-                    self.habitats.keys(),
+                    self.pal_habitat_zones.keys(),
                     errors,
                 );
             }
@@ -760,6 +897,43 @@ impl KnowledgeStore {
                 "pal_waza_unlock.waza_id",
                 &record.waza_id,
                 self.waza.keys(),
+                errors,
+            );
+        }
+
+        for record in self.map_regions.values() {
+            require_reference(
+                &record.id,
+                "map_id",
+                &record.map_id,
+                self.maps.keys(),
+                errors,
+            );
+        }
+
+        for record in self.map_points.values() {
+            require_reference(
+                &record.id,
+                "map_id",
+                &record.map_id,
+                self.maps.keys(),
+                errors,
+            );
+        }
+
+        for record in self.pal_habitat_zones.values() {
+            require_reference(
+                &record.id,
+                "map_id",
+                &record.map_id,
+                self.maps.keys(),
+                errors,
+            );
+            require_reference(
+                &record.id,
+                "pal_id",
+                &record.pal_id,
+                self.pals.keys(),
                 errors,
             );
         }
@@ -1084,6 +1258,51 @@ fn require_nonempty(
             record_id,
             field,
             "value must not be empty",
+        ));
+    }
+}
+
+fn validate_map_bounds(
+    record_id: &str,
+    bounds: &crate::models::MapBounds,
+    errors: &mut Vec<ValidationError>,
+) {
+    let fields = [
+        ("min_x", bounds.min_x),
+        ("max_x", bounds.max_x),
+        ("min_y", bounds.min_y),
+        ("max_y", bounds.max_y),
+        ("min_z", bounds.min_z),
+        ("max_z", bounds.max_z),
+    ];
+    for (field, value) in fields {
+        if !value.is_finite() {
+            errors.push(ValidationError::new(
+                Some(record_id.to_string()),
+                field,
+                "map bounds must be finite",
+            ));
+        }
+    }
+    if bounds.min_x > bounds.max_x || bounds.min_y > bounds.max_y || bounds.min_z > bounds.max_z {
+        errors.push(ValidationError::new(
+            Some(record_id.to_string()),
+            "bounds",
+            "minimum map bounds cannot exceed maximum bounds",
+        ));
+    }
+}
+
+fn validate_coordinate(
+    record_id: &str,
+    coordinate: &crate::models::WorldCoordinate,
+    errors: &mut Vec<ValidationError>,
+) {
+    if !coordinate.x.is_finite() || !coordinate.y.is_finite() || !coordinate.z.is_finite() {
+        errors.push(ValidationError::new(
+            Some(record_id.to_string()),
+            "location",
+            "world coordinates must be finite",
         ));
     }
 }

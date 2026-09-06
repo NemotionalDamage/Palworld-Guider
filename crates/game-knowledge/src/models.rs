@@ -186,13 +186,6 @@ impl ElementType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PalStats {
-    pub hp: u32,
-    pub attack: u32,
-    pub defense: u32,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DropSource {
     pub item_id: String,
@@ -205,7 +198,6 @@ pub struct DropSource {
 pub struct PalRecord {
     pub id: String,
     pub names: LocaleNames,
-    pub stats: Option<PalStats>,
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
@@ -404,6 +396,122 @@ pub struct PalWazaUnlock {
     pub provenance: Provenance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WorldCoordinate {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MapBounds {
+    pub min_x: f64,
+    pub max_x: f64,
+    pub min_y: f64,
+    pub max_y: f64,
+    pub min_z: f64,
+    pub max_z: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapDefinitionRecord {
+    pub id: String,
+    pub native_name: String,
+    pub names: LocaleNames,
+    pub bounds: MapBounds,
+    pub logical_size: u32,
+    pub priority: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture_asset_path: Option<String>,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum MapShape {
+    Box {
+        center: WorldCoordinate,
+        extent_x: f64,
+        extent_y: f64,
+        extent_z: f64,
+    },
+    Sphere {
+        center: WorldCoordinate,
+        radius: f64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapRegionRecord {
+    pub id: String,
+    pub map_id: String,
+    pub native_row_id: String,
+    pub message_id: String,
+    pub names: LocaleNames,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<MapShape>,
+    #[serde(default)]
+    pub boundary_is_reviewed: bool,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MapPointKind {
+    FastTravel,
+    BossTower,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapPointRecord {
+    pub id: String,
+    pub map_id: String,
+    pub native_id: String,
+    pub kind: MapPointKind,
+    pub names: LocaleNames,
+    pub location: WorldCoordinate,
+    pub local_evidence: LocalEvidenceMetadata,
+    pub provenance: Provenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PalSpawnPlacementKind {
+    Field,
+    Dungeon,
+    DungeonBoss,
+    FieldBoss,
+    ImprisonmentBoss,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PalHabitatZoneRecord {
+    pub id: String,
+    pub map_id: String,
+    pub native_placement_id: String,
+    pub native_spawner_name: String,
+    pub placement_kind: PalSpawnPlacementKind,
+    pub location: WorldCoordinate,
+    pub radius: f64,
+    pub raw_pal_id: String,
+    pub pal_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_labels: Vec<String>,
+    pub level_min: u32,
+    pub level_max: u32,
+    pub count_min: u32,
+    pub count_max: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_of_day: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weather: Option<String>,
+    pub allows_randomizer: bool,
+    pub respawn_cool_time_seconds: f64,
+    pub local_evidence: LocalEvidenceMetadata,
+    pub provenance: Provenance,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "record_type", rename_all = "snake_case")]
 pub enum KnowledgeRecord {
@@ -421,4 +529,8 @@ pub enum KnowledgeRecord {
     WorkKindDescription(WorkKindDescriptionRecord),
     Waza(WazaRecord),
     PalWazaUnlock(PalWazaUnlock),
+    MapDefinition(MapDefinitionRecord),
+    MapRegion(MapRegionRecord),
+    MapPoint(MapPointRecord),
+    PalHabitatZone(PalHabitatZoneRecord),
 }

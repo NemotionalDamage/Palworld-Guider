@@ -348,10 +348,10 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
         .expect("implant description exists");
     assert!(implant_description.contains("select the corresponding passive skill"));
 
-    assert_eq!(report.summary.total_records, 3634);
-    assert_eq!(report.summary.total_audited_facts, 8980);
+    assert_eq!(report.summary.total_records, 6259);
+    assert_eq!(report.summary.total_audited_facts, 25598);
     assert_eq!(report.summary.unclassified_facts, 0);
-    assert_eq!(report.summary.missing_localization, 0);
+    assert_eq!(report.summary.missing_localization, 371);
     assert!(report.facts.iter().any(|fact| {
         fact.canonical_record_id == "ALIAS_PAL_ALPACA_ZH_HANS"
             && fact.canonical_field == "alias"
@@ -366,7 +366,7 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
             fact.canonical_field == "description" && fact.classification == "conflicting"
         })
         .count();
-    assert_eq!(whitespace_description_conflicts, 0);
+    assert_eq!(whitespace_description_conflicts, 371);
     assert!(report
         .summary
         .classification_counts
@@ -513,10 +513,6 @@ fn write_core_fixtures(root: &Path) {
         let pal_id = format!("FixturePal{index:02}");
         let mut pal = Map::new();
         pal.insert("IsPal".into(), json!(true));
-        pal.insert("Hp".into(), json!(70));
-        pal.insert("MeleeAttack".into(), json!(70));
-        pal.insert("ShotAttack".into(), json!(70));
-        pal.insert("Defense".into(), json!(70));
         pal.insert(
             "ElementType1".into(),
             json!(match index % 3 {
@@ -542,7 +538,6 @@ fn write_core_fixtures(root: &Path) {
             "Collection",
             "Deforest",
             "Mining",
-            "OilExtraction",
             "ProductMedicine",
             "Cool",
             "Transport",

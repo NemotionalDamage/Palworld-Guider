@@ -1,16 +1,18 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-04, Asia/Shanghai (G6 complete; Pal element-type enrichment in progress).
+Last updated: 2026-09-06, Asia/Shanghai (map foundation and Pal habitat mapping complete).
 
 ## Current Status
 
 All phases G0–G6 are complete. Release Stage 1 (public static-information agent) and Release Stage 2 (single-user dynamic-state guide) are complete. Release Stage 3 (private multi-player guide) is deferred until a separate specification is written.
 
-Post-G6 knowledge enrichment: Pal element types (ElementType1/ElementType2) were promoted for all 299 canonical Pals from the local build `DT_PalMonsterParameter`. A new `ElementType` enum, `TypeEffectivenessRecord` schema, and `type_effectiveness.jsonl` data file were added. The type chart (9 super-effective relationships, 2x/0.5x/1x multipliers, dual-type multiplication) was registered from project-owner provision as source `SRC-TYPE-CHART-20260904`. The local-build intake now extracts element types for candidate Pal records. The workspace has 331 tests across 13 crates.
+Post-G6 knowledge enrichment: Pal element types (ElementType1/ElementType2) were promoted for all 299 canonical Pals from the local build `DT_PalMonsterParameter`. A new `ElementType` enum, `TypeEffectivenessRecord` schema, and `type_effectiveness.jsonl` data file were added. The type chart (9 super-effective relationships, 2x/0.5x/1x multipliers, dual-type multiplication) was registered from project-owner provision as source `SRC-TYPE-CHART-20260904`. The local-build intake now extracts element types for candidate Pal records. On 2026-09-05 the project owner resolved the six deferred native-row identity duplicates: legacy seed IDs are authoritative for all shared native_row_id values, the two Wooden Club conflict records are marked resolved in favor of the legacy seed, and the six local-build candidates are permanently deferred.
+
+Map knowledge enrichment: M0 and M1 are complete. The reviewed store now contains 2 logical maps, 123 localized regions, 160 map points (152 fast-travel and 8 boss towers), and 8,164 Pal habitat zones. Structured habitat references cover 164 canonical Pals; 71 unmatched placements and 58 unresolved raw Pal references remain explicit intake exclusions. Guide tools expose coordinate location, nearest reviewed anchors, and ranked Pal spawn zones. Region answers remain approximate until reviewed boundary geometry is available; routes are not yet implemented and material/resource locations remain out of scope until separately reviewed.
 
 Phase G6 added version compatibility checks, knowledge audit and batch validation CLI, answer regression suites covering lookup, calculation, retrieval, grounding, and version-warning behavior, log rotation with secret redaction for the chat debug log, and comprehensive installation, configuration, troubleshooting, data-updates, deployment, and operations documentation.
 
-Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates and 22 duplicate-locale aliases were deferred for project-owner resolution, and Pal candidate intake closed with ten unreleased placeholder rows excluded after project-owner confirmation. Broader enrichment and semantic review remain future knowledge maintenance.
+Phase G0 is complete. G1 is complete at its original boundary and reopened local-build boundaries. The unified intake standard, completeness audit, first 357-item clear-field promotion, first 298-Pal clear identity/localization promotion, recipe/alias/progression candidate triage, a second full local-build Item batch (1,153 additional Items with rich-text-resolved descriptions and 1,131 matching Simplified Chinese aliases, raising canonical Items to 1,520 and Aliases to 1,805) are complete; six native-row identity duplicates were resolved on 2026-09-05 by project-owner decision (legacy seed IDs authoritative, local-build candidates permanently deferred, two Wooden Club conflict records marked resolved), and 22 duplicate-locale aliases were not promoted because the matching Chinese display name already resolves to a canonical record. Pal candidate intake closed with ten unreleased placeholder rows excluded after project-owner confirmation. Broader enrichment and semantic review remain future knowledge maintenance.
 
 Phase G4 is complete. Explicit user-entered read-only snapshots now feed deterministic inventory, party, craftable, goal, progression, and preference-aware planning through typed, redacted tools. No game I/O, save parsing, server API, adapter, or mutation path was added.
 
@@ -39,6 +41,8 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | G4 | Complete | Add state-aware advice and progression planning |
 | G5 | Complete | Build Web and read-only in-game interfaces |
 | G6 | Complete | Harden versioning, knowledge maintenance, and operations |
+| M0 | Complete | Add reviewed map bounds, regions, anchors, and coordinate lookup |
+| M1 | Complete | Add reviewed Pal habitat zones and coordinate-ranked lookup |
 
 ## Release Stage Summary
 
@@ -47,6 +51,7 @@ The older `Pal` project remains separate. Its control-oriented roadmap does not 
 | Stage 1: Public Static-Information Agent | G0–G3 | Complete | Answer public game-knowledge and calculation questions without a running game |
 | Stage 2: Single-User Dynamic-State Guide | G4–G6 | Complete | Add consented player and world snapshots for one configured user |
 | Stage 3: Private Multi-Player Guide | Future phases after G6 | Deferred until Stage 2 passes | Add per-player identity, consent, authorization, routing, and data isolation for private servers |
+| Map Knowledge Track | M0–M1 | Complete | Add target-build map, anchor, and Pal habitat facts with uncertainty boundaries |
 
 ## Phase G0 Progress
 
@@ -131,7 +136,7 @@ Completed:
 
 Remaining:
 
-None for the accepted clear-field Pal batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Pal stats, work suitability, drops, and habitats remain explicit unknowns until their semantics are reviewed.
+None for the accepted clear-field Pal batch. It passed the full formatting, Clippy, workspace-test, and whitespace gates. Pal stats were dropped as a knowledge field (individual values are not fixed). Drop probability was confirmed as a percentage (0-100) against target-build data and drops are now promoted. Work-suitability semantics were confirmed (0=can't do, 1-8=level). Habitats remain an explicit unknown until source data is available.
 ### Unreleased Pal Candidate Closeout
 
 The project owner confirmed the ten remaining local-build Pal rows (placeholder `en_text`/`Unidentified Pal` names with `zh_Hans_Text` placeholders, including Dragostrophe and Boltmane which have real English names only) are unreleased Pals absent from the current game build. None were promoted and no canonical record, alias, or conflict was added; canonical Pal coverage stays 299. Re-review these rows only after a later build ships real names or localization.

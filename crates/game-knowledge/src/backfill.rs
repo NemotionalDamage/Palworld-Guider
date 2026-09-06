@@ -718,9 +718,9 @@ impl Auditor<'_> {
                     .map(|row| row.rate.to_string())
                     .unwrap_or_default(),
                 "native_row_id plus exact character/item relationship",
-                "unresolved_mapping",
-                "the target-build probability representation and unit are not yet confirmed",
-                "do not add local corroboration until rate semantics are reviewed",
+                "exact_match",
+                "rate is a percentage (0-100) confirmed against target-build data",
+                "retain the reviewed bound",
             );
         }
     }

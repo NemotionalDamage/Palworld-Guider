@@ -1,8 +1,8 @@
 //! Typed tool registry around the deterministic guide core.
 
 use guide_core::{
-    AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry, ProvenanceSummary,
-    Resolution, VersionInfo,
+    AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry, MapPointKind,
+    ProvenanceSummary, Resolution, VersionInfo, WorldCoordinate,
 };
 use guide_planner::{GuidePlanner, PlannerAnswer, PlannerStatus};
 use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, ProvenanceBrief};
@@ -359,6 +359,12 @@ impl ToolRegistry {
                 Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_technology(&query)),
                 Err(message) => ToolEnvelope::error(message, version),
             },
+            "locate_coordinate" => match coordinate(arguments) {
+                Ok(location) => ToolEnvelope::from_answer(self.engine.locate_coordinate(location)),
+                Err(message) => ToolEnvelope::error(message, version),
+            },
+            "find_nearby_map_points" => self.nearby_map_points(arguments, version),
+            "find_pal_spawn_zones" => self.pal_spawn_zones(arguments, version),
             "search_structured_knowledge" => self.search(arguments, version),
             "calculate_materials" => match self.material_arguments(arguments) {
                 Ok((query, quantity)) => {
@@ -562,6 +568,35 @@ impl ToolRegistry {
         envelope.provenance = provenance;
         envelope
     }
+
+    fn nearby_map_points(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
+        let result: Result<_, String> = (|| {
+            let location = coordinate(arguments)?;
+            let limit = optional_bounded_integer(arguments, "limit", 1, 20)?.unwrap_or(5) as usize;
+            Ok((location, optional_map_point_kind(arguments)?, limit))
+        })();
+        match result {
+            Ok((location, kind, limit)) => {
+                ToolEnvelope::from_answer(self.engine.find_nearby_map_points(location, kind, limit))
+            }
+            Err(message) => ToolEnvelope::error(message, version),
+        }
+    }
+
+    fn pal_spawn_zones(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
+        let result: Result<_, String> = (|| {
+            let query = require_string(arguments, "pal")?;
+            let location = coordinate(arguments)?;
+            let limit = optional_bounded_integer(arguments, "limit", 1, 20)?.unwrap_or(5) as usize;
+            Ok((query, location, limit))
+        })();
+        match result {
+            Ok((pal, location, limit)) => {
+                ToolEnvelope::from_answer(self.engine.find_pal_spawn_zones(&pal, location, limit))
+            }
+            Err(message) => ToolEnvelope::error(message, version),
+        }
+    }
 }
 
 fn build_definitions() -> Vec<ToolDefinition> {
@@ -600,6 +635,41 @@ fn build_definitions() -> Vec<ToolDefinition> {
             name: "get_technology".to_string(),
             description: "Look up a technology and the recipes it unlocks.".to_string(),
             parameters_schema: object_query(),
+        },
+        ToolDefinition {
+            name: "locate_coordinate".to_string(),
+            description: "Map a world coordinate to a reviewed logical map and normalized coordinates.".to_string(),
+            parameters_schema: coordinate_schema(),
+        },
+        ToolDefinition {
+            name: "find_nearby_map_points".to_string(),
+            description: "Find reviewed fast-travel or boss-tower anchors near a coordinate.".to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "z": {"type": "number"},
+                    "kind": {"type": "string", "enum": ["fast_travel", "boss_tower"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20}
+                },
+                "required": ["x", "y"]
+            }),
+        },
+        ToolDefinition {
+            name: "find_pal_spawn_zones".to_string(),
+            description: "Rank reviewed target-build spawn zones for a Pal relative to a coordinate.".to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "pal": {"type": "string"},
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "z": {"type": "number"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20}
+                },
+                "required": ["pal", "x", "y"]
+            }),
         },
         ToolDefinition {
             name: "search_structured_knowledge".to_string(),
@@ -705,6 +775,44 @@ fn object_query() -> Value {
         "properties": {"query": {"type": "string"}},
         "required": ["query"]
     })
+}
+
+fn coordinate_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "x": {"type": "number"},
+            "y": {"type": "number"},
+            "z": {"type": "number"}
+        },
+        "required": ["x", "y"]
+    })
+}
+
+fn coordinate(arguments: &Value) -> Result<WorldCoordinate, String> {
+    let read_axis = |name: &str| -> Result<f64, String> {
+        arguments
+            .get(name)
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| format!("argument \"{name}\" must be a finite number"))
+    };
+    Ok(WorldCoordinate {
+        x: read_axis("x")?,
+        y: read_axis("y")?,
+        z: arguments.get("z").and_then(Value::as_f64).unwrap_or(0.0),
+    })
+}
+
+fn optional_map_point_kind(arguments: &Value) -> Result<Option<MapPointKind>, String> {
+    let Some(value) = arguments.get("kind") else {
+        return Ok(None);
+    };
+    match value.as_str() {
+        Some("fast_travel") => Ok(Some(MapPointKind::FastTravel)),
+        Some("boss_tower") => Ok(Some(MapPointKind::BossTower)),
+        _ => Err("argument \"kind\" must be fast_travel or boss_tower".to_string()),
+    }
 }
 
 fn inventory_schema() -> Value {

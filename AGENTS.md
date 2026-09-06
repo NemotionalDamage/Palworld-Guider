@@ -452,7 +452,7 @@ Goal: prove lookup and calculation correctness without an LLM or live game state
 
 Tasks:
 1. Implement deterministic identifier and alias resolution.
-2. Implement exact lookup for item use, acquisition leads, recipes, unlock requirements, Pal stats, drops, habitats, and work suitability.
+2. Implement exact lookup for item use, acquisition leads, recipes, unlock requirements, drops, habitats, and work suitability.
 3. Implement recursive material expansion, shortage calculation, and craftable-count calculation.
 4. Implement deterministic breeding-result and breeding-chain tools once their rules are reviewed.
 5. Add a CLI with commands such as `lookup`, `recipe`, `materials`, `shortage`, and `breeding`.

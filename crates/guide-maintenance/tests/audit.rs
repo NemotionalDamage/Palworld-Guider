@@ -121,7 +121,7 @@ fn audit_conflicts_on_canonical_dataset() {
     assert!(summaries
         .iter()
         .any(|c| c.id == "CONFLICT_ITEM_WOODEN_CLUB_PRODUCT_IDENTITY"));
-    assert!(summaries.iter().all(|c| c.resolution == "unresolved"));
+    assert!(summaries.iter().all(|c| c.resolution == "resolved"));
 }
 
 #[test]

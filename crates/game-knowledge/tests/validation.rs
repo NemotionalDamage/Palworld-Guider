@@ -265,7 +265,6 @@ fn rejects_invalid_ranges_and_broken_references() {
     records.push(KnowledgeRecord::Pal(PalRecord {
         id: "PAL_LAMBALL".to_string(),
         names: names("Lamball"),
-        stats: None,
         work_suitability: vec![WorkSuitability {
             kind: WorkKind::Handiwork,
             level: 0,
@@ -342,7 +341,6 @@ fn validates_all_related_fact_schemas_and_keeps_conflicts_visible() {
     records.push(KnowledgeRecord::Pal(PalRecord {
         id: "PAL_LAMBALL".to_string(),
         names: names("Lamball"),
-        stats: None,
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],

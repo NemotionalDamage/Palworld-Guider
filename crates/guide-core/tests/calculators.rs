@@ -95,50 +95,51 @@ fn calculates_canonical_materials_shortage_and_craftable_count() {
     let engine =
         GuideEngine::load_directory("../../data/reviewed", None).expect("canonical dataset loads");
 
-    let answer = engine.calculate_materials("Paldium Fragment", 3);
+    let answer = engine.calculate_materials("Roast Reindrix", 3);
     assert_eq!(answer.status, AnswerStatus::Ok);
     let calculation = answer.data.expect("calculation exists");
-    assert_eq!(calculation.target_id, "ITEM_PALDIUM_FRAGMENT");
+    assert_eq!(calculation.target_id, "ITEM_BAKEDMEAT_ICEDEER");
     assert_eq!(calculation.requested_quantity, 3);
-    assert_eq!(
-        calculation.recipe_id.as_deref(),
-        Some("RECIPE_PALDIUM_FRAGMENT")
-    );
-    let stone = calculation
+    let venison = calculation
         .totals
         .iter()
-        .find(|total| total.item_id == "ITEM_STONE")
-        .expect("Stone total exists");
-    assert_eq!(stone.required_quantity, 15);
-    assert_eq!(calculation.tree.item_id, "ITEM_PALDIUM_FRAGMENT");
+        .find(|total| total.item_id == "ITEM_MEAT_ICEDEER")
+        .expect("Reindrix Venison total exists");
+    assert_eq!(venison.required_quantity, 3);
+    assert_eq!(calculation.tree.item_id, "ITEM_BAKEDMEAT_ICEDEER");
     assert_eq!(calculation.tree.required_quantity, 3);
 
-    let answer =
-        engine.calculate_shortage("Paldium Fragment", 3, &[InventoryEntry::new("Stone", 6)]);
+    let answer = engine.calculate_shortage(
+        "Roast Reindrix",
+        3,
+        &[InventoryEntry::new("Reindrix Venison", 1)],
+    );
     assert_eq!(answer.status, AnswerStatus::Ok);
     let shortage = answer.data.expect("shortage exists");
     assert_eq!(shortage.shortages.len(), 1);
-    assert_eq!(shortage.shortages[0].item_id, "ITEM_STONE");
-    assert_eq!(shortage.shortages[0].required_quantity, 15);
-    assert_eq!(shortage.shortages[0].available_quantity, 6);
-    assert_eq!(shortage.shortages[0].missing_quantity, 9);
+    assert_eq!(shortage.shortages[0].item_id, "ITEM_MEAT_ICEDEER");
+    assert_eq!(shortage.shortages[0].required_quantity, 3);
+    assert_eq!(shortage.shortages[0].available_quantity, 1);
+    assert_eq!(shortage.shortages[0].missing_quantity, 2);
 
-    let answer =
-        engine.calculate_craftable_count("Paldium Fragment", &[InventoryEntry::new("Stone", 14)]);
+    let answer = engine.calculate_craftable_count(
+        "Roast Reindrix",
+        &[InventoryEntry::new("Reindrix Venison", 5)],
+    );
     assert_eq!(answer.status, AnswerStatus::Ok);
     let craftable = answer.data.expect("craftable result exists");
-    assert_eq!(craftable.maximum_additional_count, 2);
+    assert_eq!(craftable.maximum_additional_count, 5);
     assert_eq!(
         craftable.limiting_material_ids,
-        vec!["ITEM_STONE".to_string()]
+        vec!["ITEM_MEAT_ICEDEER".to_string()]
     );
     assert_eq!(
         craftable.material_calculation.tree.item_id,
-        "ITEM_PALDIUM_FRAGMENT"
+        "ITEM_BAKEDMEAT_ICEDEER"
     );
     assert_eq!(
         craftable.material_calculation.totals[0].required_quantity,
-        5
+        1
     );
 }
 

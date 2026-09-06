@@ -4,6 +4,7 @@ mod answers;
 mod breeding;
 mod calculators;
 mod lookup;
+mod map;
 mod resolver;
 
 pub use answers::{AnswerStatus, GuideAnswer, ProvenanceSummary, VersionInfo};
@@ -13,10 +14,16 @@ pub use calculators::{
     MaterialCalculation, MaterialNode, MaterialTotal, ShortageCalculation, ShortageMaterial,
 };
 pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
+pub use map::{
+    CoordinateLocation, MapPointDistance, NearbyHabitatZone, NearbyMapPoint,
+    NormalizedMapCoordinate,
+};
 pub use resolver::{EntityKind, Resolution, ResolvedEntity};
 
 use game_knowledge::KnowledgeStore;
 use std::path::Path;
+
+pub use game_knowledge::{MapPointKind, WorldCoordinate};
 
 #[derive(Debug, Clone)]
 pub struct GuideEngine {

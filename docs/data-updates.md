@@ -27,6 +27,28 @@ cargo run -p game-knowledge --bin local-build-intake -- `
 
 Available batches: `all`, `items`, `recipes`, `technologies`, `pals`, `pal-drops`, `work-suitability`, `localization-aliases`, `relationships`, and `canonical-backfill`.
 
+### Map and Pal-habitat intake
+
+Map intake uses the same raw root plus a canonical context for resolving Pal IDs:
+
+```powershell
+cargo run -p game-knowledge --bin map-intake -- `
+  --root .local/research/local-build/raw `
+  --canonical data/reviewed `
+  --batch all `
+  --output .local/research/local-build/candidates/map-foundation-v1.jsonl
+```
+
+Available map batches are `all`, `map`, and `pal-habitats`. After reviewing the JSONL and report, promote map definitions, regions, points, and habitat zones with:
+
+```powershell
+cargo run -p game-knowledge --bin promote-map-intake -- `
+  --candidate .local/research/local-build/candidates/map-foundation-v1.jsonl `
+  --canonical data/reviewed
+```
+
+The promoter also backfills resolved `PalRecord.habitat_ids` values. It must not be run twice against the same candidate without undoing the prior promotion.
+
 ### Step 4: Review the generated candidates
 
 Open the candidate JSONL under `.local/research/local-build/candidates/` and the accompanying `.report.json`. Review each candidate's fields, unresolved markers, and localization status. A candidate may carry `review_status: candidate` and explicit `unresolved` values, but neither may enter canonical data until its field semantics are reviewed.

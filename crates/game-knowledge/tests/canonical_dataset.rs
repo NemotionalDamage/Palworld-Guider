@@ -103,7 +103,7 @@ fn loads_first_reviewed_local_build_item_batch() {
     let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
         .expect("canonical reviewed dataset must be valid");
 
-    assert_eq!(store.items().count(), 1520);
+    assert_eq!(store.items().count(), 1891);
     let pendant = store
         .item("ITEM_ACCESSORY_AT_1")
         .expect("first clear local-build item exists");
@@ -113,18 +113,18 @@ fn loads_first_reviewed_local_build_item_batch() {
         pendant.description.as_deref(),
         Some("An accessory that slightly raises Attack.")
     );
-    assert_eq!(pendant.rarity, "unknown");
-    assert!(pendant.acquisition_leads.is_empty());
+    assert_eq!(pendant.rarity, "Rare");
+    assert!(!pendant.acquisition_leads.is_empty());
     assert_eq!(pendant.native_row_id.as_deref(), Some("Accessory_AT_1"));
     let evidence = pendant
         .local_evidence
         .as_ref()
         .expect("promoted local-build item carries evidence metadata");
-    assert!(evidence
+    assert!(!evidence
         .unresolved_fields
         .iter()
         .any(|field| field == "acquisition_leads"));
-    assert!(evidence
+    assert!(!evidence
         .unresolved_fields
         .iter()
         .any(|field| field == "rarity_numeric_semantics"));
@@ -150,18 +150,8 @@ fn loads_first_reviewed_local_build_item_batch() {
             .as_ref()
             .unwrap_or_else(|| panic!("local-build item {} must carry evidence metadata", item.id));
         assert!(!evidence.transformation_notes.trim().is_empty());
-        if item.acquisition_leads.is_empty() {
-            assert!(evidence
-                .unresolved_fields
-                .iter()
-                .any(|field| field == "acquisition_leads"));
-        }
-        if item.rarity == "unknown" {
-            assert!(evidence
-                .unresolved_fields
-                .iter()
-                .any(|field| field == "rarity_numeric_semantics"));
-        }
+        assert!(!item.acquisition_leads.is_empty());
+        assert!(item.rarity != "unknown");
     }
 }
 
@@ -176,29 +166,22 @@ fn loads_first_reviewed_local_build_pal_batch() {
         .expect("first clear local-build Pal exists");
     assert_eq!(melpaca.names.en, "Melpaca");
     assert_eq!(melpaca.names.zh_hans.as_deref(), Some("美露帕"));
-    assert!(melpaca.stats.is_none());
     assert!(!melpaca.work_suitability.is_empty());
     assert!(melpaca
         .work_suitability
         .iter()
         .any(|w| w.kind == game_knowledge::WorkKind::Farming && w.level == 2));
-    assert!(melpaca.drops.is_empty());
-    assert!(melpaca.habitat_ids.is_empty());
+    assert!(!melpaca.drops.is_empty());
+    assert!(!melpaca.habitat_ids.is_empty());
     assert_eq!(melpaca.native_row_id.as_deref(), Some("Alpaca"));
     let evidence = melpaca
         .local_evidence
         .as_ref()
         .expect("promoted local-build Pal carries evidence metadata");
-    for blocker in [
-        "stats_scale_semantics",
-        "drop_probability_representation",
-        "habitat_ids",
-    ] {
-        assert!(evidence
-            .unresolved_fields
-            .iter()
-            .any(|field| field == blocker));
-    }
+    assert!(evidence
+        .unresolved_fields
+        .iter()
+        .all(|field| field == "habitat_ids"));
     assert_eq!(melpaca.provenance.source_id, LOCAL_BUILD_SOURCE_ID);
     assert_eq!(melpaca.provenance.review_status, ReviewStatus::Reviewed);
 
@@ -215,27 +198,32 @@ fn loads_first_reviewed_local_build_pal_batch() {
         assert!(!pal.names.en.eq_ignore_ascii_case("en_text"));
         assert_ne!(pal.names.en, "Unidentified Pal");
         assert_ne!(pal.names.zh_hans.as_deref(), Some("zh_Hans_Text"));
-        assert!(pal.stats.is_none());
-        assert!(pal.drops.is_empty());
-        assert!(pal.habitat_ids.is_empty());
+        let habitat_resolved = !pal.habitat_ids.is_empty();
+        assert_eq!(
+            habitat_resolved,
+            !pal.local_evidence.as_ref().is_some_and(|evidence| evidence
+                .unresolved_fields
+                .iter()
+                .any(|field| field == "habitat_ids"))
+        );
         assert!(pal.local_evidence.as_ref().is_some_and(|evidence| evidence
             .unresolved_fields
             .iter()
-            .any(|field| field == "stats_scale_semantics")));
+            .all(|field| field != "drop_probability_representation"
+                && field != "work_suitability_semantics")));
     }
 
     let no_work: Vec<_> = store
         .pals()
         .filter(|pal| {
-            pal.provenance.source_id == LOCAL_BUILD_SOURCE_ID
-                && pal.work_suitability.is_empty()
+            pal.provenance.source_id == LOCAL_BUILD_SOURCE_ID && pal.work_suitability.is_empty()
         })
         .map(|pal| pal.id.as_str())
         .collect();
     assert_eq!(
         no_work.len(),
-        4,
-        "exactly 4 local-build Pals have no work suitability: {no_work:?}"
+        3,
+        "exactly 3 local-build Pals have no work suitability: {no_work:?}"
     );
 }
 
@@ -260,12 +248,12 @@ fn promotes_only_complete_recipe_alias_and_progression_candidates() {
         assert_eq!(alias.provenance.review_status, ReviewStatus::Reviewed);
     }
 
-    assert_eq!(store.recipes().count(), 4);
-    assert_eq!(store.progression_relationships().count(), 2);
+    assert_eq!(store.recipes().count(), 1288);
+    assert_eq!(store.progression_relationships().count(), 384);
     assert!(store
         .recipes()
-        .all(|recipe| recipe.provenance.source_id != LOCAL_BUILD_SOURCE_ID));
+        .any(|recipe| recipe.provenance.source_id == LOCAL_BUILD_SOURCE_ID));
     assert!(store
         .progression_relationships()
-        .all(|relationship| relationship.provenance.source_id != LOCAL_BUILD_SOURCE_ID));
+        .any(|relationship| relationship.provenance.source_id == LOCAL_BUILD_SOURCE_ID));
 }

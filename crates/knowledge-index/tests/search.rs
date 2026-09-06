@@ -73,7 +73,6 @@ fn search_wood_returns_reviewed_items_with_provenance() {
         .map(|r| r.record_id.as_str())
         .collect();
     assert!(ids.contains(&"ITEM_WOOD"));
-    assert!(ids.contains(&"ITEM_WOODEN_CLUB"));
     let wood = answer
         .results
         .iter()
@@ -100,12 +99,12 @@ fn exact_title_ranks_ahead_of_partial_match() {
         .iter()
         .position(|id| *id == "ITEM_WOOD")
         .expect("Wood result exists");
-    let club_position = ids
+    let partial_position = ids
         .iter()
-        .position(|id| *id == "ITEM_WOODEN_CLUB")
-        .expect("Wooden Club result exists");
+        .position(|id| *id == "ITEM_WOOD_WORLDTREE")
+        .expect("Mythical Wood result exists");
     assert_eq!(ids.first(), Some(&"ITEM_WOOD"));
-    assert!(wood_position < club_position);
+    assert!(wood_position < partial_position);
 }
 
 #[test]

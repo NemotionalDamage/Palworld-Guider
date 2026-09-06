@@ -114,13 +114,32 @@ fn run_result(arguments: Vec<String>) -> Result<(Value, u8), String> {
                 .ok_or("validate-batch requires a file path")?;
             let content = std::fs::read_to_string(file_path)
                 .map_err(|e| format!("cannot read {file_path}: {e}"))?;
-            let lines: Vec<&str> = content.lines().collect();
-            let validation = KnowledgeAudit::validate_batch(&lines);
+            let mut lines = read_reviewed_jsonl(&data_directory)?;
+            lines.extend(content.lines().map(str::to_string));
+            let line_references = lines.iter().map(String::as_str).collect::<Vec<_>>();
+            let validation = KnowledgeAudit::validate_batch(&line_references);
             let code = if validation.valid { 0 } else { 1 };
             Ok((serde_json::to_value(&validation).unwrap(), code))
         }
         _ => Err(USAGE.to_string()),
     }
+}
+
+fn read_reviewed_jsonl(data_directory: &PathBuf) -> Result<Vec<String>, String> {
+    let mut paths = std::fs::read_dir(data_directory)
+        .map_err(|e| format!("cannot read reviewed context {data_directory:?}: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut lines = Vec::new();
+    for path in paths {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read reviewed context {path:?}: {e}"))?;
+        lines.extend(content.lines().map(str::to_string));
+    }
+    Ok(lines)
 }
 
 fn parse_global_arguments(

@@ -57,14 +57,22 @@ fn cli_resolves_new_local_build_pals_through_chinese_names() {
     assert_eq!(answer["status"], "ok");
     assert_eq!(answer["data"]["id"], "PAL_ALPACA");
     assert_eq!(answer["data"]["names"]["zh_hans"], "美露帕");
-    assert!(answer["uncertainty"]
+    assert!(!answer["uncertainty"]
         .as_array()
         .expect("uncertainty is an array")
         .iter()
         .any(|message| message
             .as_str()
             .expect("message is text")
-            .contains("work suitability is unknown")));
+            .contains("habitats are unknown")));
+    assert!(answer["data"]["habitat_ids"]
+        .as_array()
+        .expect("habitat IDs are an array")
+        .iter()
+        .any(|habitat_id| habitat_id
+            .as_str()
+            .expect("habitat ID is text")
+            .starts_with("HAB_ZONE_")));
 }
 
 #[test]
@@ -88,15 +96,15 @@ fn cli_calculates_materials_and_shortage_offline() {
         "../../data/reviewed",
         "materials",
         "3",
-        "Paldium",
-        "Fragment",
+        "Roast",
+        "Reindrix",
     ]);
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");
-    assert_eq!(answer["data"]["target_id"], "ITEM_PALDIUM_FRAGMENT");
+    assert_eq!(answer["data"]["target_id"], "ITEM_BAKEDMEAT_ICEDEER");
     assert_eq!(
         answer["data"]["totals"][0]["required_quantity"],
-        serde_json::json!(15)
+        serde_json::json!(3)
     );
 
     let (answer, code) = run(&[
@@ -104,16 +112,16 @@ fn cli_calculates_materials_and_shortage_offline() {
         "../../data/reviewed",
         "shortage",
         "--inventory",
-        "Stone=6",
+        "Reindrix Venison=1",
         "3",
-        "Paldium",
-        "Fragment",
+        "Roast",
+        "Reindrix",
     ]);
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");
     assert_eq!(
         answer["data"]["shortages"][0]["missing_quantity"],
-        serde_json::json!(9)
+        serde_json::json!(2)
     );
 }
 

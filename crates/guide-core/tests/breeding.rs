@@ -39,7 +39,6 @@ fn pal(id: &str, name: &str) -> KnowledgeRecord {
             en: name.to_string(),
             zh_hans: None,
         },
-        stats: None,
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],

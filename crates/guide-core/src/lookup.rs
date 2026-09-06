@@ -1,7 +1,7 @@
 use crate::answers::AnswerContext;
 use crate::{AnswerStatus, GuideEngine};
 use game_knowledge::{
-    AcquisitionLead, DropSource, LocaleNames, PalStats, Provenance, RecipeRecord, WorkSuitability,
+    AcquisitionLead, DropSource, LocaleNames, Provenance, RecipeRecord, WorkSuitability,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -38,7 +38,6 @@ pub struct ItemLookup {
 pub struct PalLookup {
     pub id: String,
     pub names: LocaleNames,
-    pub stats: Option<PalStats>,
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
@@ -56,7 +55,7 @@ pub struct TechnologyLookup {
 
 pub type RecipeLookup = RecipeRecord;
 
-fn ambiguous_message(entity: &str, candidates: &[crate::ResolvedEntity]) -> String {
+pub(crate) fn ambiguous_message(entity: &str, candidates: &[crate::ResolvedEntity]) -> String {
     let ids = candidates
         .iter()
         .map(|candidate| candidate.id.as_str())
@@ -186,7 +185,6 @@ impl GuideEngine {
         let lookup = PalLookup {
             id: pal.id.clone(),
             names: pal.names.clone(),
-            stats: pal.stats.clone(),
             work_suitability: pal.work_suitability.clone(),
             drops: pal.drops.clone(),
             habitat_ids: pal.habitat_ids.clone(),
@@ -214,13 +212,7 @@ impl GuideEngine {
             let mut unknown_fields = BTreeSet::new();
             for field in &evidence.unresolved_fields {
                 match field.as_str() {
-                    "stats_scale_semantics" => {
-                        unknown_fields.insert("stats are unknown");
-                    }
-                    "work_suitability_semantics" => {
-                        unknown_fields.insert("work suitability is unknown");
-                    }
-                    "drops" | "drop_probability_representation" => {
+                    "drops" => {
                         unknown_fields.insert("drops are unknown");
                     }
                     "habitat_ids" => {

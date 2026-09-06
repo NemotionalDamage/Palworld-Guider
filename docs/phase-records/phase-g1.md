@@ -47,7 +47,7 @@ Paldb current pages report Paldium Fragment as five Stone at a Crusher, Pal Sphe
 - The seed facts have not been cross-checked against a second reviewed source.
 - Paldb is a community database and may lag behind a Palworld patch; each persisted fact carries a change-risk warning.
 - The expanded core-item set has not been cross-checked against a second reviewed source.
-- No habitat, breeding rule, Pal stats, or broader item-use claim was promoted from the core-item source.
+- No habitat, breeding rule, or broader item-use claim was promoted from the core-item source.
 - The current dataset is intentionally small and is not a complete game encyclopedia.
 
 ## Verification
@@ -146,7 +146,7 @@ The canonical dataset audit covered all 38 reviewed facts. The Rust loader repor
 The 4,633-row candidate audit found no missing shared intake fields: every candidate has its class fields, provenance, and, where applicable, native and local evidence metadata. Knowledge-completeness blockers are material:
 
 - Item: 78 of 1,520 descriptions are null without a listed description blocker, and all 1,520 acquisition-lead lists are empty without a listed acquisition blocker. Rarity is explicitly unknown and its numeric-semantics blocker is recorded.
-- Pal: all 309 stats are null with a recorded stats-scale blocker, all 309 drop lists are empty with a recorded drop-probability blocker, and all 309 habitat lists are empty without an explicit habitat blocker.
+- Pal: all 309 drop lists are empty with a recorded drop-probability blocker, and all 309 habitat lists are empty without an explicit habitat blocker. (Pal stats were later dropped as a knowledge field because individual values are not fixed.)
 - Recipe: all 915 station lists contain only `unresolved`, so the batch cannot be promoted as reviewed recipe knowledge yet. Technology and duration are null for all 915, and empty-byproduct semantics are not explicit.
 - Alias: all 1,520 rows are structurally complete; Chinese values intentionally mirror canonical localized names for current locale resolution.
 - Progression relationship: all 369 rows are structurally complete, but every `from_id` references a Technology record absent from the candidate set, so reference integrity blocks promotion.
@@ -181,9 +181,9 @@ The full workspace test suite passed after the classified-file loader, canonical
 
 The project owner approved promoting the clear identity and localization subset of the 309 local-build Pal candidates. The batch required a native Pal row, a non-placeholder English name, and a resolved Simplified Chinese name. It excluded six `en_text`/`zh_Hans_Text` placeholder rows, `SheepBall` because it duplicates the native identity already represented by Lamball, and five additional rows with unresolved Chinese placeholder localization (including `Unidentified Pal` English values).
 
-`data/reviewed/pals.jsonl` now contains 298 promoted Pal records with bilingual names, native row IDs, local evidence, and explicit uncertainty blockers for stats, work suitability, drops, and habitats. `data/reviewed/aliases.jsonl` contains their 298 matching Simplified Chinese aliases. Stats remain null and work suitability, drops, and habitats remain empty rather than promoting unresolved DataTable semantics. The canonical dataset now contains 299 Pals including the existing Lamball record.
+`data/reviewed/pals.jsonl` now contains 298 promoted Pal records with bilingual names, native row IDs, local evidence, and explicit uncertainty blockers for work suitability, drops, and habitats. `data/reviewed/aliases.jsonl` contains their 298 matching Simplified Chinese aliases. Work suitability, drops, and habitats remain empty rather than promoting unresolved DataTable semantics. (Pal stats were later dropped because individual values are not fixed.) The canonical dataset now contains 299 Pals including the existing Lamball record.
 
-`lookup_pal` now converts local-evidence blockers into answer-level uncertainty, so a query such as `美露帕` resolves deterministically to `PAL_ALPACA` while explicitly reporting that stats, work suitability, drops, and habitats are unknown. The canonical audit was also corrected to resolve Pal aliases through `DT_PalNameText_Common` instead of treating every alias as an Item alias.
+`lookup_pal` now converts local-evidence blockers into answer-level uncertainty, so a query such as `美露帕` resolves deterministically to `PAL_ALPACA` while explicitly reporting that work suitability, drops, and habitats are unknown. The canonical audit was also corrected to resolve Pal aliases through `DT_PalNameText_Common` instead of treating every alias as an Item alias.
 
 The refreshed audit covers 1,348 canonical records and 2,486 field facts: 1,788 exact, 286 partial, 6 conflicting, 37 not represented locally, and 369 unresolved mappings. Missing localization, ambiguous mappings, schema failures, provenance failures, and unclassified facts are all zero. Mapping success is 98.9541%. The report SHA-256 is `42dfeeb8d801bf1b98eee47ddea8275bb893bf68a4a843bc08dc58001aa67529`; raw exports and generated reports remain uncommitted.
 
@@ -241,3 +241,20 @@ Final verification passed:
 - `git diff --check`
 
 Remaining Item coverage is limited to the six deferred native-row identity duplicates, duplicate-locale alias coverage, and the already explicit rarity and acquisition-lead unknowns.
+
+## Native-Row Identity Resolution
+
+On 2026-09-05 the project owner resolved the six deferred native-row identity duplicates. The decision: when a local-build candidate shares a `native_row_id` with an existing legacy seed record, the legacy seed ID is authoritative and the local-build candidate is permanently deferred.
+
+The six resolved pairs:
+
+| Local-build candidate | Legacy seed ID (authoritative) | Shared native_row_id |
+|---|---|---|
+| `ITEM_AXE_TIER_00` | `ITEM_WOODEN_CLUB` | `Axe_Tier_00` |
+| `ITEM_BERRIES` | `ITEM_RED_BERRIES` | `Berries` |
+| `ITEM_MEAT_SHEEPBALL` | `ITEM_LAMBALL_MUTTON` | `Meat_SheepBall` |
+| `ITEM_MONEY` | `ITEM_GOLD_COIN` | `Money` |
+| `ITEM_PALSPHERE` | `ITEM_PAL_SPHERE` | `PalSphere` |
+| `ITEM_PAL_CRYSTAL_S` | `ITEM_PALDIUM_FRAGMENT` | `Pal_crystal_S` |
+
+The two preserved Wooden Club conflict records (`CONFLICT_ITEM_WOODEN_CLUB_PRODUCT_IDENTITY` and `CONFLICT_RECIPE_WOODEN_CLUB_INGREDIENTS`) in `data/reviewed/facts.jsonl` are now marked `resolved` in favor of the legacy seed values. No local-build candidate was promoted for any of these six native_row_id values. The 22 duplicate-locale aliases remain skipped as before.

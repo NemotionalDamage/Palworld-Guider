@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::models::{
-    AliasRecord, Confidence, ElementType, ItemRecord, KnowledgeRecord, LocalEvidenceMetadata,
-    LocaleNames, LocalizationStatus, PalRecord, ProgressionRelationKind,
+    AliasRecord, Confidence, DropSource, ElementType, ItemRecord, KnowledgeRecord,
+    LocalEvidenceMetadata, LocaleNames, LocalizationStatus, PalRecord, ProgressionRelationKind,
     ProgressionRelationshipRecord, Provenance, RecipeIngredient, RecipeItem, RecipeRecord,
     ReviewStatus, WorkKind, WorkSuitability,
 };
@@ -52,10 +52,6 @@ const TECHNOLOGY_FIELDS: &[&str] = &[
 ];
 const PAL_FIELDS: &[&str] = &[
     "IsPal",
-    "Hp",
-    "MeleeAttack",
-    "ShotAttack",
-    "Defense",
     "Support",
     "CraftSpeed",
     "ElementType1",
@@ -68,7 +64,6 @@ const PAL_FIELDS: &[&str] = &[
     "WorkSuitability_Collection",
     "WorkSuitability_Deforest",
     "WorkSuitability_Mining",
-    "WorkSuitability_OilExtraction",
     "WorkSuitability_ProductMedicine",
     "WorkSuitability_Cool",
     "WorkSuitability_Transport",
@@ -228,18 +223,9 @@ pub struct LocalTechnologyRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LocalPalStats {
-    pub hp: i64,
-    pub melee_attack: i64,
-    pub shot_attack: i64,
-    pub defense: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocalPalRow {
     pub native_row_id: String,
     pub is_pal: Option<bool>,
-    pub stats: Option<LocalPalStats>,
     pub element_type1: Option<String>,
     pub element_type2: Option<String>,
     pub work_suitability: BTreeMap<String, i64>,
@@ -914,24 +900,6 @@ fn parse_technology(native_row_id: &str, row: &Value) -> Result<LocalTechnologyR
 
 fn parse_pal(native_row_id: &str, row: &Value) -> Result<LocalPalRow, RowParseError> {
     let is_pal = optional_bool(row, "IsPal")?;
-    let stats = if [
-        optional_integer(row, "Hp")?,
-        optional_integer(row, "MeleeAttack")?,
-        optional_integer(row, "ShotAttack")?,
-        optional_integer(row, "Defense")?,
-    ]
-    .iter()
-    .all(|value| value.is_some())
-    {
-        Some(LocalPalStats {
-            hp: optional_integer(row, "Hp")?.unwrap_or_default(),
-            melee_attack: optional_integer(row, "MeleeAttack")?.unwrap_or_default(),
-            shot_attack: optional_integer(row, "ShotAttack")?.unwrap_or_default(),
-            defense: optional_integer(row, "Defense")?.unwrap_or_default(),
-        })
-    } else {
-        None
-    };
     let mut work_suitability = BTreeMap::new();
     for field in [
         "EmitFlame",
@@ -942,20 +910,20 @@ fn parse_pal(native_row_id: &str, row: &Value) -> Result<LocalPalRow, RowParseEr
         "Collection",
         "Deforest",
         "Mining",
-        "OilExtraction",
         "ProductMedicine",
         "Cool",
         "Transport",
         "MonsterFarm",
     ] {
         if let Some(level) = optional_integer(row, &format!("WorkSuitability_{field}"))? {
-            work_suitability.insert(field.to_string(), level);
+            if level > 0 {
+                work_suitability.insert(field.to_string(), level);
+            }
         }
     }
     Ok(LocalPalRow {
         native_row_id: native_row_id.to_string(),
         is_pal,
-        stats,
         element_type1: optional_enum(row, "ElementType1")?,
         element_type2: optional_enum(row, "ElementType2")?,
         work_suitability,
@@ -1253,6 +1221,18 @@ fn stable_hash(value: &str) -> u64 {
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
+}
+
+fn community_item_id(native_row_id: &str) -> Option<&'static str> {
+    match native_row_id {
+        "Axe_Tier_00" => Some("ITEM_WOODEN_CLUB"),
+        "Berries" => Some("ITEM_RED_BERRIES"),
+        "Meat_SheepBall" => Some("ITEM_LAMBALL_MUTTON"),
+        "Money" => Some("ITEM_GOLD_COIN"),
+        "Pal_crystal_S" => Some("ITEM_PALDIUM_FRAGMENT"),
+        "PalSphere" => Some("ITEM_PAL_SPHERE"),
+        _ => None,
+    }
 }
 
 fn local_candidate_provenance() -> Provenance {
@@ -1575,7 +1555,10 @@ pub fn generate_candidates(
                 }),
                 provenance: local_candidate_provenance(),
             }));
-            item_ids.insert(row.native_row_id.clone(), id);
+            let canonical_id = community_item_id(&row.native_row_id)
+                .map(String::from)
+                .unwrap_or(id);
+            item_ids.insert(row.native_row_id.clone(), canonical_id);
             candidate_items += 1;
             push_outcome(
                 &mut outcomes,
@@ -1729,6 +1712,13 @@ pub fn generate_candidates(
     }
 
     if includes(batch, IntakeBatch::Pals) {
+        let mut drops_by_pal: BTreeMap<String, Vec<&LocalDropRow>> = BTreeMap::new();
+        for drop in tables.drop_rows() {
+            drops_by_pal
+                .entry(drop.character_id.clone())
+                .or_default()
+                .push(drop);
+        }
         for row in tables.pal_rows() {
             let Some(true) = row.is_pal else {
                 push_outcome(
@@ -1799,15 +1789,31 @@ pub fn generate_candidates(
                 .element_type2
                 .as_deref()
                 .and_then(ElementType::from_native);
+            let drops = drops_by_pal
+                .get(&row.native_row_id)
+                .map(|pal_drops| {
+                    pal_drops
+                        .iter()
+                        .filter_map(|drop| {
+                            let item_id = item_ids.get(&drop.item_id)?;
+                            Some(DropSource {
+                                item_id: item_id.clone(),
+                                min_quantity: drop.min_quantity.max(0) as u32,
+                                max_quantity: drop.max_quantity.max(0) as u32,
+                                probability_percent: drop.rate as f32,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             records.push(KnowledgeRecord::Pal(PalRecord {
                 id: id.clone(),
                 names: LocaleNames {
                     en: english_name,
                     zh_hans: chinese_name,
                 },
-                stats: None,
                 work_suitability,
-                drops: Vec::new(),
+                drops,
                 habitat_ids: Vec::new(),
                 element_type1,
                 element_type2,
@@ -1815,12 +1821,8 @@ pub fn generate_candidates(
                 local_evidence: Some(LocalEvidenceMetadata {
                     source_table: "DT_PalMonsterParameter".to_string(),
                     localization_status: LocalizationStatus::Resolved,
-                    unresolved_fields: vec![
-                        "stats_scale_semantics".to_string(),
-                        "drop_probability_representation".to_string(),
-                        "oil_extraction_work_kind".to_string(),
-                    ],
-                    transformation_notes: "Direct legal Pal, name, element type, and confirmed work-kind extraction; numeric stats and drop rates remain unresolved."
+                    unresolved_fields: vec!["habitat_ids".to_string()],
+                    transformation_notes: "Direct legal Pal, name, element type, confirmed work-kind, and drop extraction; habitats remain unresolved."
                         .to_string(),
                 }),
                 provenance: local_candidate_provenance(),
@@ -1849,15 +1851,26 @@ pub fn generate_candidates(
     }
 
     if includes(batch, IntakeBatch::PalDrops) {
-        for row in tables.drop_rows() {
+        for drop in tables.drop_rows() {
+            let resolved = item_ids.contains_key(&drop.item_id);
             push_outcome(
                 &mut outcomes,
                 "DT_PalDropItem_Common",
-                &row.native_row_id,
-                "skip",
-                "drop_probability_representation_unresolved",
+                &drop.native_row_id,
+                if resolved {
+                    "embedded_candidate"
+                } else {
+                    "skip"
+                },
+                if resolved {
+                    "pal_drop"
+                } else {
+                    "unresolved_item_reference"
+                },
             );
-            unresolved_probability_units += 1;
+            if !resolved {
+                unresolved_probability_units += 1;
+            }
         }
     }
 
