@@ -38,6 +38,15 @@ fn normalize(value: &str) -> String {
 
 impl GuideEngine {
     pub fn resolve(&self, query: &str, kind: Option<EntityKind>) -> Resolution {
+        self.resolve_with_rarity(query, kind, None)
+    }
+
+    pub fn resolve_with_rarity(
+        &self,
+        query: &str,
+        kind: Option<EntityKind>,
+        rarity: Option<&str>,
+    ) -> Resolution {
         let store = self.store();
 
         let exact_id = |kind: EntityKind| {
@@ -83,7 +92,7 @@ impl GuideEngine {
         }
         let mut matches = Vec::new();
         if kind == Some(EntityKind::Recipe) {
-            let output_matches = self.recipe_output_matches(query, &normalized);
+            let output_matches = self.recipe_output_matches(query, &normalized, rarity);
             if output_matches.len() == 1 {
                 return Resolution::Unique(
                     output_matches
@@ -98,7 +107,9 @@ impl GuideEngine {
         }
         if kind.is_none_or(|expected| expected == EntityKind::Item) {
             for record in store.items() {
-                if normalize(&record.id) == normalized || normalize(&record.names.en) == normalized
+                if self.rarity_matches_item(&record.id, rarity)
+                    && (normalize(&record.id) == normalized
+                        || normalize(&record.names.en) == normalized)
                 {
                     matches.push(ResolvedEntity {
                         id: record.id.clone(),
@@ -138,6 +149,9 @@ impl GuideEngine {
             if normalize(&alias.alias) != normalized {
                 continue;
             }
+            if !self.rarity_matches_item(&alias.target_id, rarity) {
+                continue;
+            }
             if let Some(expected) = kind {
                 if self.entity_kind(&alias.target_id) != Some(expected) {
                     continue;
@@ -163,16 +177,22 @@ impl GuideEngine {
         }
     }
 
-    fn recipe_output_matches(&self, query: &str, normalized: &str) -> Vec<ResolvedEntity> {
+    fn recipe_output_matches(
+        &self,
+        query: &str,
+        normalized: &str,
+        rarity: Option<&str>,
+    ) -> Vec<ResolvedEntity> {
         let item_ids = self
             .store()
             .items()
             .filter(|item| {
-                normalize(&item.id) == normalized
-                    || normalize(&item.names.en) == normalized
-                    || self.store().aliases().any(|alias| {
-                        alias.target_id == item.id && normalize(&alias.alias) == normalized
-                    })
+                self.rarity_matches_item(&item.id, rarity)
+                    && (normalize(&item.id) == normalized
+                        || normalize(&item.names.en) == normalized
+                        || self.store().aliases().any(|alias| {
+                            alias.target_id == item.id && normalize(&alias.alias) == normalized
+                        }))
             })
             .map(|item| item.id.clone())
             .collect::<Vec<_>>();
@@ -185,6 +205,15 @@ impl GuideEngine {
                 matched_name: query.to_string(),
             })
             .collect()
+    }
+
+    fn rarity_matches_item(&self, item_id: &str, rarity: Option<&str>) -> bool {
+        let Some(rarity) = rarity else {
+            return true;
+        };
+        self.store()
+            .item(item_id)
+            .is_some_and(|item| item.rarity.eq_ignore_ascii_case(rarity))
     }
 
     pub(crate) fn entity_kind(&self, id: &str) -> Option<EntityKind> {

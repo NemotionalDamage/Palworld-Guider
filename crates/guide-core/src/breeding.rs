@@ -1,5 +1,5 @@
 use crate::{AnswerStatus, GuideEngine, ResolvedEntity};
-use game_knowledge::{BreedingRuleRecord, ConflictRecord, Provenance};
+use game_knowledge::{BreedingRuleRecord, ConflictRecord, ConflictResolution, Provenance};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -113,6 +113,7 @@ impl GuideEngine {
             .conflicts_for_subject(&rule.id)
             .into_iter()
             .chain(self.store().conflicts_for_subject(&result.child_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<&ConflictRecord>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
@@ -275,6 +276,7 @@ impl GuideEngine {
                     .subject_ids
                     .iter()
                     .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+                    .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
                     .collect::<Vec<&ConflictRecord>>();
                 let status = if conflicts.is_empty() {
                     AnswerStatus::Ok

@@ -1,5 +1,5 @@
 use crate::{AnswerStatus, GuideEngine};
-use game_knowledge::{ConflictRecord, ItemRecord, Provenance, RecipeRecord};
+use game_knowledge::{ConflictRecord, ConflictResolution, ItemRecord, Provenance, RecipeRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -97,17 +97,8 @@ pub struct CraftableCalculation {
 
 #[derive(Debug, Clone)]
 enum CalculationError {
-    AmbiguousRecipe {
-        item_id: String,
-        recipe_ids: Vec<String>,
-    },
-    Cycle {
-        path: Vec<String>,
-    },
-    DepthLimit {
-        item_id: String,
-        limit: usize,
-    },
+    Cycle { path: Vec<String> },
+    DepthLimit { item_id: String, limit: usize },
     QuantityOverflow,
 }
 
@@ -118,6 +109,7 @@ struct Expansion {
     byproducts: Vec<ByproductTotal>,
     provenances: Vec<Provenance>,
     subject_ids: BTreeSet<String>,
+    uncertainty: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,36 +132,37 @@ impl GuideEngine {
         item_query: &str,
         requested_quantity: u32,
     ) -> crate::GuideAnswer<MaterialCalculation> {
+        self.calculate_materials_filtered(item_query, requested_quantity, None)
+    }
+
+    pub fn calculate_materials_filtered(
+        &self,
+        item_query: &str,
+        requested_quantity: u32,
+        rarity: Option<&str>,
+    ) -> crate::GuideAnswer<MaterialCalculation> {
         if requested_quantity == 0 {
             return self.context().error("quantity must be greater than zero");
         }
-        let resolved = match self.resolve(item_query, Some(crate::EntityKind::Item)) {
-            crate::resolver::Resolution::Unique(resolved) => resolved,
-            crate::resolver::Resolution::Ambiguous(candidates) => {
-                let ids = candidate_ids(&candidates);
-                return self
-                    .context()
-                    .ambiguous(format!("ambiguous item name; candidates: {ids}"));
-            }
-            crate::resolver::Resolution::Unknown => {
-                return self
-                    .context()
-                    .unknown("unknown item; no reviewed record matches")
-            }
-        };
+        let resolved =
+            match self.resolve_with_rarity(item_query, Some(crate::EntityKind::Item), rarity) {
+                crate::resolver::Resolution::Unique(resolved) => resolved,
+                crate::resolver::Resolution::Ambiguous(candidates) => {
+                    let ids = candidate_ids(&candidates);
+                    return self
+                        .context()
+                        .ambiguous(format!("ambiguous item name; candidates: {ids}"));
+                }
+                crate::resolver::Resolution::Unknown => {
+                    return self
+                        .context()
+                        .unknown("unknown item; no reviewed record matches")
+                }
+            };
 
         let expansion =
             match self.expand_materials(&resolved.id, requested_quantity, &mut Vec::new(), 0) {
                 Ok(expansion) => expansion,
-                Err(CalculationError::AmbiguousRecipe {
-                    item_id,
-                    recipe_ids,
-                }) => {
-                    return self.context().ambiguous(format!(
-                        "ambiguous recipe for {item_id}; candidates: {}; no recipe was selected",
-                        recipe_ids.join(", ")
-                    ))
-                }
                 Err(CalculationError::Cycle { path }) => {
                     return self
                         .context()
@@ -190,6 +183,7 @@ impl GuideEngine {
             MaterialAcquisition::Raw => None,
         };
         let provenance_references = expansion.provenances.iter().collect::<Vec<_>>();
+        let calculation_uncertainty = expansion.uncertainty.clone();
         let calculation = MaterialCalculation {
             target_id: resolved.id.clone(),
             target_name: resolved.matched_name.clone(),
@@ -203,14 +197,22 @@ impl GuideEngine {
             .subject_ids
             .iter()
             .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<&ConflictRecord>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
         } else {
             AnswerStatus::Ambiguous
         };
-        self.context()
-            .answer(status, Some(calculation), provenance_references, conflicts)
+        let mut answer =
+            self.context()
+                .answer(status, Some(calculation), provenance_references, conflicts);
+        for message in calculation_uncertainty {
+            if !answer.uncertainty.contains(&message) {
+                answer.uncertainty.push(message);
+            }
+        }
+        answer
     }
 
     pub fn calculate_shortage(
@@ -218,6 +220,16 @@ impl GuideEngine {
         item_query: &str,
         requested_quantity: u32,
         inventory: &[InventoryEntry],
+    ) -> crate::GuideAnswer<ShortageCalculation> {
+        self.calculate_shortage_filtered(item_query, requested_quantity, inventory, None)
+    }
+
+    pub fn calculate_shortage_filtered(
+        &self,
+        item_query: &str,
+        requested_quantity: u32,
+        inventory: &[InventoryEntry],
+        rarity: Option<&str>,
     ) -> crate::GuideAnswer<ShortageCalculation> {
         let parsed_inventory = match self.parse_inventory(inventory) {
             Ok(parsed_inventory) => parsed_inventory,
@@ -227,7 +239,8 @@ impl GuideEngine {
                 return answer;
             }
         };
-        let mut material_answer = self.calculate_materials(item_query, requested_quantity);
+        let mut material_answer =
+            self.calculate_materials_filtered(item_query, requested_quantity, rarity);
         if material_answer.status != AnswerStatus::Ok {
             return material_answer.map_data(|_| None);
         }
@@ -283,6 +296,15 @@ impl GuideEngine {
         item_query: &str,
         inventory: &[InventoryEntry],
     ) -> crate::GuideAnswer<CraftableCalculation> {
+        self.calculate_craftable_count_filtered(item_query, inventory, None)
+    }
+
+    pub fn calculate_craftable_count_filtered(
+        &self,
+        item_query: &str,
+        inventory: &[InventoryEntry],
+        rarity: Option<&str>,
+    ) -> crate::GuideAnswer<CraftableCalculation> {
         let parsed_inventory = match self.parse_inventory(inventory) {
             Ok(parsed_inventory) => parsed_inventory,
             Err(errors) => {
@@ -291,7 +313,7 @@ impl GuideEngine {
                 return answer;
             }
         };
-        let mut material_answer = self.calculate_materials(item_query, 1);
+        let mut material_answer = self.calculate_materials_filtered(item_query, 1, rarity);
         if material_answer.status != AnswerStatus::Ok {
             return material_answer.map_data(|_| None);
         }
@@ -642,10 +664,13 @@ impl GuideEngine {
         } else if recipes.len() == 1 {
             self.expand_recipe(item, required_quantity, recipes[0], path, depth)?
         } else {
-            return Err(CalculationError::AmbiguousRecipe {
-                item_id: item.id.clone(),
-                recipe_ids: recipes.iter().map(|recipe| recipe.id.clone()).collect(),
-            });
+            let mut expansion = raw_expansion(item, required_quantity);
+            expansion.uncertainty.push(format!(
+                "{} has multiple reviewed recipes ({}); it was treated as a raw material in this tree",
+                item.names.en,
+                recipes.iter().map(|recipe| recipe.id.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+            expansion
         };
         path.pop();
         Ok(expansion)
@@ -666,6 +691,7 @@ impl GuideEngine {
         let mut node_byproducts = BTreeMap::new();
         let mut provenances = vec![item.provenance.clone(), recipe.provenance.clone()];
         let mut subject_ids = BTreeSet::new();
+        let mut uncertainty = Vec::new();
         subject_ids.insert(item.id.clone());
         subject_ids.insert(recipe.id.clone());
 
@@ -679,6 +705,7 @@ impl GuideEngine {
             children.push(expansion.node);
             provenances.extend(expansion.provenances);
             subject_ids.extend(expansion.subject_ids);
+            uncertainty.extend(expansion.uncertainty);
             merge_totals(&mut totals, expansion.totals)?;
             merge_byproducts(&mut byproducts, expansion.byproducts)?;
         }
@@ -737,6 +764,7 @@ impl GuideEngine {
             byproducts: all_byproducts,
             provenances,
             subject_ids,
+            uncertainty,
         })
     }
 }
@@ -1046,6 +1074,7 @@ fn raw_expansion(item: &ItemRecord, required_quantity: u32) -> Expansion {
         byproducts: Vec::new(),
         provenances: vec![item.provenance.clone()],
         subject_ids: BTreeSet::from([item.id.clone()]),
+        uncertainty: Vec::new(),
     }
 }
 

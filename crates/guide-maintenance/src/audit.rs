@@ -118,6 +118,46 @@ impl KnowledgeAudit {
                 .entry(record.provenance.source_id.clone())
                 .or_insert(0) += 1;
         }
+        for record in store.type_effectiveness() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.work_kind_descriptions() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.waza() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.pal_waza_unlocks() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.maps() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.map_regions() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.map_points() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
+        for record in store.pal_habitat_zones() {
+            *fact_counts
+                .entry(record.provenance.source_id.clone())
+                .or_insert(0) += 1;
+        }
 
         store
             .sources()

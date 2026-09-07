@@ -1,7 +1,8 @@
 use crate::answers::AnswerContext;
 use crate::{AnswerStatus, GuideEngine};
 use game_knowledge::{
-    AcquisitionLead, DropSource, LocaleNames, Provenance, RecipeRecord, WorkSuitability,
+    AcquisitionLead, ConflictResolution, DropSource, ElementType, LocaleNames, Provenance,
+    RecipeRecord, WorkSuitability,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -41,6 +42,8 @@ pub struct PalLookup {
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
+    pub element_type1: Option<ElementType>,
+    pub element_type2: Option<ElementType>,
     pub provenance: Provenance,
 }
 
@@ -72,7 +75,16 @@ impl GuideEngine {
     }
 
     pub fn lookup_item(&self, query: &str) -> crate::GuideAnswer<ItemLookup> {
-        let resolved = match self.resolve(query, Some(crate::EntityKind::Item)) {
+        self.lookup_item_filtered(query, None)
+    }
+
+    pub fn lookup_item_filtered(
+        &self,
+        query: &str,
+        rarity: Option<&str>,
+    ) -> crate::GuideAnswer<ItemLookup> {
+        let resolved = match self.resolve_with_rarity(query, Some(crate::EntityKind::Item), rarity)
+        {
             crate::resolver::Resolution::Unique(resolved) => resolved,
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
@@ -142,12 +154,17 @@ impl GuideEngine {
             }
         }
 
+        let acquisition_leads = if produced_by.is_empty() {
+            item.acquisition_leads.clone()
+        } else {
+            self.recipe_acquisition_leads(&produced_by)
+        };
         let lookup = ItemLookup {
             id: item.id.clone(),
             names: item.names.clone(),
             description: item.description.clone(),
             rarity: item.rarity.clone(),
-            acquisition_leads: item.acquisition_leads.clone(),
+            acquisition_leads,
             produced_by,
             used_as_ingredient,
             byproduct_of,
@@ -157,6 +174,7 @@ impl GuideEngine {
         let conflicts = related_subject_ids
             .iter()
             .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
@@ -165,6 +183,33 @@ impl GuideEngine {
         };
         self.context()
             .answer(status, Some(lookup), provenances, conflicts)
+    }
+
+    fn recipe_acquisition_leads(&self, produced_by: &[RecipeSummary]) -> Vec<AcquisitionLead> {
+        let mut leads = Vec::new();
+        for summary in produced_by {
+            let Some(recipe) = self.store().recipe(&summary.id) else {
+                continue;
+            };
+            let ingredients = recipe
+                .ingredients
+                .iter()
+                .map(|ingredient| {
+                    let name = self
+                        .store()
+                        .item(&ingredient.item_id)
+                        .map(|item| item.names.en.clone())
+                        .unwrap_or_else(|| ingredient.item_id.clone());
+                    format!("{name} x{}", ingredient.quantity)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            leads.push(AcquisitionLead {
+                action: format!("Craft at {}", recipe.crafting_stations.join(", ")),
+                notes: Some(format!("Materials: {ingredients}")),
+            });
+        }
+        leads
     }
 
     pub fn lookup_pal(&self, query: &str) -> crate::GuideAnswer<PalLookup> {
@@ -188,6 +233,8 @@ impl GuideEngine {
             work_suitability: pal.work_suitability.clone(),
             drops: pal.drops.clone(),
             habitat_ids: pal.habitat_ids.clone(),
+            element_type1: pal.element_type1,
+            element_type2: pal.element_type2,
             provenance: pal.provenance.clone(),
         };
         let related_subject_ids = pal
@@ -199,6 +246,7 @@ impl GuideEngine {
         let conflicts = std::iter::once(&pal.id)
             .chain(related_subject_ids.iter())
             .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
@@ -265,6 +313,7 @@ impl GuideEngine {
         let conflicts = std::iter::once(&technology.id)
             .chain(related_subject_ids.iter())
             .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok
@@ -280,19 +329,28 @@ impl GuideEngine {
     }
 
     pub fn lookup_recipe(&self, query: &str) -> crate::GuideAnswer<RecipeLookup> {
-        let resolved = match self.resolve(query, Some(crate::EntityKind::Recipe)) {
-            crate::resolver::Resolution::Unique(resolved) => resolved,
-            crate::resolver::Resolution::Ambiguous(candidates) => {
-                return self
-                    .context()
-                    .ambiguous(ambiguous_message("recipe", &candidates))
-            }
-            crate::resolver::Resolution::Unknown => {
-                return self
-                    .context()
-                    .unknown("unknown recipe; no reviewed output matches")
-            }
-        };
+        self.lookup_recipe_filtered(query, None)
+    }
+
+    pub fn lookup_recipe_filtered(
+        &self,
+        query: &str,
+        rarity: Option<&str>,
+    ) -> crate::GuideAnswer<RecipeLookup> {
+        let resolved =
+            match self.resolve_with_rarity(query, Some(crate::EntityKind::Recipe), rarity) {
+                crate::resolver::Resolution::Unique(resolved) => resolved,
+                crate::resolver::Resolution::Ambiguous(candidates) => {
+                    return self
+                        .context()
+                        .ambiguous(ambiguous_message("recipe", &candidates))
+                }
+                crate::resolver::Resolution::Unknown => {
+                    return self
+                        .context()
+                        .unknown("unknown recipe; no reviewed output matches")
+                }
+            };
         let recipe = self
             .store()
             .recipe(&resolved.id)
@@ -313,6 +371,7 @@ impl GuideEngine {
         let conflicts = std::iter::once(&recipe.id)
             .chain(related_subject_ids.iter())
             .flat_map(|subject_id| self.store().conflicts_for_subject(subject_id))
+            .filter(|conflict| conflict.resolution == ConflictResolution::Unresolved)
             .collect::<Vec<_>>();
         let status = if conflicts.is_empty() {
             AnswerStatus::Ok

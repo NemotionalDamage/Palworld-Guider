@@ -187,9 +187,21 @@ impl FactSheet {
                             value
                         }
                     };
-                    collect_quantities(&summary_value, &Vec::new(), &record.name, &mut quantities);
-                } else if !is_calculator_tool(&record.name) {
-                    collect_quantities(data, &Vec::new(), &record.name, &mut quantities);
+                    collect_quantities(
+                        &summary_value,
+                        &Vec::new(),
+                        &record.name,
+                        &mut quantities,
+                        &entity_names_by_id,
+                    );
+                } else if record.name == "get_recipe" {
+                    collect_quantities(
+                        data,
+                        &Vec::new(),
+                        &record.name,
+                        &mut quantities,
+                        &entity_names_by_id,
+                    );
                 }
             }
         }
@@ -338,9 +350,8 @@ impl std::fmt::Display for RenderError {
 pub fn submit_answer_tool() -> ToolSpec {
     ToolSpec {
         name: "submit_answer".to_string(),
-        description:
-            "Submit the final answer. Sentences must contain slot references instead of numbers."
-                .to_string(),
+        description: "Submit the final answer. Use natural sentences for non-numeric facts from GROUNDING or tool results; numbers and exact quantities must use slot references from FACT_SHEET."
+            .to_string(),
         parameters_schema: submit_answer_parameters(),
     }
 }
@@ -358,12 +369,6 @@ pub fn render(
             return Err(RenderError::EmptyDraft);
         }
     }
-    for id in &draft.slots {
-        if fact_sheet.slot(id).is_none() {
-            return Err(RenderError::UnknownSlot(id.clone()));
-        }
-    }
-
     let mut texts = draft.sentences.clone();
     if let Some(steps) = &draft.steps {
         texts.extend(steps.iter().cloned());
@@ -602,7 +607,7 @@ fn reject_unsupported_entities(
     Ok(())
 }
 
-fn contains_entity_phrase(text: &str, name: &str) -> bool {
+pub(crate) fn contains_entity_phrase(text: &str, name: &str) -> bool {
     let lowered_text = text.to_lowercase();
     let lowered_name = name.to_lowercase();
     if lowered_text.len() != text.len() || lowered_name.len() != name.len() {
@@ -673,22 +678,12 @@ fn calculator_summary(record: &ToolCallRecord, data: &Value) -> Option<Calculato
     }
 }
 
-fn is_calculator_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "calculate_materials"
-            | "calculate_shortage"
-            | "calculate_craftable_count"
-            | "calculate_breeding_result"
-            | "calculate_breeding_chain"
-    )
-}
-
 fn collect_quantities(
     value: &Value,
     inherited_context: &[String],
     source_tool: &str,
     quantities: &mut Vec<QuantityCandidate>,
+    entity_names_by_id: &BTreeMap<String, String>,
 ) {
     match value {
         Value::Object(fields) => {
@@ -700,6 +695,13 @@ fn collect_quantities(
                         "item_name" | "target_name" | "query" | "parent_a" | "parent_b"
                     ) {
                         field.as_str().map(str::to_string)
+                    } else if matches!(key.as_str(), "item_id" | "output_item_id") {
+                        field.as_str().map(|id| {
+                            entity_names_by_id
+                                .get(id)
+                                .cloned()
+                                .unwrap_or_else(|| id.to_string())
+                        })
                     } else {
                         None
                     }
@@ -727,12 +729,18 @@ fn collect_quantities(
                         }
                     }
                 }
-                collect_quantities(field, context, source_tool, quantities);
+                collect_quantities(field, context, source_tool, quantities, entity_names_by_id);
             }
         }
         Value::Array(values) => {
             for value in values {
-                collect_quantities(value, inherited_context, source_tool, quantities);
+                collect_quantities(
+                    value,
+                    inherited_context,
+                    source_tool,
+                    quantities,
+                    entity_names_by_id,
+                );
             }
         }
         _ => {}
@@ -795,7 +803,7 @@ fn format_number(value: f64) -> String {
     }
 }
 
-fn truncate_characters(text: &str, max_characters: usize) -> String {
+pub(crate) fn truncate_characters(text: &str, max_characters: usize) -> String {
     if text.chars().count() <= max_characters {
         return text.to_string();
     }

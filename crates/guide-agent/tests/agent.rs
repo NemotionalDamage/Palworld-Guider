@@ -1,4 +1,4 @@
-﻿use game_knowledge::KnowledgeStore;
+use game_knowledge::KnowledgeStore;
 use guide_agent::{AgentConfig, AgentLimits, AgentStatus, GuideAgent};
 use guide_core::GuideEngine;
 use guide_tools::{RuntimeToolResult, RuntimeToolSource, ToolDefinition, ToolRegistry, ToolStatus};
@@ -52,6 +52,27 @@ fn test_store() -> KnowledgeStore {
     KnowledgeStore::from_records(records).expect("conflict-free test store validates")
 }
 
+fn test_store_with_extra_lines(extra_lines: &[&str]) -> KnowledgeStore {
+    let mut lines = Vec::new();
+    for file_name in ["sources.jsonl", "facts.jsonl"] {
+        lines.extend(
+            fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+                .expect("canonical dataset reads")
+                .lines()
+                .map(str::to_string),
+        );
+    }
+    lines.extend(referenced_habitat_support_lines(&lines));
+    lines.extend(extra_lines.iter().map(|line| line.to_string()));
+    let records = lines
+        .iter()
+        .filter(|line| !line.contains("\"record_type\":\"conflict\""))
+        .map(|line| serde_json::from_str(line.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("test fixtures parse");
+    KnowledgeStore::from_records(records).expect("test store with extra lines validates")
+}
+
 fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
     let mut needed_zones = std::collections::BTreeSet::new();
     for line in base_lines {
@@ -93,6 +114,29 @@ fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
             .map(str::to_string),
     );
     support
+}
+
+fn registry_from_store(store: KnowledgeStore, configured: Option<&str>) -> ToolRegistry {
+    let configured = configured.map(str::to_string);
+    let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
+    let engine = GuideEngine::new(store, configured);
+    ToolRegistry::new(engine, index)
+}
+
+fn scripted_agent_with_store(
+    store: KnowledgeStore,
+    configured: Option<&str>,
+    responses: Vec<ChatResponse>,
+    max_tool_calls: usize,
+    max_reply_characters: usize,
+) -> (GuideAgent, Arc<MockProvider>) {
+    let provider = Arc::new(MockProvider::scripted(responses));
+    let agent = GuideAgent::new(
+        registry_from_store(store, configured),
+        Box::new(ProviderHandle(provider.clone())),
+        agent_config(max_tool_calls, max_reply_characters),
+    );
+    (agent, provider)
 }
 
 fn agent_config(max_tool_calls: usize, max_reply_characters: usize) -> AgentConfig {
@@ -229,7 +273,9 @@ fn agent_never_receives_raw_snapshot_state() {
     assert_eq!(answer.status, AgentStatus::Unknown);
     let calls = provider.calls();
     assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].messages[0].content, "What should I do next?");
+    assert!(calls[0].messages[0]
+        .content
+        .starts_with("What should I do next?\n\nGROUNDING"));
     for call in &calls {
         let serialized = serde_json::to_string(call).expect("request serializes");
         assert!(!serialized.contains("operator-local-session"));
@@ -382,6 +428,31 @@ fn submit_answer_renders_quantity_slot() {
 }
 
 #[test]
+fn submit_answer_tolerates_unused_unknown_slots() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood."], &["q1", "q9"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+    assert!(!answer
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("unknown slot")));
+}
+
+#[test]
 fn entity_ids_authorize_multiword_display_names() {
     let (agent, provider) = scripted_agent(
         None,
@@ -483,12 +554,12 @@ fn number_word_in_draft_falls_back() {
     );
     let answer = agent.ask("How do I get Wood?");
 
-    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert_eq!(answer.status, AgentStatus::Ok);
     assert!(answer
         .answer
         .as_deref()
         .unwrap()
-        .contains("I don't have enough reviewed data"));
+        .contains("Related reviewed records: Wood"));
     assert!(answer
         .uncertainty
         .iter()
@@ -550,16 +621,59 @@ fn model_returns_free_text_without_submit_answer() {
 }
 
 #[test]
+fn grounded_pal_habitat_question_answers_without_exact_tool_call() {
+    let pal_line = r#"{"record_type":"pal","id":"PAL_CHICKENPAL","names":{"en":"Chikipi","zh_hans":"皮皮鸡"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"normal","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let alias_line = r#"{"record_type":"alias","id":"ALIAS_PAL_CHICKENPAL_ZH_HANS","alias":"皮皮鸡","target_id":"PAL_CHICKENPAL","locale":"zh_hans","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let store = test_store_with_extra_lines(&[pal_line, alias_line]);
+    let (agent, _provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![ChatResponse::text(
+            "皮皮鸡的栖息地记录已匹配到多个已审核生成区域。",
+        )],
+        4,
+        1200,
+    );
+    let answer = agent.ask("皮皮鸡住在哪");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.tool_calls.is_empty());
+    let reply = answer.answer.as_deref().unwrap();
+    assert!(reply.contains("皮皮鸡"));
+    assert!(answer
+        .provenance
+        .iter()
+        .any(|provenance| provenance.source_id.starts_with("SRC-LOCAL-BUILD")));
+}
+
+#[test]
+fn grounded_item_use_question_answers_without_exact_tool_call() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![ChatResponse::text("帕鲁矿碎块可用于制作帕鲁球。")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("帕鲁矿碎块怎么用");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.tool_calls.is_empty());
+    let reply = answer.answer.as_deref().unwrap();
+    assert!(reply.contains("帕鲁矿碎块"));
+    assert!(reply.contains("帕鲁球"));
+}
+
+#[test]
 fn empty_free_text_uses_fallback() {
     let (agent, _provider) = scripted_agent(None, vec![ChatResponse::text("   ")], 4, 1200);
     let answer = agent.ask("What is Wood?");
 
-    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert_eq!(answer.status, AgentStatus::Ok);
     assert!(answer
         .answer
         .as_deref()
         .unwrap()
-        .contains("I don't have enough reviewed data"));
+        .contains("Related reviewed records: Wood"));
     assert!(answer
         .uncertainty
         .iter()

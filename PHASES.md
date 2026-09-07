@@ -1,10 +1,14 @@
 # Palworld Guider Phase Progress
 
-Last updated: 2026-09-06, Asia/Shanghai (map foundation and Pal habitat mapping complete).
+Last updated: 2026-09-07, Asia/Shanghai (post-G6 agent-grounding revision implemented; final live validation next).
 
 ## Current Status
 
 All phases G0–G6 are complete. Release Stage 1 (public static-information agent) and Release Stage 2 (single-user dynamic-state guide) are complete. Release Stage 3 (private multi-player guide) is deferred until a separate specification is written.
+
+Final pre-live audit was rerun on 2026-09-07 after the blocking fixes. Offline gates are clean for features backed by reviewed data: multi-recipe material dependencies now degrade deterministically to raw-material leaves with uncertainty, `ITEM_WOODEN_CLUB` is authoritative and no longer collides with `ITEM_BAT`, rarity-aware matching disambiguates rank variants, stored element/Waza/type-effectiveness/work-kind records are agent-visible, and resolved conflicts no longer poison answers. Missing knowledge such as breeding rules, crafting durations, byproducts, and incomplete acquisition details still returns `unknown` by design and is treated as data backlog, not a live-validation blocker. Final read-only in-game validation is next.
+
+Post-G6 agent-grounding revision: `guide-agent` now performs deterministic pre-generation grounding for each question. It extracts candidate entity names from the user question, runs exact `resolve_name` plus `get_item`/`get_pal`/`get_technology` lookups, and injects a compact reviewed-evidence block together with `search_structured_knowledge` results into the provider context. Grounding evidence feeds entity authorization and provenance while remaining separate from model-visible `tool_calls`. Factual prose questions such as “皮皮鸡住在哪” and “帕鲁矿碎块怎么用” can now render a normal grounded answer even when the model does not choose an exact tool. `knowledge-index` item summaries now include “used as ingredient” recipe relations. Calculations and numeric facts remain slot-bound to deterministic tools.
 
 Post-G6 knowledge enrichment: Pal element types (ElementType1/ElementType2) were promoted for all 299 canonical Pals from the local build `DT_PalMonsterParameter`. A new `ElementType` enum, `TypeEffectivenessRecord` schema, and `type_effectiveness.jsonl` data file were added. The type chart (9 super-effective relationships, 2x/0.5x/1x multipliers, dual-type multiplication) was registered from project-owner provision as source `SRC-TYPE-CHART-20260904`. The local-build intake now extracts element types for candidate Pal records. On 2026-09-05 the project owner resolved the six deferred native-row identity duplicates: legacy seed IDs are authoritative for all shared native_row_id values, the two Wooden Club conflict records are marked resolved in favor of the legacy seed, and the six local-build candidates are permanently deferred.
 
@@ -301,6 +305,35 @@ None.
 ### Blockers
 
 None.
+
+## Final Pre-Live Audit (2026-09-06)
+
+### Status
+
+Passed for the current scope: every feature backed by already-reviewed data now behaves deterministically or returns an explicit `unknown`/ambiguity instead of failing or fabricating.
+
+### Verification
+
+- Offline gates pass: `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets` (335 tests), and `git diff --check`.
+- `guide-maintenance version-check` reports knowledge, index, and configured version all `1.0.3` with no warnings.
+- `guide-maintenance audit-conflicts` reports 2 resolved conflicts and 0 unresolved conflicts; `audit-stale --game-version 1.0.3` reports 0 stale records.
+- Deterministic spot checks now succeed: `materials 1 "Pal Sphere"` resolves to `ITEM_PALDIUM_FRAGMENT` with a raw-leaf uncertainty message, and `lookup item "Wooden Club"` resolves to `ITEM_WOODEN_CLUB` instead of a candidate list.
+
+### Blockers
+
+None for features backed by reviewed data.
+
+### Remaining Data Backlog
+
+These do not block live validation because no reviewed record exists yet:
+- Breeding result and chain tools return `unknown` until a reviewed `breeding_rule` dataset is ingested.
+- Recipe `crafting_seconds` and byproduct data remain absent, so calculators cannot expose those fields.
+- Some rarity/rank variants still share display names; without an explicit rarity argument, deterministic lookup returns candidates rather than choosing silently.
+- Map routes and resource locations remain out of scope until separately reviewed.
+
+### Next Required Action
+
+Proceed to final read-only live in-game validation using the recorded G5 adapter procedure, then update this ledger with the live result.
 
 ## Phase Boundaries
 

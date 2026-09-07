@@ -3,6 +3,7 @@
 mod answers;
 mod breeding;
 mod calculators;
+mod enriched;
 mod lookup;
 mod map;
 mod resolver;

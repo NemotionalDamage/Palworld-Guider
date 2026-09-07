@@ -232,7 +232,7 @@ fn promotes_only_complete_recipe_alias_and_progression_candidates() {
     let store = game_knowledge::KnowledgeStore::load_directory("../../data/reviewed")
         .expect("canonical reviewed dataset must be valid");
 
-    assert_eq!(store.aliases().count(), 1805);
+    assert_eq!(store.aliases().count(), 1806);
     for (alias_id, alias_value, target_id) in [
         ("ALIAS_ITEM_WOOD_ZH_HANS", "木材", "ITEM_WOOD"),
         ("ALIAS_ITEM_WOOL_ZH_HANS", "羊毛", "ITEM_WOOL"),

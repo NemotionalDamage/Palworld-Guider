@@ -2,7 +2,7 @@ use game_knowledge::{
     Confidence, KnowledgeRecord, KnowledgeStore, LocaleNames, Provenance, RecipeIngredient,
     RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
 };
-use guide_core::{AnswerStatus, GuideEngine, InventoryEntry};
+use guide_core::{AnswerStatus, GuideEngine, InventoryEntry, MaterialAcquisition};
 
 fn source() -> SourceRecord {
     SourceRecord {
@@ -176,7 +176,15 @@ fn detects_alternative_recipes_cycles_depth_and_invalid_quantities() {
     ];
     let engine = test_store(alternative_store);
     let answer = engine.calculate_materials("Result", 1);
-    assert_eq!(answer.status, AnswerStatus::Ambiguous);
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let calculation = answer.data.expect("raw fallback calculation exists");
+    assert!(calculation.recipe_id.is_none());
+    assert!(matches!(
+        calculation.tree.acquisition,
+        MaterialAcquisition::Raw
+    ));
+    assert_eq!(calculation.totals[0].item_id, "ITEM_RESULT");
+    assert_eq!(calculation.totals[0].required_quantity, 1);
     assert!(answer
         .uncertainty
         .iter()

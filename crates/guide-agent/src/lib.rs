@@ -2,9 +2,9 @@
 
 mod answer;
 
-use answer::{AnswerDraft, AnswerStatus, FactSheet};
+use answer::{contains_entity_phrase, truncate_characters, AnswerDraft, AnswerStatus, FactSheet};
 use guide_core::{ProvenanceSummary, VersionInfo};
-use guide_tools::{ToolBudget, ToolRegistry, ToolStatus};
+use guide_tools::{ToolBudget, ToolEnvelope, ToolRegistry, ToolStatus};
 use provider::{ChatMessage, ChatProvider, ChatRequest, ToolRequest, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -54,13 +54,21 @@ pub struct AgentAnswer {
     pub errors: Vec<String>,
 }
 
+struct GroundingContext {
+    records: Vec<ToolCallRecord>,
+    provenance: BTreeSet<ProvenanceSummary>,
+    uncertainty: Vec<String>,
+    version: VersionInfo,
+    summary: String,
+}
+
 pub struct GuideAgent {
     registry: ToolRegistry,
     provider: Box<dyn ChatProvider>,
     config: AgentConfig,
 }
 
-const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Understand the player's question, select whitelisted deterministic tools for exact facts, recipes, quantities, shortages, breeding, or runtime observations, then submit the final answer with the submit_answer tool.\n\nAbsolute rules:\n1. Never write numbers. No digits, decimals, number words (one, two, three...), or ordinals (first, second...) in sentences or steps. Every quantity, coordinate, and numeric fact must be a slot reference such as {q1} taken from the FACT_SHEET.\n2. Only reference slot IDs listed in the current FACT_SHEET. Never invent, combine, or calculate slot values.\n3. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n4. If tool results do not support an answer, use status \"unknown\" and say you don't know. Never guess game facts.\n5. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n6. Entity names may appear as plain words only when they come from tool results or the player's question.\n7. Report missing, conflicting, or version-stale information from tool results in the uncertainty field.\n8. If the question is small talk or asks for an opinion (for example cuteness or friendliness), do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n9. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
+const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Numbers and exact quantities must be slot references such as {q1} from FACT_SHEET; do not write digits or number words in sentences or steps. For non-numeric facts, slots may be empty.\n3. Only reference slot IDs listed in the current FACT_SHEET. Never invent, combine, or calculate slot values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
 
 impl GuideAgent {
     pub fn new(
@@ -77,6 +85,122 @@ impl GuideAgent {
 
     pub fn set_state_snapshot(&mut self, snapshot: PlayerStateSnapshot) {
         self.registry.set_state_snapshot(snapshot);
+    }
+
+    fn ground_question(&self, question: &str, deadline: Instant) -> GroundingContext {
+        let mut grounding_budget = ToolBudget::new(24, deadline);
+        let mut records = Vec::new();
+        let mut provenance = BTreeSet::new();
+        let mut uncertainty = Vec::new();
+        let mut version = self.registry.base_version();
+        let known_entity_names = self.registry.known_entity_names();
+
+        for candidate in candidate_entities(question, &known_entity_names) {
+            let resolution = self.registry.dispatch(
+                "resolve_name",
+                &serde_json::json!({"query": candidate}),
+                &mut grounding_budget,
+            );
+            let Some(kind) = (resolution.status == ToolStatus::Ok)
+                .then_some(resolution.data.as_ref())
+                .flatten()
+                .and_then(|data| data.get("kind"))
+                .and_then(Value::as_str)
+            else {
+                for message in resolution.uncertainty {
+                    push_unique(&mut uncertainty, message);
+                }
+                continue;
+            };
+            let tool_name = match kind {
+                "item" => Some("get_item"),
+                "pal" => Some("get_pal"),
+                "technology" => Some("get_technology"),
+                _ => None,
+            };
+            let Some(tool_name) = tool_name else {
+                continue;
+            };
+            let envelope = self.registry.dispatch(
+                tool_name,
+                &serde_json::json!({"query": candidate}),
+                &mut grounding_budget,
+            );
+            self.push_grounding_envelope(
+                tool_name,
+                &serde_json::json!({"query": candidate}),
+                envelope,
+                &mut records,
+                &mut provenance,
+                &mut uncertainty,
+                &mut version,
+            );
+        }
+
+        let search_arguments = serde_json::json!({"query": question, "limit": 5});
+        let search = self.registry.dispatch(
+            "search_structured_knowledge",
+            &search_arguments,
+            &mut grounding_budget,
+        );
+        for summary in search.provenance {
+            provenance.insert(summary);
+        }
+        for message in search.uncertainty {
+            push_unique(&mut uncertainty, message);
+        }
+        version = search.version;
+        let search_data = (search.status == ToolStatus::Ok)
+            .then_some(search.data)
+            .flatten();
+
+        GroundingContext {
+            summary: grounding_summary(&records, search_data.as_ref()),
+            records,
+            provenance,
+            uncertainty,
+            version,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_grounding_envelope(
+        &self,
+        name: &str,
+        arguments: &Value,
+        envelope: ToolEnvelope,
+        records: &mut Vec<ToolCallRecord>,
+        provenance: &mut BTreeSet<ProvenanceSummary>,
+        uncertainty: &mut Vec<String>,
+        version: &mut VersionInfo,
+    ) {
+        let ToolEnvelope {
+            status,
+            data,
+            provenance: envelope_provenance,
+            version: envelope_version,
+            uncertainty: envelope_uncertainty,
+            errors,
+        } = envelope;
+        for summary in envelope_provenance {
+            provenance.insert(summary);
+        }
+        for message in envelope_uncertainty {
+            push_unique(uncertainty, message);
+        }
+        *version = envelope_version;
+        if status != ToolStatus::Ok {
+            return;
+        }
+        records.push(ToolCallRecord {
+            round: 0,
+            id: format!("ground_{}", records.len() + 1),
+            name: name.to_string(),
+            arguments: arguments.clone(),
+            status,
+            data,
+            errors,
+        });
     }
 
     pub fn ask(&self, question: &str) -> AgentAnswer {
@@ -100,11 +224,18 @@ impl GuideAgent {
             .collect::<Vec<_>>();
         tools.push(answer::submit_answer_tool());
 
-        let mut messages = vec![ChatMessage::new("user", question)];
-        let mut records = Vec::new();
-        let mut provenance: BTreeSet<ProvenanceSummary> = BTreeSet::new();
-        let mut uncertainty = Vec::new();
-        let mut version = self.registry.base_version();
+        let GroundingContext {
+            records,
+            provenance,
+            uncertainty,
+            version,
+            summary,
+        } = self.ground_question(question, deadline);
+        let mut messages = vec![ChatMessage::new("user", format!("{question}\n\n{summary}"))];
+        let mut records = records;
+        let mut provenance = provenance;
+        let mut uncertainty = uncertainty;
+        let mut version = version;
         let rounds = self.config.limits.max_tool_calls + 1;
 
         for round in 0..rounds {
@@ -413,7 +544,11 @@ impl GuideAgent {
         AgentAnswer {
             status,
             answer: Some(reply),
-            tool_calls: records,
+            tool_calls: records
+                .iter()
+                .filter(|record| !record.id.starts_with("ground_"))
+                .cloned()
+                .collect(),
             provenance: provenance.into_iter().collect(),
             version,
             uncertainty,
@@ -432,12 +567,130 @@ impl GuideAgent {
         AgentAnswer {
             status: AgentStatus::Error,
             answer: None,
-            tool_calls: records,
+            tool_calls: records
+                .iter()
+                .filter(|record| !record.id.starts_with("ground_"))
+                .cloned()
+                .collect(),
             provenance: provenance.into_iter().collect(),
             version,
             uncertainty,
             errors: vec![message.into()],
         }
+    }
+}
+
+fn candidate_entities(question: &str, known_entity_names: &BTreeSet<String>) -> Vec<String> {
+    let mut candidates = known_entity_names
+        .iter()
+        .filter(|name| contains_grounding_entity(question, name))
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.chars().count()));
+    candidates.dedup();
+    candidates.truncate(4);
+    candidates
+}
+
+fn contains_grounding_entity(text: &str, name: &str) -> bool {
+    if name.chars().any(is_cjk_character) {
+        text.contains(name)
+    } else {
+        contains_entity_phrase(text, name)
+    }
+}
+
+fn is_cjk_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0x20000..=0x2FA1F
+    )
+}
+
+fn push_unique(target: &mut Vec<String>, message: String) {
+    if !target.contains(&message) {
+        target.push(message);
+    }
+}
+
+fn grounding_summary(records: &[ToolCallRecord], search_data: Option<&Value>) -> String {
+    if records.is_empty() && search_data.is_none() {
+        return "GROUNDING: no deterministic reviewed facts matched this question.".to_string();
+    }
+    let mut lines = vec![
+        "GROUNDING (reviewed deterministic evidence; do not invent facts beyond this):".to_string(),
+    ];
+    for record in records {
+        let Some(data) = &record.data else {
+            continue;
+        };
+        let compact = compact_grounding_data(&record.name, data);
+        let encoded = serde_json::to_string(&compact).unwrap_or_else(|_| "{}".to_string());
+        lines.push(format!(
+            "[{}] {}",
+            record.name,
+            truncate_characters(&encoded, 2000)
+        ));
+    }
+    if let Some(search_data) = search_data {
+        let compact = compact_grounding_data("search_structured_knowledge", search_data);
+        let encoded = serde_json::to_string(&compact).unwrap_or_else(|_| "{}".to_string());
+        lines.push(format!(
+            "[search_structured_knowledge] {}",
+            truncate_characters(&encoded, 2000)
+        ));
+    }
+    lines.join("\n")
+}
+
+fn compact_grounding_data(name: &str, data: &Value) -> Value {
+    match name {
+        "get_pal" => {
+            let Some(fields) = data.as_object() else {
+                return data.clone();
+            };
+            let mut compact = fields.clone();
+            if let Some(habitat_ids) = compact.remove("habitat_ids") {
+                let count = habitat_ids.as_array().map(Vec::len).unwrap_or(0);
+                compact.insert("habitat_zone_count".to_string(), serde_json::json!(count));
+                if let Some(ids) = habitat_ids.as_array() {
+                    let preview = ids.iter().take(20).cloned().collect::<Vec<_>>();
+                    compact.insert(
+                        "habitat_zone_ids_preview".to_string(),
+                        serde_json::json!(preview),
+                    );
+                }
+            }
+            Value::Object(compact)
+        }
+        "search_structured_knowledge" => {
+            let Some(fields) = data.as_object() else {
+                return data.clone();
+            };
+            let mut compact = serde_json::Map::new();
+            if let Some(results) = fields.get("results").and_then(Value::as_array) {
+                let trimmed = results
+                    .iter()
+                    .take(5)
+                    .map(|result| {
+                        let mut fields = result.as_object().cloned().unwrap_or_default();
+                        if let Some(summary) = fields.get("summary").and_then(Value::as_str) {
+                            fields.insert(
+                                "summary".to_string(),
+                                serde_json::json!(truncate_characters(summary, 300)),
+                            );
+                        }
+                        Value::Object(fields)
+                    })
+                    .collect::<Vec<_>>();
+                compact.insert("results".to_string(), Value::Array(trimmed));
+            }
+            Value::Object(compact)
+        }
+        _ => data.clone(),
     }
 }
 

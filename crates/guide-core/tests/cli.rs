@@ -78,7 +78,7 @@ fn cli_resolves_new_local_build_pals_through_chinese_names() {
 #[test]
 fn cli_resolves_complete_local_build_item_aliases_through_chinese_names() {
     for (query, expected_id, expected_status, expected_code) in [
-        ("木材", "ITEM_WOOD", "ambiguous", 1),
+        ("木材", "ITEM_WOOD", "ok", 0),
         ("羊毛", "ITEM_WOOL", "ok", 0),
     ] {
         let (answer, code) = run(&["--data", "../../data/reviewed", "lookup", "item", query]);

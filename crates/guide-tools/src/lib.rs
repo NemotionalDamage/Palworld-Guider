@@ -343,20 +343,55 @@ impl ToolRegistry {
     fn execute(&self, name: &str, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         match name {
             "resolve_name" => self.resolve_name(arguments, version),
-            "get_item" => match require_string(arguments, "query") {
-                Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_item(&query)),
+            "get_item" => match require_string(arguments, "query")
+                .and_then(|query| optional_rarity(arguments).map(|rarity| (query, rarity)))
+            {
+                Ok((query, rarity)) => ToolEnvelope::from_answer(
+                    self.engine.lookup_item_filtered(&query, rarity.as_deref()),
+                ),
                 Err(message) => ToolEnvelope::error(message, version),
             },
             "get_pal" => match require_string(arguments, "query") {
                 Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_pal(&query)),
                 Err(message) => ToolEnvelope::error(message, version),
             },
-            "get_recipe" => match require_string(arguments, "query") {
-                Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_recipe(&query)),
+            "get_recipe" => match require_string(arguments, "query")
+                .and_then(|query| optional_rarity(arguments).map(|rarity| (query, rarity)))
+            {
+                Ok((query, rarity)) => ToolEnvelope::from_answer(
+                    self.engine
+                        .lookup_recipe_filtered(&query, rarity.as_deref()),
+                ),
                 Err(message) => ToolEnvelope::error(message, version),
             },
             "get_technology" => match require_string(arguments, "query") {
                 Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_technology(&query)),
+                Err(message) => ToolEnvelope::error(message, version),
+            },
+            "get_type_effectiveness" => {
+                match optional_string(arguments, "attacking_type").and_then(|attacking| {
+                    optional_string(arguments, "defending_type")
+                        .map(|defending| (attacking, defending))
+                }) {
+                    Ok((attacking, defending)) => ToolEnvelope::from_answer(
+                        self.engine
+                            .get_type_effectiveness(attacking.as_deref(), defending.as_deref()),
+                    ),
+                    Err(message) => ToolEnvelope::error(message, version),
+                }
+            }
+            "get_waza" => match require_string(arguments, "query") {
+                Ok(query) => ToolEnvelope::from_answer(self.engine.lookup_waza(&query)),
+                Err(message) => ToolEnvelope::error(message, version),
+            },
+            "get_pal_waza_unlocks" => match require_string(arguments, "pal") {
+                Ok(pal) => ToolEnvelope::from_answer(self.engine.get_pal_waza_unlocks(&pal)),
+                Err(message) => ToolEnvelope::error(message, version),
+            },
+            "get_work_kind_descriptions" => match optional_string(arguments, "query") {
+                Ok(query) => ToolEnvelope::from_answer(
+                    self.engine.get_work_kind_descriptions(query.as_deref()),
+                ),
                 Err(message) => ToolEnvelope::error(message, version),
             },
             "locate_coordinate" => match coordinate(arguments) {
@@ -367,9 +402,10 @@ impl ToolRegistry {
             "find_pal_spawn_zones" => self.pal_spawn_zones(arguments, version),
             "search_structured_knowledge" => self.search(arguments, version),
             "calculate_materials" => match self.material_arguments(arguments) {
-                Ok((query, quantity)) => {
-                    ToolEnvelope::from_answer(self.engine.calculate_materials(&query, quantity))
-                }
+                Ok((query, quantity, rarity)) => ToolEnvelope::from_answer(
+                    self.engine
+                        .calculate_materials_filtered(&query, quantity, rarity.as_deref()),
+                ),
                 Err(message) => ToolEnvelope::error(message, version),
             },
             "calculate_shortage" => self.shortage(arguments, version),
@@ -522,31 +558,46 @@ impl ToolRegistry {
         ToolEnvelope::from_search(self.index.search(&query, limit))
     }
 
-    fn material_arguments(&self, arguments: &Value) -> Result<(String, u32), String> {
+    fn material_arguments(
+        &self,
+        arguments: &Value,
+    ) -> Result<(String, u32, Option<String>), String> {
         let query = require_string(arguments, "query")?;
         let quantity = require_bounded_integer(arguments, "quantity", 1, u32::MAX as u64)? as u32;
-        Ok((query, quantity))
+        let rarity = optional_rarity(arguments)?;
+        Ok((query, quantity, rarity))
     }
 
     fn shortage(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         match self
             .material_arguments(arguments)
-            .and_then(|(query, quantity)| {
-                parse_inventory(arguments).map(|inventory| (query, quantity, inventory))
+            .and_then(|(query, quantity, rarity)| {
+                parse_inventory(arguments).map(|inventory| (query, quantity, rarity, inventory))
             }) {
-            Ok((query, quantity, inventory)) => ToolEnvelope::from_answer(
-                self.engine.calculate_shortage(&query, quantity, &inventory),
-            ),
+            Ok((query, quantity, rarity, inventory)) => {
+                ToolEnvelope::from_answer(self.engine.calculate_shortage_filtered(
+                    &query,
+                    quantity,
+                    &inventory,
+                    rarity.as_deref(),
+                ))
+            }
             Err(message) => ToolEnvelope::error(message, version),
         }
     }
 
     fn craftable(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
-        match require_string(arguments, "query")
-            .and_then(|query| parse_inventory(arguments).map(|inventory| (query, inventory)))
-        {
-            Ok((query, inventory)) => {
-                ToolEnvelope::from_answer(self.engine.calculate_craftable_count(&query, &inventory))
+        match require_string(arguments, "query").and_then(|query| {
+            optional_rarity(arguments).and_then(|rarity| {
+                parse_inventory(arguments).map(|inventory| (query, rarity, inventory))
+            })
+        }) {
+            Ok((query, rarity, inventory)) => {
+                ToolEnvelope::from_answer(self.engine.calculate_craftable_count_filtered(
+                    &query,
+                    &inventory,
+                    rarity.as_deref(),
+                ))
             }
             Err(message) => ToolEnvelope::error(message, version),
         }
@@ -618,7 +669,14 @@ fn build_definitions() -> Vec<ToolDefinition> {
             name: "get_item".to_string(),
             description: "Look up an item with acquisition, crafting, and Pal-drop relationships."
                 .to_string(),
-            parameters_schema: object_query(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"]}
+                },
+                "required": ["query"]
+            }),
         },
         ToolDefinition {
             name: "get_pal".to_string(),
@@ -629,12 +687,56 @@ fn build_definitions() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "get_recipe".to_string(),
             description: "Look up a reviewed recipe by its output item.".to_string(),
-            parameters_schema: object_query(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"]}
+                },
+                "required": ["query"]
+            }),
         },
         ToolDefinition {
             name: "get_technology".to_string(),
             description: "Look up a technology and the recipes it unlocks.".to_string(),
             parameters_schema: object_query(),
+        },
+        ToolDefinition {
+            name: "get_type_effectiveness".to_string(),
+            description: "Look up reviewed element type-effectiveness multipliers."
+                .to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attacking_type": {"type": "string"},
+                    "defending_type": {"type": "string"}
+                },
+                "required": []
+            }),
+        },
+        ToolDefinition {
+            name: "get_waza".to_string(),
+            description: "Look up a reviewed Pal active skill by name or ID.".to_string(),
+            parameters_schema: object_query(),
+        },
+        ToolDefinition {
+            name: "get_pal_waza_unlocks".to_string(),
+            description: "List reviewed active skills a Pal unlocks by level.".to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {"pal": {"type": "string"}},
+                "required": ["pal"]
+            }),
+        },
+        ToolDefinition {
+            name: "get_work_kind_descriptions".to_string(),
+            description: "Explain a reviewed work-suitability kind or list all kinds."
+                .to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": []
+            }),
         },
         ToolDefinition {
             name: "locate_coordinate".to_string(),
@@ -687,7 +789,11 @@ fn build_definitions() -> Vec<ToolDefinition> {
                 .to_string(),
             parameters_schema: json!({
                 "type": "object",
-                "properties": {"query": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1}},
+                "properties": {
+                    "query": {"type": "string"},
+                    "quantity": {"type": "integer", "minimum": 1},
+                    "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"]}
+                },
                 "required": ["query", "quantity"]
             }),
         },
@@ -699,6 +805,7 @@ fn build_definitions() -> Vec<ToolDefinition> {
                 "properties": {
                     "query": {"type": "string"},
                     "quantity": {"type": "integer", "minimum": 1},
+                    "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"]},
                     "inventory": inventory_schema()
                 },
                 "required": ["query", "quantity"]
@@ -710,7 +817,11 @@ fn build_definitions() -> Vec<ToolDefinition> {
                 .to_string(),
             parameters_schema: json!({
                 "type": "object",
-                "properties": {"query": {"type": "string"}, "inventory": inventory_schema()},
+                "properties": {
+                    "query": {"type": "string"},
+                    "rarity": {"type": "string", "enum": ["common", "uncommon", "rare", "epic", "legendary"]},
+                    "inventory": inventory_schema()
+                },
                 "required": ["query"]
             }),
         },
@@ -869,6 +980,32 @@ fn optional_bounded_integer(
         return Ok(None);
     }
     require_bounded_integer(arguments, name, minimum, maximum).map(Some)
+}
+
+fn optional_string(arguments: &Value, name: &str) -> Result<Option<String>, String> {
+    let Some(value) = arguments.get(name) else {
+        return Ok(None);
+    };
+    let string = value
+        .as_str()
+        .ok_or_else(|| format!("argument \"{name}\" must be a string"))?;
+    if string.trim().is_empty() {
+        return Err(format!("argument \"{name}\" must be a non-empty string"));
+    }
+    Ok(Some(string.trim().to_string()))
+}
+
+fn optional_rarity(arguments: &Value) -> Result<Option<String>, String> {
+    let Some(value) = arguments.get("rarity") else {
+        return Ok(None);
+    };
+    let rarity = value
+        .as_str()
+        .ok_or_else(|| "argument \"rarity\" must be a string".to_string())?;
+    match rarity.to_ascii_lowercase().as_str() {
+        "common" | "uncommon" | "rare" | "epic" | "legendary" => Ok(Some(rarity.to_string())),
+        _ => Err("argument \"rarity\" must be common, uncommon, rare, epic, or legendary".into()),
+    }
 }
 
 fn optional_entity_kind(arguments: &Value) -> Result<Option<EntityKind>, String> {

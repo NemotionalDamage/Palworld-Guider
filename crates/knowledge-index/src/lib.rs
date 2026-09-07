@@ -1,8 +1,9 @@
 //! Lexical search over reviewed Palworld knowledge.
 
 use game_knowledge::{
-    Confidence, HabitatRecord, ItemRecord, KnowledgeStore, PalRecord, Provenance, RecipeRecord,
-    ReviewStatus, TechnologyRecord,
+    Confidence, HabitatRecord, ItemRecord, KnowledgeStore, PalRecord, PalWazaUnlock, Provenance,
+    RecipeRecord, ReviewStatus, TechnologyRecord, TypeEffectivenessRecord, WazaRecord,
+    WorkKindDescriptionRecord,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -156,6 +157,18 @@ impl KnowledgeIndex {
         }
         for record in store.habitats() {
             add_summary(habitat_summary(record, store))?;
+        }
+        for record in store.type_effectiveness() {
+            add_summary(type_effectiveness_summary(record))?;
+        }
+        for record in store.work_kind_descriptions() {
+            add_summary(work_kind_description_summary(record))?;
+        }
+        for record in store.waza() {
+            add_summary(waza_summary(record))?;
+        }
+        for record in store.pal_waza_unlocks() {
+            add_summary(pal_waza_unlock_summary(record, store))?;
         }
         writer.commit().map_err(|error| error.to_string())?;
         let reader = index.reader().map_err(|error| error.to_string())?;
@@ -335,6 +348,25 @@ fn item_summary(record: &ItemRecord, store: &KnowledgeStore) -> IndexedSummary {
         summary.push_str(&crafting.join("; "));
         summary.push('.');
     }
+    let mut used_as_ingredient = Vec::new();
+    for recipe in store.recipes() {
+        if recipe
+            .ingredients
+            .iter()
+            .any(|ingredient| ingredient.item_id == record.id)
+        {
+            used_as_ingredient.push(format!(
+                "craft {} at {}",
+                item_name(store, &recipe.output.item_id),
+                recipe.crafting_stations.join(", ")
+            ));
+        }
+    }
+    if !used_as_ingredient.is_empty() {
+        summary.push_str(" Used as ingredient: ");
+        summary.push_str(&used_as_ingredient.join("; "));
+        summary.push('.');
+    }
     IndexedSummary {
         record_id: record.id.clone(),
         record_type: "item".to_string(),
@@ -491,6 +523,81 @@ fn habitat_summary(record: &HabitatRecord, store: &KnowledgeStore) -> IndexedSum
         summary,
         provenance: ProvenanceBrief::from_provenance(&record.provenance),
     }
+}
+
+fn type_effectiveness_summary(record: &TypeEffectivenessRecord) -> IndexedSummary {
+    let attacking = element_label(&record.attacking_type);
+    let defending = element_label(&record.defending_type);
+    IndexedSummary {
+        record_id: record.id.clone(),
+        record_type: "type_effectiveness".to_string(),
+        title: format!("{attacking} vs {defending}"),
+        summary: format!(
+            "{attacking} attacks {defending} for {}x damage.",
+            record.multiplier
+        ),
+        provenance: ProvenanceBrief::from_provenance(&record.provenance),
+    }
+}
+
+fn work_kind_description_summary(record: &WorkKindDescriptionRecord) -> IndexedSummary {
+    let kind = serde_json::to_value(record.work_kind)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| record.id.clone());
+    IndexedSummary {
+        record_id: record.id.clone(),
+        record_type: "work_kind_description".to_string(),
+        title: record.names.en.clone(),
+        summary: format!("Work kind {kind}: {}.", record.description),
+        provenance: ProvenanceBrief::from_provenance(&record.provenance),
+    }
+}
+
+fn waza_summary(record: &WazaRecord) -> IndexedSummary {
+    let element = record
+        .element
+        .as_ref()
+        .map(element_label)
+        .unwrap_or_else(|| "untyped".to_string());
+    IndexedSummary {
+        record_id: record.id.clone(),
+        record_type: "waza".to_string(),
+        title: record.names.en.clone(),
+        summary: format!(
+            "Active skill {} ({element}, power {}, cooldown {}s).",
+            record.names.en, record.power, record.cool_time
+        ),
+        provenance: ProvenanceBrief::from_provenance(&record.provenance),
+    }
+}
+
+fn pal_waza_unlock_summary(record: &PalWazaUnlock, store: &KnowledgeStore) -> IndexedSummary {
+    let pal_name = store
+        .pal(&record.pal_id)
+        .map(|pal| pal.names.en.clone())
+        .unwrap_or_else(|| record.pal_id.clone());
+    let waza_name = store
+        .waza_by_id(&record.waza_id)
+        .map(|waza| waza.names.en.clone())
+        .unwrap_or_else(|| record.waza_id.clone());
+    IndexedSummary {
+        record_id: record.id.clone(),
+        record_type: "pal_waza_unlock".to_string(),
+        title: format!("{pal_name} learns {waza_name}"),
+        summary: format!(
+            "{pal_name} unlocks {waza_name} at level {}.",
+            record.unlock_level
+        ),
+        provenance: ProvenanceBrief::from_provenance(&record.provenance),
+    }
+}
+
+fn element_label(kind: &game_knowledge::ElementType) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn item_name(store: &KnowledgeStore, item_id: &str) -> String {
