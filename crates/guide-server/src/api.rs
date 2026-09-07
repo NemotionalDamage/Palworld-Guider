@@ -252,10 +252,10 @@ async fn ask(
         return api_error(ApiErrorCode::InvalidQuestion);
     }
     let now = Instant::now();
-    let prompt = {
+    let ask_context = {
         let mut sessions = lock_sessions(&state);
         match sessions.reserve_ask(&session_id, question, now) {
-            Ok(prompt) => prompt,
+            Ok(ask_context) => ask_context,
             Err(error) => return session_error(error),
         }
     };
@@ -287,13 +287,18 @@ async fn ask(
         );
     }
     let agent = state.inner.agent.clone();
-    let blocking_prompt = prompt.clone();
+    let blocking_question = ask_context.current_question.clone();
+    let blocking_history = ask_context.history.clone();
     let blocking_flag = cancellation_flag.clone();
     let task = tokio::task::spawn_blocking(move || {
         agent
             .read()
             .expect("agent lock is not poisoned")
-            .ask_with_cancellation(&blocking_prompt, &blocking_flag)
+            .ask_with_history_and_cancellation(
+                &blocking_question,
+                &blocking_history,
+                &blocking_flag,
+            )
     });
     let outcome = tokio::time::timeout(state.inner.limits.ask_timeout, async {
         if token.is_some() {

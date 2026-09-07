@@ -1,6 +1,6 @@
 use game_knowledge::{
     Confidence, ConflictRecord, ConflictResolution, KnowledgeRecord, KnowledgeStore, LocaleNames,
-    Provenance, ReviewStatus, SourceRecord,
+    Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
 };
 use guide_core::{AnswerStatus, GuideEngine};
 
@@ -127,6 +127,99 @@ fn resolves_ids_names_and_reviewed_aliases() {
         answer.data.as_ref().expect("alias resolves").id,
         "ITEM_ALPHA"
     );
+}
+
+#[test]
+fn resolves_structured_localized_technology_names() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Technology(game_knowledge::TechnologyRecord {
+            id: "TECH_WORKBENCH".to_string(),
+            names: LocaleNames {
+                en: "Primitive Workbench".to_string(),
+                zh_hans: Some("原始的作业台".to_string()),
+            },
+            level: 1,
+            native_row_id: None,
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("test records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_technology("原始的作业台");
+
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    assert_eq!(
+        answer.data.expect("technology resolves").id,
+        "TECH_WORKBENCH"
+    );
+}
+
+#[test]
+fn item_lookup_names_and_quantifies_recipe_relations() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_PALDIUM_FRAGMENT".to_string(),
+            names: LocaleNames {
+                en: "Paldium Fragment".to_string(),
+                zh_hans: Some("帕鲁矿碎块".to_string()),
+            },
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: Vec::new(),
+            native_row_id: None,
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_PAL_SPHERE".to_string(),
+            names: LocaleNames {
+                en: "Pal Sphere".to_string(),
+                zh_hans: Some("帕鲁球".to_string()),
+            },
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: Vec::new(),
+            native_row_id: None,
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(RecipeRecord {
+            id: "RECIPE_PAL_SPHERE".to_string(),
+            output: RecipeItem {
+                item_id: "ITEM_PAL_SPHERE".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![RecipeIngredient {
+                item_id: "ITEM_PALDIUM_FRAGMENT".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Pal Sphere Workbench".to_string()],
+            technology_id: None,
+            crafting_seconds: None,
+            byproducts: Vec::new(),
+            native_row_id: None,
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("test records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("帕鲁矿碎块");
+
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer.data.expect("item resolves");
+    let relation = item
+        .used_as_ingredient
+        .iter()
+        .find(|recipe| recipe.id == "RECIPE_PAL_SPHERE")
+        .expect("Pal Sphere uses Paldium Fragment");
+    assert_eq!(relation.output_item_name, "Pal Sphere");
+    assert_eq!(relation.ingredient_quantity, Some(1));
 }
 
 #[test]

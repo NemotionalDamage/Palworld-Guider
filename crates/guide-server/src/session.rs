@@ -1,4 +1,4 @@
-use guide_agent::AgentAnswer;
+use guide_agent::{AgentAnswer, AgentHistoryEntry};
 use state_snapshot::{PlayerStateSnapshot, SnapshotFreshness};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -83,6 +83,12 @@ pub struct SessionRecord {
     snapshot_value: Option<PlayerStateSnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionAsk {
+    pub current_question: String,
+    pub history: Vec<AgentHistoryEntry>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     limits: ServerLimits,
@@ -142,7 +148,7 @@ impl SessionStore {
         session_id: &str,
         question: &str,
         now: Instant,
-    ) -> Result<String, SessionError> {
+    ) -> Result<SessionAsk, SessionError> {
         let limits = self.limits;
         let record = self.live_session_mut(session_id, now)?;
         prune_window(&mut record.ask_times, now, Duration::from_secs(60));
@@ -151,26 +157,22 @@ impl SessionStore {
                 retry_after_secs: retry_after(record.ask_times[0], now),
             });
         }
-        let question = question.trim();
-        let mut prompt = String::from("Bounded guide context:\n");
-        for exchange in record
+        let history = record
             .exchanges
             .iter()
             .rev()
             .take(limits.max_history_exchanges)
             .rev()
-        {
-            let answer = exchange.answer.answer.as_deref().unwrap_or("[no answer]");
-            prompt.push_str("Question: ");
-            prompt.push_str(&exchange.question);
-            prompt.push_str("\nAnswer: ");
-            prompt.push_str(answer);
-            prompt.push('\n');
-        }
-        prompt.push_str("Current question: ");
-        prompt.push_str(question);
+            .map(|exchange| {
+                AgentHistoryEntry::new(exchange.question.clone(), exchange.answer.answer.clone())
+            })
+            .collect::<Vec<_>>();
+        let current_question = question.trim().to_string();
         record.ask_times.push(now);
-        Ok(prompt)
+        Ok(SessionAsk {
+            current_question,
+            history,
+        })
     }
 
     pub fn complete_ask(

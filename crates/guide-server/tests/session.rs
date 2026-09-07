@@ -81,10 +81,10 @@ fn follow_up_history_is_bounded() {
     for round in 0..6 {
         let now = start + Duration::from_secs(round);
         let question = format!("question {round}");
-        let prompt = store
+        let ask = store
             .reserve_ask(&session.id, &question, now)
             .expect("ask is reserved");
-        assert!(prompt.contains(&question));
+        assert_eq!(ask.current_question, question);
         complete_ask(
             &mut store,
             &session.id,
@@ -94,14 +94,26 @@ fn follow_up_history_is_bounded() {
         );
     }
 
-    let prompt = store
+    let ask = store
         .reserve_ask(&session.id, "question 6", start + Duration::from_secs(6))
         .expect("ask is reserved");
-    assert!(!prompt.contains("question 0"));
-    assert!(!prompt.contains("answer 0"));
-    assert!(prompt.contains("question 2"));
-    assert!(prompt.contains("answer 2"));
-    assert!(prompt.contains("question 6"));
+    assert_eq!(ask.current_question, "question 6");
+    assert!(!ask
+        .history
+        .iter()
+        .any(|entry| entry.question == "question 0"));
+    assert!(!ask
+        .history
+        .iter()
+        .any(|entry| entry.answer.as_deref() == Some("answer 0")));
+    assert!(ask
+        .history
+        .iter()
+        .any(|entry| entry.question == "question 2"));
+    assert!(ask
+        .history
+        .iter()
+        .any(|entry| entry.answer.as_deref() == Some("answer 2")));
 
     let record = store
         .session(&session.id, start + Duration::from_secs(6))
@@ -110,6 +122,34 @@ fn follow_up_history_is_bounded() {
     assert_eq!(record.exchanges[0].question, "question 2");
 }
 
+#[test]
+fn current_question_is_separate_from_bounded_history() {
+    let mut store = SessionStore::new(ServerLimits::default());
+    let start = start();
+    let session = store.create_session(start).expect("session is created");
+    complete_ask(
+        &mut store,
+        &session.id,
+        "地图坐标 4000,4000 附近最近的传送点是什么",
+        "古代文明遗址是较近的传送点。",
+        start,
+    );
+
+    let ask = store
+        .reserve_ask(&session.id, "皮皮鸡住在哪", start + Duration::from_secs(1))
+        .expect("ask is reserved");
+
+    assert_eq!(ask.current_question, "皮皮鸡住在哪");
+    assert_eq!(ask.history.len(), 1);
+    assert_eq!(
+        ask.history[0].question,
+        "地图坐标 4000,4000 附近最近的传送点是什么"
+    );
+    assert_eq!(
+        ask.history[0].answer.as_deref(),
+        Some("古代文明遗址是较近的传送点。")
+    );
+}
 #[test]
 fn rolling_ask_rate_window_is_enforced_and_expires() {
     let limits = ServerLimits {

@@ -2,7 +2,7 @@
 
 A read-only, state-aware in-game advisor for Palworld. It answers questions about items, materials, Pals, recipes, breeding, and progression — grounded in a versioned knowledge base and personalized with the player's own state when available — without ever leaving the game.
 
-All phases G0–G6 are complete. The project covers Release Stage 1 (public static-information agent) and Release Stage 2 (single-user dynamic-state guide).
+The public static-information guide and single-user state-aware guide are implemented. The optional UE4SS adapter is currently validated only against Palworld Steam build `24575825`; do not install or run it against build `25094871` until that target has been reprobed.
 
 ## Key Features
 
@@ -205,7 +205,6 @@ docs/                       # Full project documentation
   environment.md
   reference-data/
   schemas/
-  phase-records/
 
 scripts/                    # UE4SS build, backup, install, uninstall
   Build-G5Ue4ss.ps1
@@ -271,20 +270,12 @@ The workspace has 327 tests across 13 crates, including:
 | [docs/data-updates.md](docs/data-updates.md) | Knowledge-update workflow, source log, conflict handling, version tracking |
 | [docs/operations.md](docs/operations.md) | Performance budgets, crash recovery, backup, secret redaction, monitoring |
 | [docs/product-goal.md](docs/product-goal.md) | Problem statement, core user questions, answer standard, success criteria |
-| [PHASES.md](PHASES.md) | Phase progress ledger (G0–G6 all complete) |
-| [AGENTS.md](AGENTS.md) | Governing project specification |
 
-## Development Path
+## Adapter Validation Status
 
-| Phase | Status | Purpose |
-|---|---|---|
-| G0 | Complete | Project charter and reference baseline |
-| G1 | Complete | Knowledge schema and reviewed source intake |
-| G2 | Complete | Deterministic offline guide CLI |
-| G3 | Complete | Hybrid retrieval and grounded LLM guide |
-| G4 | Complete | State-aware advisor and progression planner |
-| G5 | Complete | Web and read-only in-game interfaces |
-| G6 | Complete | Knowledge maintenance and hardening |
+The reviewed knowledge and adapter package target Palworld `1.0.3` / Steam build `24575825`. The later installed Steam build `25094871` caused a heap-corruption exit during the recorded adapter trial, and the adapter was removed immediately.
+
+Until UE4SS compatibility and every exposed read field are reprobed against build `25094871`, use the Web UI without the adapter. The game itself remains usable without PalworldGuider installed. Do not reinstall the old package merely because the game starts successfully.
 
 ## License
 

@@ -1,4 +1,5 @@
 use crate::GuideEngine;
+use game_knowledge::LocaleNames;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -109,7 +110,7 @@ impl GuideEngine {
             for record in store.items() {
                 if self.rarity_matches_item(&record.id, rarity)
                     && (normalize(&record.id) == normalized
-                        || normalize(&record.names.en) == normalized)
+                        || names_match(&record.names, normalized.as_str()))
                 {
                     matches.push(ResolvedEntity {
                         id: record.id.clone(),
@@ -121,7 +122,8 @@ impl GuideEngine {
         }
         if kind.is_none_or(|expected| expected == EntityKind::Pal) {
             for record in store.pals() {
-                if normalize(&record.id) == normalized || normalize(&record.names.en) == normalized
+                if normalize(&record.id) == normalized
+                    || names_match(&record.names, normalized.as_str())
                 {
                     matches.push(ResolvedEntity {
                         id: record.id.clone(),
@@ -133,7 +135,8 @@ impl GuideEngine {
         }
         if kind.is_none_or(|expected| expected == EntityKind::Technology) {
             for record in store.technologies() {
-                if normalize(&record.id) == normalized || normalize(&record.names.en) == normalized
+                if normalize(&record.id) == normalized
+                    || names_match(&record.names, normalized.as_str())
                 {
                     matches.push(ResolvedEntity {
                         id: record.id.clone(),
@@ -230,4 +233,12 @@ impl GuideEngine {
             None
         }
     }
+}
+
+fn names_match(names: &LocaleNames, normalized: &str) -> bool {
+    normalize(&names.en) == normalized
+        || names
+            .zh_hans
+            .as_ref()
+            .is_some_and(|name| normalize(name) == normalized)
 }

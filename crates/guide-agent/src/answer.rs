@@ -10,7 +10,7 @@ fn submit_answer_parameters() -> Value {
     json!({
     "type": "object",
     "additionalProperties": false,
-    "required": ["status", "sentences", "slots"],
+    "required": ["status", "sentences"],
     "properties": {
         "status": {"type": "string", "enum": ["ok", "unknown", "ambiguous"]},
         "sentences": {
@@ -24,72 +24,10 @@ fn submit_answer_parameters() -> Value {
             "items": {"type": "string"},
             "maxItems": 5
         },
-        "slots": {"type": "array", "items": {"type": "string"}},
         "uncertainty": {"type": "array", "items": {"type": "string"}}
     }
     })
 }
-
-const ENGLISH_NUMBER_WORDS: &[&str] = &[
-    "zero",
-    "one",
-    "two",
-    "three",
-    "four",
-    "five",
-    "six",
-    "seven",
-    "eight",
-    "nine",
-    "ten",
-    "eleven",
-    "twelve",
-    "thirteen",
-    "fourteen",
-    "fifteen",
-    "sixteen",
-    "seventeen",
-    "eighteen",
-    "nineteen",
-    "twenty",
-    "thirty",
-    "forty",
-    "fifty",
-    "sixty",
-    "seventy",
-    "eighty",
-    "ninety",
-    "hundred",
-    "thousand",
-    "million",
-    "first",
-    "second",
-    "third",
-    "fourth",
-    "fifth",
-    "sixth",
-    "seventh",
-    "eighth",
-    "ninth",
-    "tenth",
-    "eleventh",
-    "twelfth",
-    "thirteenth",
-    "fourteenth",
-    "fifteenth",
-    "sixteenth",
-    "seventeenth",
-    "eighteenth",
-    "nineteenth",
-    "twentieth",
-    "thirtieth",
-    "fortieth",
-    "fiftieth",
-    "sixtieth",
-    "seventieth",
-    "eightieth",
-    "ninetieth",
-];
 
 const CHINESE_NUMBER_CHARACTERS: &[char] = &[
     '零', '〇', '一', '壹', '二', '贰', '两', '三', '叁', '四', '肆', '五', '伍', '六', '陆', '七',
@@ -104,6 +42,7 @@ pub enum FactSlot {
         entity: String,
         unit: Option<String>,
         source_tool: String,
+        semantic: QuantitySemantic,
     },
     Entity {
         id: String,
@@ -120,6 +59,12 @@ pub enum FactSlot {
         id: String,
         text: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QuantitySemantic {
+    Material,
+    Metric,
 }
 
 impl FactSlot {
@@ -156,6 +101,7 @@ impl FactSheet {
         records: &[ToolCallRecord],
         known_entity_names: BTreeSet<String>,
         entity_names_by_id: BTreeMap<String, String>,
+        entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
         version: &VersionInfo,
     ) -> Self {
         let mut quantities = Vec::new();
@@ -167,6 +113,7 @@ impl FactSheet {
                 &record.arguments,
                 &known_entity_names,
                 &entity_names_by_id,
+                entity_name_variants_by_id,
                 &mut entity_evidence,
             );
             if record.status != ToolStatus::Ok {
@@ -177,37 +124,20 @@ impl FactSheet {
                     data,
                     &known_entity_names,
                     &entity_names_by_id,
+                    entity_name_variants_by_id,
                     &mut entity_evidence,
                 );
                 if is_observation_tool(&record.name) {
                     collect_observations(data, &record.name, &mut observations);
-                } else if let Some(summary) = calculator_summary(record, data) {
-                    let summary_value = match summary {
-                        CalculatorSummary::Totals(value) | CalculatorSummary::Quantity(value) => {
-                            value
-                        }
-                    };
-                    collect_quantities(
-                        &summary_value,
-                        &Vec::new(),
-                        &record.name,
-                        &mut quantities,
-                        &entity_names_by_id,
-                    );
-                } else if record.name == "get_recipe" {
-                    collect_quantities(
-                        data,
-                        &Vec::new(),
-                        &record.name,
-                        &mut quantities,
-                        &entity_names_by_id,
-                    );
+                } else {
+                    collect_tool_quantities(record, data, &mut quantities, &entity_names_by_id);
                 }
             }
         }
         quantities.dedup_by(|left, right| {
             left.value == right.value && left.entity == right.entity && left.unit == right.unit
         });
+        quantities.sort_by_key(|quantity| calculator_slot_priority(&quantity.source_tool));
 
         let mut slots = Vec::new();
         for (index, quantity) in quantities.into_iter().enumerate() {
@@ -217,6 +147,7 @@ impl FactSheet {
                 entity: quantity.entity,
                 unit: quantity.unit,
                 source_tool: quantity.source_tool,
+                semantic: quantity.semantic,
             });
         }
         for (index, name) in entity_evidence.iter().enumerate() {
@@ -274,6 +205,7 @@ impl FactSheet {
                     entity,
                     unit,
                     source_tool,
+                    ..
                 } => format!(
                     "[{id}] quantity value={} entity=\"{entity}\" unit=\"{}\" source={source_tool}",
                     format_number(*value),
@@ -306,6 +238,17 @@ impl FactSheet {
     }
 }
 
+fn calculator_slot_priority(source_tool: &str) -> u8 {
+    if matches!(
+        source_tool,
+        "calculate_materials" | "calculate_shortage" | "calculate_craftable_count"
+    ) {
+        0
+    } else {
+        1
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum AnswerStatus {
@@ -320,7 +263,6 @@ pub struct AnswerDraft {
     pub status: AnswerStatus,
     pub sentences: Vec<String>,
     pub steps: Option<Vec<String>>,
-    pub slots: Vec<String>,
     pub uncertainty: Option<Vec<String>>,
 }
 
@@ -350,7 +292,7 @@ impl std::fmt::Display for RenderError {
 pub fn submit_answer_tool() -> ToolSpec {
     ToolSpec {
         name: "submit_answer".to_string(),
-        description: "Submit the final answer. Use natural sentences for non-numeric facts from GROUNDING or tool results; numbers and exact quantities must use slot references from FACT_SHEET."
+        description: "Submit the final answer as short natural sentences. Numbers may be written directly only when they appear in FACT_SHEET or GROUNDING; exact calculator quantities may use slot references from FACT_SHEET."
             .to_string(),
         parameters_schema: submit_answer_parameters(),
     }
@@ -377,10 +319,10 @@ pub fn render(
         texts.extend(uncertainty.iter().cloned());
     }
 
+    let allowed_slots = all_slot_ids(fact_sheet);
     for text in &texts {
-        let rendered = replace_slots(text, fact_sheet, &draft.slots)?;
-        reject_numbers(&rendered.without_slots)?;
-        reject_number_words(&rendered.without_slots)?;
+        let rendered = replace_slots(text, fact_sheet, &allowed_slots)?;
+        validate_grounded_numbers(&rendered.replaced, fact_sheet)?;
         reject_unsupported_entities(
             &rendered.replaced,
             &fact_sheet.entity_evidence,
@@ -424,17 +366,55 @@ pub fn fallback_render(
     max_reply_characters: usize,
 ) -> String {
     let mut lines = Vec::new();
+    let has_calculator_result = fact_sheet.slots.iter().any(|slot| {
+        matches!(
+            slot,
+            FactSlot::Quantity {
+                source_tool,
+                ..
+            } if source_tool.starts_with("calculate_")
+        )
+    });
     for slot in &fact_sheet.slots {
         if let FactSlot::Quantity {
             value,
             entity,
             unit,
+            source_tool,
+            semantic,
             ..
         } = slot
         {
-            let unit = unit.as_deref().filter(|unit| !unit.is_empty());
-            let target = unit.unwrap_or(entity);
-            lines.push(format!("Need {} {target}.", format_number(*value)));
+            if has_calculator_result && !source_tool.starts_with("calculate_") {
+                continue;
+            }
+            if lines.len() >= 6 {
+                break;
+            }
+            match semantic {
+                QuantitySemantic::Material => {
+                    let target = unit
+                        .as_deref()
+                        .filter(|unit| !unit.is_empty())
+                        .unwrap_or(entity);
+                    lines.push(format!("还需要 {} 个 {target}。", format_number(*value)));
+                }
+                QuantitySemantic::Metric => {
+                    if let Some(target) = entity
+                        .strip_suffix(" maximum additional count")
+                        .filter(|target| !target.is_empty())
+                    {
+                        lines.push(format!(
+                            "最多还可以制作 {} 个 {target}。",
+                            format_number(*value)
+                        ));
+                    } else if entity == "conflict record count" {
+                        lines.push(format!("共有 {} 条已审核冲突记录。", format_number(*value)));
+                    } else {
+                        lines.push(format!("{entity}是{}。", format_number(*value)));
+                    }
+                }
+            }
         }
     }
     let observations = fact_sheet
@@ -509,7 +489,6 @@ fn is_internal_uncertainty(message: &str) -> bool {
 
 struct ReplacedText {
     replaced: String,
-    without_slots: String,
 }
 
 fn render_text(text: &str, fact_sheet: &FactSheet) -> String {
@@ -518,18 +497,50 @@ fn render_text(text: &str, fact_sheet: &FactSheet) -> String {
         .unwrap_or_else(|_| text.to_string())
 }
 
+fn contains_bracket_slot_reference(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'[' {
+            continue;
+        }
+        let mut cursor = index + 1;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor >= bytes.len() || !matches!(bytes[cursor], b'q' | b'e' | b'o' | b'v') {
+            continue;
+        }
+        cursor += 1;
+        let digits_start = cursor;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+            cursor += 1;
+        }
+        if cursor == digits_start {
+            continue;
+        }
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor < bytes.len() && bytes[cursor] == b']' {
+            return true;
+        }
+    }
+    false
+}
+
 fn replace_slots(
     text: &str,
     fact_sheet: &FactSheet,
     allowed_slots: &[String],
 ) -> Result<ReplacedText, RenderError> {
+    if contains_bracket_slot_reference(text) {
+        return Err(RenderError::InvalidSlotReference);
+    }
     let mut replaced = String::with_capacity(text.len());
-    let mut without_slots = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find('{') {
         let prefix = &rest[..start];
         replaced.push_str(prefix);
-        without_slots.push_str(prefix);
         let remainder = &rest[start + 1..];
         let Some(relative_end) = remainder.find('}') else {
             return Err(RenderError::InvalidSlotReference);
@@ -546,18 +557,13 @@ fn replace_slots(
         };
         let display = slot.display();
         replaced.push_str(&display);
-        without_slots.push('\u{e000}');
         rest = &remainder[relative_end + 1..];
     }
     replaced.push_str(rest);
-    without_slots.push_str(rest);
     if rest.contains('}') {
         return Err(RenderError::InvalidSlotReference);
     }
-    Ok(ReplacedText {
-        replaced,
-        without_slots,
-    })
+    Ok(ReplacedText { replaced })
 }
 
 fn all_slot_ids(fact_sheet: &FactSheet) -> Vec<String> {
@@ -569,29 +575,203 @@ fn all_slot_ids(fact_sheet: &FactSheet) -> Vec<String> {
         .collect()
 }
 
-fn reject_numbers(text: &str) -> Result<(), RenderError> {
-    if text
-        .chars()
-        .any(|character| character.is_ascii_digit() || ('０'..='９').contains(&character))
-    {
-        return Err(RenderError::NumericLiteral);
+fn validate_grounded_numbers(text: &str, fact_sheet: &FactSheet) -> Result<(), RenderError> {
+    let calculator_values = fact_sheet
+        .slots
+        .iter()
+        .filter_map(|slot| match slot {
+            FactSlot::Quantity {
+                value, source_tool, ..
+            } if source_tool.starts_with("calculate_") => Some(*value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let rendered_values = arabic_numbers(text)
+        .into_iter()
+        .chain(chinese_numbers(text));
+    if !calculator_values.is_empty() {
+        let rendered_values = rendered_values.collect::<Vec<_>>();
+        for required in calculator_values {
+            if !contains_number(&rendered_values, required) {
+                return Err(RenderError::NumericLiteral);
+            }
+        }
+        return Ok(());
+    }
+
+    let informational_values = fact_sheet
+        .slots
+        .iter()
+        .filter_map(|slot| match slot {
+            FactSlot::Quantity { value, .. } | FactSlot::Observation { value, .. } => Some(*value),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for value in english_number_values(text) {
+        if !contains_number(&informational_values, value) {
+            return Err(RenderError::NumericWord);
+        }
     }
     Ok(())
 }
 
-fn reject_number_words(text: &str) -> Result<(), RenderError> {
-    let lowered = text.to_lowercase();
-    let token_contains_number = lowered
-        .split(|character: char| !character.is_alphanumeric())
-        .any(|token| ENGLISH_NUMBER_WORDS.contains(&token));
-    if token_contains_number
-        || lowered
-            .chars()
-            .any(|character| CHINESE_NUMBER_CHARACTERS.contains(&character))
-    {
-        return Err(RenderError::NumericWord);
+fn contains_number(allowed: &[f64], value: f64) -> bool {
+    allowed.iter().any(|allowed| (allowed - value).abs() < 1e-9)
+}
+
+fn arabic_numbers(text: &str) -> Vec<f64> {
+    let mut numbers = Vec::new();
+    let mut buffer = String::new();
+    for character in text.chars() {
+        if character.is_ascii_digit() || character == '.' {
+            buffer.push(character);
+        } else {
+            if let Some(number) = parse_arabic_number(&buffer) {
+                numbers.push(number);
+            }
+            buffer.clear();
+        }
     }
-    Ok(())
+    if let Some(number) = parse_arabic_number(&buffer) {
+        numbers.push(number);
+    }
+    numbers
+}
+
+fn parse_arabic_number(buffer: &str) -> Option<f64> {
+    let trimmed = buffer.trim_matches('.');
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed.parse::<f64>().ok()
+}
+
+fn english_number_values(text: &str) -> Vec<f64> {
+    text.to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+        .filter_map(english_number_word_value)
+        .collect()
+}
+
+fn english_number_word_value(token: &str) -> Option<f64> {
+    match token {
+        "zero" => Some(0.0),
+        "one" => Some(1.0),
+        "two" => Some(2.0),
+        "three" => Some(3.0),
+        "four" => Some(4.0),
+        "five" => Some(5.0),
+        "six" => Some(6.0),
+        "seven" => Some(7.0),
+        "eight" => Some(8.0),
+        "nine" => Some(9.0),
+        "ten" => Some(10.0),
+        "eleven" => Some(11.0),
+        "twelve" => Some(12.0),
+        "thirteen" => Some(13.0),
+        "fourteen" => Some(14.0),
+        "fifteen" => Some(15.0),
+        "sixteen" => Some(16.0),
+        "seventeen" => Some(17.0),
+        "eighteen" => Some(18.0),
+        "nineteen" => Some(19.0),
+        "twenty" => Some(20.0),
+        "thirty" => Some(30.0),
+        "forty" => Some(40.0),
+        "fifty" => Some(50.0),
+        "sixty" => Some(60.0),
+        "seventy" => Some(70.0),
+        "eighty" => Some(80.0),
+        "ninety" => Some(90.0),
+        "hundred" => Some(100.0),
+        "thousand" => Some(1000.0),
+        "million" => Some(1000000.0),
+        _ => None,
+    }
+}
+
+fn chinese_numbers(text: &str) -> Vec<f64> {
+    let characters = text.chars().collect::<Vec<_>>();
+    let mut numbers = Vec::new();
+    let mut index = 0;
+    while index < characters.len() {
+        if !CHINESE_NUMBER_CHARACTERS.contains(&characters[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < characters.len() && CHINESE_NUMBER_CHARACTERS.contains(&characters[index]) {
+            index += 1;
+        }
+        let run = characters[start..index].iter().collect::<String>();
+        if run == "一"
+            && index < characters.len()
+            && matches!(characters[index], '种' | '些' | '般')
+        {
+            continue;
+        }
+        if let Some(number) = parse_chinese_number(&run) {
+            numbers.push(number);
+        }
+    }
+    numbers
+}
+
+fn parse_chinese_number(run: &str) -> Option<f64> {
+    let mut total = 0.0;
+    let mut section = 0.0;
+    let mut number = 0.0;
+    for character in run.chars() {
+        match character {
+            '零' | '〇' => {}
+            '一' | '壹' => number = 1.0,
+            '二' | '贰' | '两' => number = 2.0,
+            '三' | '叁' => number = 3.0,
+            '四' | '肆' => number = 4.0,
+            '五' | '伍' => number = 5.0,
+            '六' | '陆' => number = 6.0,
+            '七' | '柒' => number = 7.0,
+            '八' | '捌' => number = 8.0,
+            '九' | '玖' => number = 9.0,
+            '十' | '拾' => {
+                if number == 0.0 {
+                    number = 1.0;
+                }
+                section += number * 10.0;
+                number = 0.0;
+            }
+            '百' | '佰' => {
+                if number == 0.0 {
+                    number = 1.0;
+                }
+                section += number * 100.0;
+                number = 0.0;
+            }
+            '千' | '仟' => {
+                if number == 0.0 {
+                    number = 1.0;
+                }
+                section += number * 1000.0;
+                number = 0.0;
+            }
+            '万' | '萬' => {
+                section = (section + number) * 10000.0;
+                total += section;
+                section = 0.0;
+                number = 0.0;
+            }
+            '亿' | '億' => {
+                section = (section + number) * 100000000.0;
+                total += section;
+                section = 0.0;
+                number = 0.0;
+            }
+            _ => return None,
+        }
+    }
+    total += section + number;
+    Some(total)
 }
 
 fn reject_unsupported_entities(
@@ -645,6 +825,7 @@ struct QuantityCandidate {
     entity: String,
     unit: Option<String>,
     source_tool: String,
+    semantic: QuantitySemantic,
 }
 
 struct ObservationCandidate {
@@ -653,98 +834,279 @@ struct ObservationCandidate {
     source_tool: String,
 }
 
-enum CalculatorSummary {
-    Totals(Value),
-    Quantity(Value),
-}
-
-fn calculator_summary(record: &ToolCallRecord, data: &Value) -> Option<CalculatorSummary> {
-    match record.name.as_str() {
-        "calculate_materials" => data
-            .get("totals")
-            .cloned()
-            .map(CalculatorSummary::Totals)
-            .or_else(|| Some(CalculatorSummary::Totals(data.clone()))),
-        "calculate_shortage" => data
-            .get("shortages")
-            .cloned()
-            .map(CalculatorSummary::Totals)
-            .or_else(|| Some(CalculatorSummary::Totals(data.clone()))),
-        "calculate_craftable_count" => data
-            .get("maximum_additional_count")
-            .cloned()
-            .map(CalculatorSummary::Quantity),
-        _ => None,
-    }
-}
-
-fn collect_quantities(
-    value: &Value,
-    inherited_context: &[String],
-    source_tool: &str,
+fn collect_tool_quantities(
+    record: &ToolCallRecord,
+    data: &Value,
     quantities: &mut Vec<QuantityCandidate>,
     entity_names_by_id: &BTreeMap<String, String>,
 ) {
-    match value {
-        Value::Object(fields) => {
-            let local_context = fields
-                .iter()
-                .filter_map(|(key, field)| {
-                    if matches!(
-                        key.as_str(),
-                        "item_name" | "target_name" | "query" | "parent_a" | "parent_b"
-                    ) {
-                        field.as_str().map(str::to_string)
-                    } else if matches!(key.as_str(), "item_id" | "output_item_id") {
-                        field.as_str().map(|id| {
-                            entity_names_by_id
-                                .get(id)
-                                .cloned()
-                                .unwrap_or_else(|| id.to_string())
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-            let context = if local_context.is_empty() {
-                inherited_context
-            } else {
-                &local_context
-            };
-            let unit = fields
-                .iter()
-                .find(|(key, field)| key.as_str() == "unit" && field.as_str().is_some())
-                .and_then(|(_, field)| field.as_str());
-            for (key, field) in fields {
-                if let Some(number) = field.as_f64() {
-                    if !matches!(key.as_str(), "confidence" | "latitude" | "longitude") {
-                        for entity in context {
-                            quantities.push(QuantityCandidate {
-                                value: number,
-                                entity: entity.clone(),
-                                unit: unit.map(str::to_string),
-                                source_tool: source_tool.to_string(),
-                            });
-                        }
-                    }
-                }
-                collect_quantities(field, context, source_tool, quantities, entity_names_by_id);
+    match record.name.as_str() {
+        "calculate_materials" => {
+            for total in data
+                .get("totals")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                push_material(
+                    total.get("required_quantity"),
+                    display_name(
+                        total.get("item_name"),
+                        total.get("item_id"),
+                        entity_names_by_id,
+                    ),
+                    &record.name,
+                    quantities,
+                );
             }
         }
-        Value::Array(values) => {
-            for value in values {
-                collect_quantities(
-                    value,
-                    inherited_context,
-                    source_tool,
+        "calculate_shortage" => {
+            for shortage in data
+                .get("shortages")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                push_material(
+                    shortage.get("missing_quantity"),
+                    display_name(
+                        shortage.get("item_name"),
+                        shortage.get("item_id"),
+                        entity_names_by_id,
+                    ),
+                    &record.name,
                     quantities,
-                    entity_names_by_id,
+                );
+            }
+        }
+        "calculate_craftable_count" => {
+            let target = display_name(None, data.get("target_id"), entity_names_by_id);
+            push_metric(
+                data.get("maximum_additional_count"),
+                format!("{target} maximum additional count"),
+                &record.name,
+                quantities,
+            );
+        }
+        "get_type_effectiveness" => {
+            let records = data
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(std::slice::from_ref(data));
+            for record_value in records {
+                push_metric(
+                    record_value.get("multiplier"),
+                    "multiplier".to_string(),
+                    &record.name,
+                    quantities,
+                );
+            }
+        }
+        "get_conflicting_records" => {
+            let count = data
+                .get("conflicts")
+                .and_then(Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0) as f64;
+            quantities.push(QuantityCandidate {
+                value: count,
+                entity: "conflict record count".to_string(),
+                unit: None,
+                source_tool: record.name.clone(),
+                semantic: QuantitySemantic::Metric,
+            });
+        }
+        "get_technology" => {
+            push_metric(
+                data.get("level"),
+                "technology level".to_string(),
+                &record.name,
+                quantities,
+            );
+        }
+        "get_recipe" => {
+            for ingredient in data
+                .get("ingredients")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                push_material(
+                    ingredient.get("quantity"),
+                    display_name(None, ingredient.get("item_id"), entity_names_by_id),
+                    &record.name,
+                    quantities,
+                );
+            }
+        }
+        "get_pal" => {
+            for work in data
+                .get("work_suitability")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let kind = work.get("kind").and_then(Value::as_str).unwrap_or("work");
+                push_metric(
+                    work.get("level"),
+                    format!("{kind} work level"),
+                    &record.name,
+                    quantities,
+                );
+            }
+            for drop in data
+                .get("drops")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let item = display_name(None, drop.get("item_id"), entity_names_by_id);
+                for (field, label) in [
+                    ("probability_percent", "drop probability"),
+                    ("min_quantity", "minimum drop"),
+                    ("max_quantity", "maximum drop"),
+                ] {
+                    push_metric(
+                        drop.get(field),
+                        format!("{item} {label}"),
+                        &record.name,
+                        quantities,
+                    );
+                }
+            }
+        }
+        "get_waza" => collect_waza_metrics(data, &record.name, quantities),
+        "get_pal_waza_unlocks" => {
+            for unlock in data.as_array().into_iter().flatten() {
+                let skill = unlock
+                    .pointer("/waza/names/en")
+                    .and_then(Value::as_str)
+                    .unwrap_or("skill");
+                push_metric(
+                    unlock.get("unlock_level"),
+                    format!("{skill} unlock level"),
+                    &record.name,
+                    quantities,
+                );
+                if let Some(waza) = unlock.get("waza") {
+                    collect_waza_metrics(waza, &record.name, quantities);
+                }
+            }
+        }
+        "locate_coordinate" => {
+            for (axis, value) in [("x", "coordinate x"), ("y", "coordinate y")] {
+                push_metric(
+                    data.pointer(&format!("/location/{axis}")),
+                    value.to_string(),
+                    &record.name,
+                    quantities,
+                );
+            }
+        }
+        "find_nearby_map_points" => {
+            for point in data.as_array().into_iter().flatten() {
+                let name = point
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("map point");
+                push_metric(
+                    point.get("distance"),
+                    format!("{name} distance"),
+                    &record.name,
+                    quantities,
                 );
             }
         }
         _ => {}
     }
+}
+
+fn collect_waza_metrics(data: &Value, source_tool: &str, quantities: &mut Vec<QuantityCandidate>) {
+    push_metric(
+        data.get("power"),
+        "power".to_string(),
+        source_tool,
+        quantities,
+    );
+    push_metric(
+        data.get("cool_time"),
+        "cool_time".to_string(),
+        source_tool,
+        quantities,
+    );
+    for index in 1..=2 {
+        let effect_type = data
+            .get(format!("effect_type{index}"))
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        if effect_type != "none" {
+            push_metric(
+                data.get(format!("effect_value{index}")),
+                format!("{effect_type} effect value"),
+                source_tool,
+                quantities,
+            );
+        }
+    }
+}
+
+fn display_name(
+    name: Option<&Value>,
+    id: Option<&Value>,
+    entity_names_by_id: &BTreeMap<String, String>,
+) -> String {
+    name.and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| id.and_then(Value::as_str).map(str::to_string))
+        .map(|value| {
+            entity_names_by_id
+                .get(value.as_str())
+                .cloned()
+                .unwrap_or(value)
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn push_material(
+    value: Option<&Value>,
+    entity: String,
+    source_tool: &str,
+    quantities: &mut Vec<QuantityCandidate>,
+) {
+    let Some(value) = value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+    else {
+        return;
+    };
+    quantities.push(QuantityCandidate {
+        value,
+        entity,
+        unit: None,
+        source_tool: source_tool.to_string(),
+        semantic: QuantitySemantic::Material,
+    });
+}
+
+fn push_metric(
+    value: Option<&Value>,
+    entity: String,
+    source_tool: &str,
+    quantities: &mut Vec<QuantityCandidate>,
+) {
+    let Some(value) = value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+    else {
+        return;
+    };
+    quantities.push(QuantityCandidate {
+        value,
+        entity,
+        unit: None,
+        source_tool: source_tool.to_string(),
+        semantic: QuantitySemantic::Metric,
+    });
 }
 
 fn collect_observations(
@@ -776,6 +1138,7 @@ fn collect_entity_names(
     value: &Value,
     known_entity_names: &BTreeSet<String>,
     entity_names_by_id: &BTreeMap<String, String>,
+    entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
     entity_names: &mut BTreeSet<String>,
 ) {
     let text = value.to_string();
@@ -787,6 +1150,9 @@ fn collect_entity_names(
     for (id, name) in entity_names_by_id {
         if text.contains(id.as_str()) {
             entity_names.insert(name.clone());
+            if let Some(variants) = entity_name_variants_by_id.get(id) {
+                entity_names.extend(variants.iter().cloned());
+            }
         }
     }
 }

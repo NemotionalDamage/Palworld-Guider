@@ -115,6 +115,43 @@ fn manifest_publishes_all_tools_with_schemas() {
 }
 
 #[test]
+fn canonical_dataset_publishes_localized_entity_names() {
+    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let index = KnowledgeIndex::from_store(&store, None).expect("index builds");
+    let engine = GuideEngine::new(store, None);
+    let registry = ToolRegistry::new(engine, index);
+    let names = registry.known_entity_names();
+
+    assert!(names.contains("皮皮鸡"));
+    assert!(names.contains("帕鲁矿碎块"));
+}
+
+#[test]
+fn canonical_pal_skill_unlocks_embed_reviewed_skill_details() {
+    let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset is valid");
+    let index = KnowledgeIndex::from_store(&store, None).expect("index builds");
+    let engine = GuideEngine::new(store, None);
+    let registry = ToolRegistry::new(engine, index);
+    let mut budget = fresh_budget(4);
+
+    let envelope = registry.dispatch(
+        "get_pal_waza_unlocks",
+        &json!({"pal": "阿努比斯"}),
+        &mut budget,
+    );
+
+    assert_eq!(envelope.status, ToolStatus::Ok);
+    let data = envelope.data.expect("unlock data is present");
+    let unlocks = data.as_array().expect("unlock data is a list");
+    assert!(!unlocks.is_empty());
+    assert!(unlocks.iter().all(|unlock| unlock["waza"].is_object()));
+    assert!(unlocks
+        .iter()
+        .any(|unlock| unlock["waza"]["names"]["zh_hans"] == "碎石霰弹"));
+    assert!(unlocks.iter().any(|unlock| unlock["waza"]["power"] == 80));
+}
+
+#[test]
 fn state_tools_use_attached_snapshot_without_exposing_raw_state() {
     let registry = test_registry(None)
         .with_state_snapshot_json(&snapshot_value())

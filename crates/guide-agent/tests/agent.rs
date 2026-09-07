@@ -1,5 +1,5 @@
 use game_knowledge::KnowledgeStore;
-use guide_agent::{AgentConfig, AgentLimits, AgentStatus, GuideAgent};
+use guide_agent::{AgentConfig, AgentHistoryEntry, AgentLimits, AgentStatus, GuideAgent};
 use guide_core::GuideEngine;
 use guide_tools::{RuntimeToolResult, RuntimeToolSource, ToolDefinition, ToolRegistry, ToolStatus};
 use knowledge_index::KnowledgeIndex;
@@ -21,6 +21,30 @@ impl ChatProvider for ProviderHandle {
 
     fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
         self.0.complete(request)
+    }
+}
+
+struct InvalidThenValidProvider {
+    calls: std::sync::Mutex<Vec<ChatRequest>>,
+}
+
+impl ChatProvider for InvalidThenValidProvider {
+    fn name(&self) -> &'static str {
+        "invalid-then-valid"
+    }
+
+    fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, ProviderError> {
+        let mut calls = self
+            .calls
+            .lock()
+            .expect("invalid-then-valid call log is not poisoned");
+        calls.push(request.clone());
+        if calls.len() == 1 {
+            return Err(ProviderError::InvalidResponse(
+                "invalid tool arguments JSON".to_string(),
+            ));
+        }
+        Ok(ChatResponse::text("Wood is useful."))
     }
 }
 
@@ -208,18 +232,82 @@ fn scripted_agent_with_runtime(
     (agent, provider)
 }
 
-fn submit_ok(sentences: &[&str], slots: &[&str]) -> ChatResponse {
+fn submit_ok(sentences: &[&str], _legacy_slots: &[&str]) -> ChatResponse {
     ChatResponse::tool(
         "submit_answer",
         "submit_answer",
         json!({
             "status": "ok",
             "sentences": sentences,
-            "slots": slots
         }),
     )
 }
 
+#[test]
+fn map_pixel_questions_are_grounded_before_model_tool_selection() {
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-391978.125,"y":-16978.125,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let store = test_store_with_extra_lines(&[near, snowfield]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![submit_ok(&["最近的传送点是古代文明遗址。"], &[])],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("地图坐标 4000，4000 附近最近的传送点是什么？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    assert!(calls[0].messages[0]
+        .content
+        .contains("[find_nearby_map_points]"));
+    assert!(calls[0].messages[0]
+        .content
+        .contains("Ancient Civilization Ruins"));
+    assert!(calls[0].messages[0].content.contains("古代文明遗址"));
+    assert!(calls[0].messages[0].content.contains("\"pixel_x\":4000"));
+    let exposed_tools = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!exposed_tools.contains(&"resolve_name"));
+    assert!(!exposed_tools.contains(&"find_nearby_map_points"));
+    assert!(!exposed_tools.contains(&"locate_coordinate"));
+    assert!(!exposed_tools.contains(&"find_pal_spawn_zones"));
+    assert!(!exposed_tools.contains(&"calculate_materials"));
+}
+
+#[test]
+fn unlabeled_map_display_units_are_converted_before_nearest_lookup() {
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-391978.125,"y":-16978.125,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let store = test_store_with_extra_lines(&[near, snowfield]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![submit_ok(&["最近的传送点是古代文明遗址。"], &[])],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("坐标 -3919,-169 附近最近的传送点是什么？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let message = &provider.calls()[0].messages[0].content;
+    assert!(message.contains("Ancient Civilization Ruins"));
+    assert!(message.contains("古代文明遗址"));
+    assert!(
+        message.contains("\"distance\":110.48543456039805"),
+        "message={message}"
+    );
+    assert!(
+        !message.contains("\"distance\":392256.5"),
+        "message={message}"
+    );
+}
 #[test]
 fn agent_never_receives_raw_snapshot_state() {
     let store = test_store();
@@ -428,7 +516,7 @@ fn submit_answer_renders_quantity_slot() {
 }
 
 #[test]
-fn submit_answer_tolerates_unused_unknown_slots() {
+fn submit_answer_accepts_existing_slot_without_duplicate_declaration() {
     let (agent, _provider) = scripted_agent(
         None,
         vec![
@@ -437,7 +525,7 @@ fn submit_answer_tolerates_unused_unknown_slots() {
                 "calculate_materials",
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
-            submit_ok(&["You need {q1} Wood."], &["q1", "q9"]),
+            submit_ok(&["You need {q1} Wood."], &[]),
         ],
         4,
         1200,
@@ -450,6 +538,370 @@ fn submit_answer_tolerates_unused_unknown_slots() {
         .uncertainty
         .iter()
         .any(|message| message.contains("unknown slot")));
+}
+
+#[test]
+fn scalar_tool_results_become_quantity_slots() {
+    let type_line = fs::read_to_string(format!("{DATA_DIRECTORY}/type_effectiveness.jsonl"))
+        .expect("type effectiveness data reads")
+        .lines()
+        .next()
+        .expect("type effectiveness record exists")
+        .to_string();
+    let store = test_store_with_extra_lines(&[&type_line]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "get_type_effectiveness",
+                json!({"attacking_type": "water", "defending_type": "fire"}),
+            ),
+            submit_ok(&["Water is {q1} times effective against Fire."], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("水属性打火属性是几倍伤害？");
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Water is 2 times effective against Fire.")
+    );
+    let fact_sheet = provider.calls()[1].messages[2].content.clone();
+    assert!(fact_sheet.contains("entity=\"multiplier\""));
+}
+
+#[test]
+fn grounded_lookup_tools_are_not_reoffered_to_the_model() {
+    let (agent, provider) =
+        scripted_agent(None, vec![ChatResponse::text("Wood is useful.")], 4, 1200);
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let tool_names = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!tool_names.contains(&"get_item"));
+    assert!(!tool_names.contains(&"search_structured_knowledge"));
+}
+
+#[test]
+fn pal_skill_questions_keep_skill_unlock_lookup_available() {
+    let pal_line = r#"{"record_type":"pal","id":"PAL_ANUBIS","names":{"en":"Anubis","zh_hans":"阿努比斯"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"earth","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let store = test_store_with_extra_lines(&[pal_line]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![ChatResponse::text("No skill data.")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("阿努比斯会解锁哪些技能");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let tool_names = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(tool_names.contains(&"get_pal_waza_unlocks"));
+    assert!(!tool_names.contains(&"get_pal"));
+}
+
+#[test]
+fn grounded_pal_lookup_suppresses_structured_search() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![ChatResponse::text("Lamball is useful.")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What is Lamball?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let tool_names = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!tool_names.contains(&"search_structured_knowledge"));
+}
+
+#[test]
+fn grounded_waza_lookup_suppresses_exact_tool_call() {
+    let waza_line = fs::read_to_string(format!("{DATA_DIRECTORY}/waza.jsonl"))
+        .expect("skill file reads")
+        .lines()
+        .find(|line| line.contains("\"id\":\"WAZA_AQUAJET\""))
+        .expect("Hydro Jet exists")
+        .to_string();
+    let store = test_store_with_extra_lines(&[&waza_line]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![ChatResponse::text("水流射击是威力 40 的水属性射击技能。")],
+        4,
+        1200,
+    );
+    let answer = agent.ask("水流射击是什么技能");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.tool_calls.is_empty());
+    let calls = provider.calls();
+    assert!(calls[0].messages[0].content.contains("[get_waza]"));
+    assert!(!calls[0].tools.iter().any(|tool| tool.name == "get_waza"));
+}
+
+#[test]
+fn completed_pal_skill_unlocks_suppress_individual_skill_lookups() {
+    let unlock_line = fs::read_to_string(format!("{DATA_DIRECTORY}/pal_waza_unlocks.jsonl"))
+        .expect("skill unlock file reads")
+        .lines()
+        .find(|line| line.contains("\"pal_id\":\"PAL_LAMBALL\""))
+        .expect("Lamball unlock exists")
+        .to_string();
+    let waza_line = fs::read_to_string(format!("{DATA_DIRECTORY}/waza.jsonl"))
+        .expect("skill file reads")
+        .lines()
+        .find(|line| line.contains("\"id\":\"WAZA_UNIQUE_SHEEPBALL_ROLL\""))
+        .expect("Lamball skill exists")
+        .to_string();
+    let store = test_store_with_extra_lines(&[&unlock_line, &waza_line]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_pal_waza_unlocks", json!({"pal": "Lamball"})),
+            submit_ok(&["The skill list is ready."], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What skills does Lamball learn?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let tool_names = calls[1]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!tool_names.contains(&"get_waza"));
+}
+
+#[test]
+fn waza_metadata_fallback_renders_metrics_not_material_needs() {
+    let waza_line = fs::read_to_string(format!("{DATA_DIRECTORY}/waza.jsonl"))
+        .expect("skill file reads")
+        .lines()
+        .find(|line| line.contains("\"id\":\"WAZA_AQUAJET\""))
+        .expect("Hydro Jet exists")
+        .to_string();
+    let store = test_store_with_extra_lines(&[&waza_line]);
+    let (agent, _provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_waza", json!({"query": "水流射击"})),
+            ChatResponse::text(""),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("水流射击是什么技能");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let reply = answer.answer.as_deref().unwrap();
+    assert!(reply.contains("power: 40"), "reply: {reply}");
+    assert!(reply.contains("cool_time: 2"), "reply: {reply}");
+    assert!(!reply.contains("Need "), "reply: {reply}");
+}
+
+#[test]
+fn shortage_fallback_reports_only_missing_quantities() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_shortage",
+                json!({
+                    "query": "Wood",
+                    "quantity": 5,
+                    "inventory": [{"item": "Wood", "quantity": 3}]
+                }),
+            ),
+            ChatResponse::text(""),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("I have 3 Wood; what is missing for 5 Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .is_some_and(|reply| reply.starts_with("还需要 2 个 Wood。")));
+}
+
+#[test]
+fn grounded_natural_shortage_number_renders_directly() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_shortage",
+                json!({
+                    "query": "Wood",
+                    "quantity": 5,
+                    "inventory": [{"item": "Wood", "quantity": 3}]
+                }),
+            ),
+            submit_ok(&["还缺 2 个 Wood。"], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("I have 3 Wood; what is missing for 5 Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("还缺 2 个 Wood。"));
+}
+
+#[test]
+fn bracket_slot_syntax_does_not_leak_into_answers() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            submit_ok(&["Wood is useful [q1]."], &[]),
+            submit_ok(&["Wood is useful."], &[]),
+        ],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer
+        .answer
+        .as_deref()
+        .is_some_and(|reply| !reply.contains("[q")));
+}
+
+#[test]
+fn shortage_question_exposes_only_shortage_calculator() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_shortage",
+                json!({
+                    "query": "Wood",
+                    "quantity": 5,
+                    "inventory": [{"item": "Wood", "quantity": 3}]
+                }),
+            ),
+            ChatResponse::text(""),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("I have 3 Wood; what is missing for 5 Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let first_tools = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(first_tools.contains(&"calculate_shortage"));
+    assert!(!first_tools.contains(&"calculate_materials"));
+    assert!(!first_tools.contains(&"calculate_craftable_count"));
+    let second_tools = calls[1]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!second_tools.contains(&"calculate_shortage"));
+    assert!(!second_tools.contains(&"calculate_materials"));
+    assert!(!second_tools.contains(&"calculate_craftable_count"));
+}
+
+#[test]
+fn chinese_article_one_is_not_treated_as_a_quantity() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
+            submit_ok(&["Wood 是一种常见材料。"], &[]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("Wood 是一种常见材料。"));
+}
+
+#[test]
+fn invalid_submit_answer_gets_one_correction_round() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need 12 Wood."], &[]),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+    assert_eq!(provider.calls().len(), 3);
+    let calls = provider.calls();
+    let correction = calls[2]
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .find(|content| content.contains("SUBMIT_ANSWER_ERROR"))
+        .expect("correction message is sent");
+    assert!(correction.contains("numeric literal"));
+}
+
+#[test]
+fn invalid_provider_tool_json_gets_one_retry() {
+    let provider = InvalidThenValidProvider {
+        calls: std::sync::Mutex::new(Vec::new()),
+    };
+    let agent = GuideAgent::new(
+        test_registry(None),
+        Box::new(provider),
+        agent_config(4, 1200),
+    );
+    let answer = agent.ask("What is Wood?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.is_some());
 }
 
 #[test]
@@ -497,6 +949,7 @@ fn numeric_tampering_has_no_render_path() {
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
             submit_ok(&["You need 12 Wood."], &[]),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
         ],
         4,
         1200,
@@ -504,8 +957,8 @@ fn numeric_tampering_has_no_render_path() {
     let answer = agent.ask("Materials for 3 Wooden Clubs?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
-    assert!(answer
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("numeric literal")));
@@ -522,6 +975,7 @@ fn unknown_slot_falls_back_to_fact_sheet() {
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
             submit_ok(&["You need {q9} Wood."], &["q9"]),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
         ],
         4,
         1200,
@@ -529,8 +983,8 @@ fn unknown_slot_falls_back_to_fact_sheet() {
     let answer = agent.ask("Materials for 3 Wooden Clubs?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
-    assert!(answer
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("unknown slot q9")));
@@ -540,27 +994,28 @@ fn unknown_slot_falls_back_to_fact_sheet() {
 fn number_word_in_draft_falls_back() {
     let (agent, _provider) = scripted_agent(
         None,
-        vec![ChatResponse::tool(
-            "submit_answer",
-            "submit_answer",
-            json!({
-                "status": "unknown",
-                "sentences": ["This is one of the most common options."],
-                "slots": []
-            }),
-        )],
+        vec![
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "unknown",
+                    "sentences": ["This is one of the most common options."]
+                }),
+            ),
+            submit_ok(&["Wood is obtained by chopping trees."], &[]),
+        ],
         4,
         1200,
     );
     let answer = agent.ask("How do I get Wood?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer
-        .answer
-        .as_deref()
-        .unwrap()
-        .contains("Related reviewed records: Wood"));
-    assert!(answer
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Wood is obtained by chopping trees.")
+    );
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("numeric word")));
@@ -581,10 +1036,10 @@ fn chinese_number_word_in_draft_falls_back() {
                 "submit_answer",
                 json!({
                     "status": "ok",
-                    "sentences": ["需要一个 Wood。"],
-                    "slots": []
+                    "sentences": ["需要一个 Wood。"]
                 }),
             ),
+            submit_ok(&["You need {q1} Wood."], &["q1"]),
         ],
         4,
         1200,
@@ -592,8 +1047,8 @@ fn chinese_number_word_in_draft_falls_back() {
     let answer = agent.ask("需要多少 Wood？");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
-    assert!(answer
+    assert_eq!(answer.answer.as_deref(), Some("You need 15 Wood."));
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("numeric word")));
@@ -647,8 +1102,41 @@ fn grounded_pal_habitat_question_answers_without_exact_tool_call() {
 }
 
 #[test]
+fn conversation_history_stays_separate_from_current_question_grounding() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![submit_ok(&["皮皮鸡的栖息地信息暂时未知。"], &[])],
+        4,
+        1200,
+    );
+
+    let _answer = agent.ask_with_history(
+        "皮皮鸡住在哪",
+        &[AgentHistoryEntry::new(
+            "地图坐标 4000,4000 附近最近的传送点是什么",
+            Some("古代文明遗址是较近的传送点。".to_string()),
+        )],
+    );
+
+    let request = &provider.calls()[0];
+    assert_eq!(
+        request
+            .messages
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect::<Vec<_>>(),
+        vec!["user", "assistant", "user"]
+    );
+    assert!(request.messages[0].content.contains("地图坐标 4000,4000"));
+    assert_eq!(request.messages[1].content, "古代文明遗址是较近的传送点。");
+    assert!(request.messages[2].content.starts_with("皮皮鸡住在哪"));
+    assert!(!request.messages[2].content.contains("4000"));
+    assert!(!request.messages[2].content.contains("传送点"));
+}
+
+#[test]
 fn grounded_item_use_question_answers_without_exact_tool_call() {
-    let (agent, _provider) = scripted_agent(
+    let (agent, provider) = scripted_agent(
         None,
         vec![ChatResponse::text("帕鲁矿碎块可用于制作帕鲁球。")],
         4,
@@ -658,9 +1146,44 @@ fn grounded_item_use_question_answers_without_exact_tool_call() {
 
     assert_eq!(answer.status, AgentStatus::Ok);
     assert!(answer.tool_calls.is_empty());
+    let calls = provider.calls();
+    let tool_names = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(!tool_names.contains(&"resolve_name"));
+    assert!(!tool_names.contains(&"get_recipe"));
+    assert!(!tool_names.contains(&"get_pal"));
+    assert!(!tool_names.contains(&"get_technology"));
+    assert!(!tool_names.contains(&"get_type_effectiveness"));
+    assert!(!tool_names.contains(&"get_work_kind_descriptions"));
+    assert!(!tool_names.contains(&"calculate_materials"));
+    assert!(!tool_names.contains(&"get_conflicting_records"));
     let reply = answer.answer.as_deref().unwrap();
     assert!(reply.contains("帕鲁矿碎块"));
     assert!(reply.contains("帕鲁球"));
+}
+
+#[test]
+fn recipe_question_grounds_localized_natural_answer() {
+    let (agent, provider) = scripted_agent(
+        None,
+        vec![submit_ok(&["制作 1 个帕鲁球需要 1 个帕鲁矿碎块。"], &[])],
+        4,
+        1200,
+    );
+    let answer = agent.ask("帕鲁球怎么做");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("制作 1 个帕鲁球需要 1 个帕鲁矿碎块。")
+    );
+    assert!(answer.tool_calls.is_empty());
+    assert!(provider.calls()[0].messages[0]
+        .content
+        .contains("RECIPE_PAL_SPHERE"));
 }
 
 #[test]
@@ -672,8 +1195,7 @@ fn empty_free_text_uses_fallback() {
     assert!(answer
         .answer
         .as_deref()
-        .unwrap()
-        .contains("Related reviewed records: Wood"));
+        .is_some_and(|text| !text.is_empty()));
     assert!(answer
         .uncertainty
         .iter()
@@ -709,8 +1231,7 @@ fn steps_are_numbered_by_renderer() {
                 json!({
                     "status": "ok",
                     "sentences": ["Gather materials:"],
-                    "steps": ["Collect {q1} Wood.", "Craft the club."],
-                    "slots": ["q1"]
+                    "steps": ["Collect {q1} Wood.", "Craft the club."]
                 }),
             ),
         ],
@@ -736,8 +1257,7 @@ fn position_slots_render_exact_observation() {
                 "submit_answer",
                 json!({
                     "status": "ok",
-                    "sentences": ["Position: {o1}, {o2}, {o3}."],
-                    "slots": ["o1", "o2", "o3"]
+                    "sentences": ["Position: {o1}, {o2}, {o3}."]
                 }),
             ),
         ],
@@ -761,6 +1281,7 @@ fn hand_written_position_falls_back_to_exact_observation() {
         vec![
             ChatResponse::tool("call_1", "get_player_status", json!({})),
             submit_ok(&["Position: x=-1.5, y=2.25, z=4."], &[]),
+            submit_ok(&["Position: {o1}, {o2}, {o3}."], &["o1", "o2", "o3"]),
         ],
         4,
         1200,
@@ -768,12 +1289,11 @@ fn hand_written_position_falls_back_to_exact_observation() {
     let answer = agent.ask("Where is my player?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer
-        .answer
-        .as_deref()
-        .unwrap()
-        .starts_with("Position: x=-1.5, y=2.25, z=3"));
-    assert!(answer
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("Position: x=-1.5, y=2.25, z=3.")
+    );
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("numeric literal")));
@@ -786,6 +1306,7 @@ fn entity_outside_evidence_falls_back() {
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
             submit_ok(&["Wool is the better choice."], &[]),
+            submit_ok(&["Wood is the better choice."], &[]),
         ],
         4,
         1200,
@@ -793,12 +1314,8 @@ fn entity_outside_evidence_falls_back() {
     let answer = agent.ask("What should I gather?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer
-        .answer
-        .as_deref()
-        .unwrap()
-        .contains("Related reviewed records: Wood"));
-    assert!(answer
+    assert_eq!(answer.answer.as_deref(), Some("Wood is the better choice."));
+    assert!(!answer
         .uncertainty
         .iter()
         .any(|message| message.contains("unsupported entity Wool")));
@@ -858,8 +1375,7 @@ fn model_cannot_bypass_tool_registry() {
                 "submit_answer",
                 json!({
                     "status": "unknown",
-                    "sentences": ["That action is unavailable."],
-                    "slots": []
+                    "sentences": ["That action is unavailable."]
                 }),
             ),
         ],
@@ -885,6 +1401,7 @@ fn budget_exhaustion_uses_fallback() {
         vec![
             ChatResponse::tool("call_1", "get_item", json!({"query": "Wood"})),
             ChatResponse::tool("call_2", "get_item", json!({"query": "Wool"})),
+            ChatResponse::text(""),
         ],
         1,
         1200,
@@ -895,8 +1412,7 @@ fn budget_exhaustion_uses_fallback() {
     assert!(answer
         .answer
         .as_deref()
-        .unwrap()
-        .contains("Related reviewed records: Wood"));
+        .is_some_and(|text| !text.is_empty()));
     assert!(answer
         .errors
         .iter()
@@ -928,8 +1444,7 @@ fn unknown_knowledge_propagates_to_answer() {
                 "submit_answer",
                 json!({
                     "status": "unknown",
-                    "sentences": ["Reviewed knowledge is unavailable."],
-                    "slots": []
+                    "sentences": ["Reviewed knowledge is unavailable."]
                 }),
             ),
         ],

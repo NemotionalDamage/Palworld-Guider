@@ -208,9 +208,12 @@ fn chat_event_runs_agent_and_sends_final_reply_once() {
         Some("Stone is obtained by mining rocks and managing quarry output responsibly.")
     );
     assert_eq!(provider.calls().len(), 2, "agent runs exactly once");
-    assert_eq!(
-        provider.calls()[0].messages[0].content,
-        "Q: How do I get Stone?"
+    assert!(
+        provider.calls()[0].messages[0]
+            .content
+            .starts_with("Q: How do I get Stone?"),
+        "the current question must lead the grounded prompt: {}",
+        provider.calls()[0].messages[0].content
     );
 }
 
@@ -290,7 +293,8 @@ fn provider_failure_sends_a_clear_non_fabricated_reply() {
     let runtime = GameAdapterRuntime::new(gateway());
     let address = runtime.endpoint();
     let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
-    // An exhausted mock script is a provider failure on the first call.
+    // An exhausted mock script is an invalid provider response; the agent
+    // retries once and then fails without fabricating an answer.
     let (agent, provider) = scripted_agent(Vec::new());
     let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
 
@@ -319,7 +323,11 @@ fn provider_failure_sends_a_clear_non_fabricated_reply() {
         "the original error envelope must survive: {:?}",
         outcome.answer.errors
     );
-    assert_eq!(provider.calls().len(), 1);
+    assert_eq!(
+        provider.calls().len(),
+        2,
+        "invalid provider responses receive exactly one correction retry"
+    );
 }
 
 #[test]
@@ -400,10 +408,14 @@ fn oversized_questions_and_chat_rate_limits_fail_closed() {
     assert!(outcome.delivered);
     assert_eq!(delivered, answer);
     let first_prompt = &provider.calls()[0].messages[0].content;
-    assert_eq!(
-        first_prompt.strip_prefix("Q: ").unwrap(),
-        "x".repeat(1000),
-        "oversized questions must be clamped before the agent sees them"
+    let clamped_question = format!("Q: {}", "x".repeat(1000));
+    assert!(
+        first_prompt.starts_with(&clamped_question),
+        "oversized questions must be clamped before grounding"
+    );
+    assert!(
+        !first_prompt.contains(&"x".repeat(1001)),
+        "excess question characters must not leak into the prompt"
     );
 
     for index in 2..=6 {

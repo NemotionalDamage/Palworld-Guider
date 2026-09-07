@@ -326,6 +326,18 @@ impl ToolRegistry {
         names
     }
 
+    pub fn known_waza_names(&self) -> std::collections::BTreeSet<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for waza in self.engine.store().waza() {
+            names.insert(waza.names.en.clone());
+            if let Some(name) = &waza.names.zh_hans {
+                names.insert(name.clone());
+            }
+        }
+        names.retain(|name| name.chars().count() >= 3);
+        names
+    }
+
     pub fn canonical_entity_names(&self) -> std::collections::BTreeMap<String, String> {
         let mut names = std::collections::BTreeMap::new();
         for item in self.engine.store().items() {
@@ -338,6 +350,42 @@ impl ToolRegistry {
             names.insert(technology.id.clone(), technology.names.en.clone());
         }
         names
+    }
+
+    pub fn entity_name_variants_by_id(
+        &self,
+    ) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+        let mut variants = std::collections::BTreeMap::new();
+        let mut insert = |id: &str, name: &str| {
+            if name.chars().count() >= 2 {
+                variants
+                    .entry(id.to_string())
+                    .or_insert_with(std::collections::BTreeSet::new)
+                    .insert(name.to_string());
+            }
+        };
+        for item in self.engine.store().items() {
+            insert(&item.id, &item.names.en);
+            if let Some(name) = &item.names.zh_hans {
+                insert(&item.id, name);
+            }
+        }
+        for pal in self.engine.store().pals() {
+            insert(&pal.id, &pal.names.en);
+            if let Some(name) = &pal.names.zh_hans {
+                insert(&pal.id, name);
+            }
+        }
+        for technology in self.engine.store().technologies() {
+            insert(&technology.id, &technology.names.en);
+            if let Some(name) = &technology.names.zh_hans {
+                insert(&technology.id, name);
+            }
+        }
+        for alias in self.engine.store().aliases() {
+            insert(&alias.target_id, &alias.alias);
+        }
+        variants
     }
 
     fn execute(&self, name: &str, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
@@ -394,7 +442,7 @@ impl ToolRegistry {
                 ),
                 Err(message) => ToolEnvelope::error(message, version),
             },
-            "locate_coordinate" => match coordinate(arguments) {
+            "locate_coordinate" => match self.coordinate(arguments) {
                 Ok(location) => ToolEnvelope::from_answer(self.engine.locate_coordinate(location)),
                 Err(message) => ToolEnvelope::error(message, version),
             },
@@ -620,9 +668,65 @@ impl ToolRegistry {
         envelope
     }
 
+    fn coordinate(&self, arguments: &Value) -> Result<WorldCoordinate, String> {
+        let location = coordinate(arguments)?;
+        let system = arguments
+            .get("coordinate_system")
+            .and_then(Value::as_str)
+            .unwrap_or("world");
+        if !matches!(system, "world" | "map_pixel" | "normalized") {
+            return Err(
+                "argument \"coordinate_system\" must be world, map_pixel, or normalized"
+                    .to_string(),
+            );
+        }
+        if system == "world" {
+            return Ok(location);
+        }
+
+        let requested_map_id = arguments.get("map_id").and_then(Value::as_str);
+        let mut candidates = self
+            .engine
+            .store()
+            .maps()
+            .filter(|map| requested_map_id.is_none_or(|map_id| map.id == map_id))
+            .peekable();
+        if candidates.peek().is_none() {
+            return Err("argument \"map_id\" does not match a reviewed map".to_string());
+        }
+
+        let selected = candidates.min_by_key(|map| (map.priority, map.id.clone()));
+        let Some(map) = selected else {
+            return Err("no reviewed map matches the coordinate".to_string());
+        };
+        let width = map.bounds.max_x - map.bounds.min_x;
+        let height = map.bounds.max_y - map.bounds.min_y;
+        let (normalized_x, normalized_y) = if system == "map_pixel" {
+            let logical_size = f64::from(map.logical_size);
+            if !(0.0..=logical_size).contains(&location.x)
+                || !(0.0..=logical_size).contains(&location.y)
+            {
+                return Err(format!(
+                    "map_pixel coordinates must be within 0..{logical_size}"
+                ));
+            }
+            (location.x / logical_size, location.y / logical_size)
+        } else if !(0.0..=1.0).contains(&location.x) || !(0.0..=1.0).contains(&location.y) {
+            return Err("normalized coordinates must be within 0..1".to_string());
+        } else {
+            (location.x, location.y)
+        };
+
+        Ok(WorldCoordinate {
+            x: map.bounds.min_x + normalized_x * width,
+            y: map.bounds.min_y + normalized_y * height,
+            z: location.z,
+        })
+    }
+
     fn nearby_map_points(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         let result: Result<_, String> = (|| {
-            let location = coordinate(arguments)?;
+            let location = self.coordinate(arguments)?;
             let limit = optional_bounded_integer(arguments, "limit", 1, 20)?.unwrap_or(5) as usize;
             Ok((location, optional_map_point_kind(arguments)?, limit))
         })();
@@ -637,7 +741,7 @@ impl ToolRegistry {
     fn pal_spawn_zones(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         let result: Result<_, String> = (|| {
             let query = require_string(arguments, "pal")?;
-            let location = coordinate(arguments)?;
+            let location = self.coordinate(arguments)?;
             let limit = optional_bounded_integer(arguments, "limit", 1, 20)?.unwrap_or(5) as usize;
             Ok((query, location, limit))
         })();
@@ -740,12 +844,12 @@ fn build_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "locate_coordinate".to_string(),
-            description: "Map a world coordinate to a reviewed logical map and normalized coordinates.".to_string(),
+            description: "Map a world, logical-map-pixel, or normalized coordinate to a reviewed logical map.".to_string(),
             parameters_schema: coordinate_schema(),
         },
         ToolDefinition {
             name: "find_nearby_map_points".to_string(),
-            description: "Find reviewed fast-travel or boss-tower anchors near a coordinate.".to_string(),
+            description: "Find reviewed anchors near a world, logical-map-pixel, or normalized coordinate.".to_string(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
@@ -891,11 +995,17 @@ fn object_query() -> Value {
 fn coordinate_schema() -> Value {
     json!({
         "type": "object",
-        "properties": {
-            "x": {"type": "number"},
-            "y": {"type": "number"},
-            "z": {"type": "number"}
-        },
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                    "z": {"type": "number"},
+                    "coordinate_system": {
+                        "type": "string",
+                        "enum": ["world", "map_pixel", "normalized"],
+                        "description": "Use world for Unreal world units, map_pixel for 0..logical_size pixels, or normalized for 0..1 coordinates."
+                    },
+                    "map_id": {"type": "string"}
+                },
         "required": ["x", "y"]
     })
 }

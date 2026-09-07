@@ -1,7 +1,17 @@
 use crate::{AnswerStatus, GuideAnswer, GuideEngine};
 use game_knowledge::{
-    ElementType, PalWazaUnlock, TypeEffectivenessRecord, WazaRecord, WorkKindDescriptionRecord,
+    ElementType, Provenance, TypeEffectivenessRecord, WazaRecord, WorkKindDescriptionRecord,
 };
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PalWazaUnlockDetail {
+    pub id: String,
+    pub pal_id: String,
+    pub waza_id: String,
+    pub unlock_level: u32,
+    pub waza: WazaRecord,
+    pub provenance: Provenance,
+}
 
 fn parse_element_type(value: &str) -> Option<ElementType> {
     let normalized = value.trim().replace(['_', '-'], "").to_ascii_lowercase();
@@ -113,7 +123,7 @@ impl GuideEngine {
         }
     }
 
-    pub fn get_pal_waza_unlocks(&self, pal_query: &str) -> GuideAnswer<Vec<PalWazaUnlock>> {
+    pub fn get_pal_waza_unlocks(&self, pal_query: &str) -> GuideAnswer<Vec<PalWazaUnlockDetail>> {
         let resolved = match self.resolve(pal_query, Some(crate::EntityKind::Pal)) {
             crate::resolver::Resolution::Unique(resolved) => resolved,
             crate::resolver::Resolution::Ambiguous(candidates) => {
@@ -143,24 +153,58 @@ impl GuideEngine {
                 .cmp(&right.unlock_level)
                 .then_with(|| left.waza_id.cmp(&right.waza_id))
         });
+        let mut missing_waza_ids = Vec::new();
+        let details = unlocks
+            .iter()
+            .map(|unlock| {
+                let waza = self
+                    .store()
+                    .waza()
+                    .find(|record| record.id == unlock.waza_id);
+                if waza.is_none() {
+                    missing_waza_ids.push(unlock.waza_id.clone());
+                }
+                waza.map(|waza| PalWazaUnlockDetail {
+                    id: unlock.id.clone(),
+                    pal_id: unlock.pal_id.clone(),
+                    waza_id: unlock.waza_id.clone(),
+                    unlock_level: unlock.unlock_level,
+                    waza: waza.clone(),
+                    provenance: unlock.provenance.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
         let status = if unlocks.is_empty() {
             AnswerStatus::Unknown
+        } else if !missing_waza_ids.is_empty() {
+            AnswerStatus::Ambiguous
         } else {
             AnswerStatus::Ok
         };
-        let provenances = unlocks
+        let mut provenances = unlocks
             .iter()
             .map(|unlock| unlock.provenance.clone())
             .collect::<Vec<_>>();
+        for detail in details.iter().flatten() {
+            provenances.push(detail.waza.provenance.clone());
+        }
         let mut provenance_refs = provenances.iter().collect::<Vec<_>>();
         provenance_refs.push(&pal.provenance);
-        let mut answer = self
-            .context()
-            .answer(status, Some(unlocks), provenance_refs, Vec::new());
-        if status == AnswerStatus::Unknown {
+        let mut answer = self.context().answer(
+            status,
+            Some(details.into_iter().flatten().collect::<Vec<_>>()),
+            provenance_refs,
+            Vec::new(),
+        );
+        if unlocks.is_empty() {
             answer
                 .uncertainty
                 .push("no reviewed active-skill unlock data for this Pal".into());
+        } else if !missing_waza_ids.is_empty() {
+            answer.uncertainty.push(format!(
+                "reviewed active-skill details are missing for: {}",
+                missing_waza_ids.join(", ")
+            ));
         }
         answer
     }

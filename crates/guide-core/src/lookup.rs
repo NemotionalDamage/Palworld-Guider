@@ -11,13 +11,17 @@ use std::collections::BTreeSet;
 pub struct RecipeSummary {
     pub id: String,
     pub output_item_id: String,
+    pub output_item_name: String,
     pub output_quantity: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingredient_quantity: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ByproductRecipeSummary {
     pub id: String,
     pub source_output_item_id: String,
+    pub source_output_item_name: String,
     pub byproduct_quantity: u32,
 }
 
@@ -112,20 +116,24 @@ impl GuideEngine {
                 produced_by.push(RecipeSummary {
                     id: recipe.id.clone(),
                     output_item_id: recipe.output.item_id.clone(),
+                    output_item_name: self.item_name(&recipe.output.item_id),
                     output_quantity: recipe.output.quantity,
+                    ingredient_quantity: None,
                 });
                 provenances.push(&recipe.provenance);
                 related_subject_ids.insert(recipe.id.clone());
             }
-            if recipe
+            if let Some(ingredient) = recipe
                 .ingredients
                 .iter()
-                .any(|ingredient| ingredient.item_id == item.id)
+                .find(|ingredient| ingredient.item_id == item.id)
             {
                 used_as_ingredient.push(RecipeSummary {
                     id: recipe.id.clone(),
                     output_item_id: recipe.output.item_id.clone(),
+                    output_item_name: self.item_name(&recipe.output.item_id),
                     output_quantity: recipe.output.quantity,
+                    ingredient_quantity: Some(ingredient.quantity),
                 });
                 provenances.push(&recipe.provenance);
                 related_subject_ids.insert(recipe.id.clone());
@@ -138,6 +146,7 @@ impl GuideEngine {
                 byproduct_of.push(ByproductRecipeSummary {
                     id: recipe.id.clone(),
                     source_output_item_id: recipe.output.item_id.clone(),
+                    source_output_item_name: self.item_name(&recipe.output.item_id),
                     byproduct_quantity: byproduct.quantity,
                 });
                 provenances.push(&recipe.provenance);
@@ -148,7 +157,7 @@ impl GuideEngine {
         let mut pal_drop_sources = Vec::new();
         for pal in self.store().pals() {
             if pal.drops.iter().any(|drop| drop.item_id == item.id) {
-                pal_drop_sources.push(pal.id.clone());
+                pal_drop_sources.push(pal.names.en.clone());
                 provenances.push(&pal.provenance);
                 related_subject_ids.insert(pal.id.clone());
             }
@@ -210,6 +219,13 @@ impl GuideEngine {
             });
         }
         leads
+    }
+
+    fn item_name(&self, item_id: &str) -> String {
+        self.store()
+            .item(item_id)
+            .map(|item| item.names.en.clone())
+            .unwrap_or_else(|| item_id.to_string())
     }
 
     pub fn lookup_pal(&self, query: &str) -> crate::GuideAnswer<PalLookup> {

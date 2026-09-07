@@ -14,6 +14,7 @@ pub use calculators::{
     ByproductTotal, CraftableCalculation, InventoryAmount, InventoryEntry, MaterialAcquisition,
     MaterialCalculation, MaterialNode, MaterialTotal, ShortageCalculation, ShortageMaterial,
 };
+pub use enriched::PalWazaUnlockDetail;
 pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
 pub use map::{
     CoordinateLocation, MapPointDistance, NearbyHabitatZone, NearbyMapPoint,

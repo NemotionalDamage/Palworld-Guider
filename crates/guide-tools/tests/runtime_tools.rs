@@ -78,6 +78,29 @@ fn names(registry: &ToolRegistry) -> Vec<String> {
 }
 
 #[test]
+fn map_pixel_coordinates_convert_before_nearby_point_ranking() {
+    let registry = test_registry(None);
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch(
+        "find_nearby_map_points",
+        &json!({
+            "coordinate_system": "map_pixel",
+            "x": 4000.0,
+            "y": 4000.0,
+            "kind": "fast_travel",
+            "limit": 1
+        }),
+        &mut budget,
+    );
+
+    assert_eq!(envelope.status, ToolStatus::Ok);
+    let data = envelope.data.expect("nearby map points exist");
+    let points = data.as_array().expect("nearby map points are an array");
+    assert_eq!(points[0]["id"], "MAP_POINT_FAST_TRAVEL_FTPoint4");
+    assert_eq!(points[0]["name"], "Ancient Civilization Ruins");
+}
+
+#[test]
 fn runtime_definitions_are_published_and_dispatched() {
     let registry = test_registry(None)
         .try_with_runtime_tools(Arc::new(Runtime::observing()))

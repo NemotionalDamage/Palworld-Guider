@@ -30,6 +30,7 @@ pub struct MapPointDistance {
 pub struct NearbyMapPoint {
     pub id: String,
     pub name: String,
+    pub names: game_knowledge::LocaleNames,
     pub kind: MapPointKind,
     pub location: WorldCoordinate,
     pub distance: f64,
@@ -108,6 +109,7 @@ impl GuideEngine {
             .map(|point| NearbyMapPoint {
                 id: point.id.clone(),
                 name: point.names.en.clone(),
+                names: point.names.clone(),
                 kind: point.kind,
                 location: point.location,
                 distance: distance(&location, &point.location),

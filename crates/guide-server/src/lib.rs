@@ -16,5 +16,6 @@ pub use error::{ApiErrorCode, ApiErrorResponse};
 pub use log_rotation::{rotate_log_if_needed, LogRotationConfig};
 
 pub use session::{
-    ExchangeRecord, ServerLimits, SessionError, SessionRecord, SessionStore, SnapshotMetadata,
+    ExchangeRecord, ServerLimits, SessionAsk, SessionError, SessionRecord, SessionStore,
+    SnapshotMetadata,
 };

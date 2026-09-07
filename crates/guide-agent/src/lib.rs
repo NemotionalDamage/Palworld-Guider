@@ -5,7 +5,7 @@ mod answer;
 use answer::{contains_entity_phrase, truncate_characters, AnswerDraft, AnswerStatus, FactSheet};
 use guide_core::{ProvenanceSummary, VersionInfo};
 use guide_tools::{ToolBudget, ToolEnvelope, ToolRegistry, ToolStatus};
-use provider::{ChatMessage, ChatProvider, ChatRequest, ToolRequest, ToolSpec};
+use provider::{ChatMessage, ChatProvider, ChatRequest, ProviderError, ToolRequest, ToolSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use state_snapshot::PlayerStateSnapshot;
@@ -21,6 +21,21 @@ pub struct AgentLimits {
 pub struct AgentConfig {
     pub limits: AgentLimits,
     pub max_reply_characters: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentHistoryEntry {
+    pub question: String,
+    pub answer: Option<String>,
+}
+
+impl AgentHistoryEntry {
+    pub fn new(question: impl Into<String>, answer: Option<String>) -> Self {
+        Self {
+            question: question.into(),
+            answer,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +83,7 @@ pub struct GuideAgent {
     config: AgentConfig,
 }
 
-const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Numbers and exact quantities must be slot references such as {q1} from FACT_SHEET; do not write digits or number words in sentences or steps. For non-numeric facts, slots may be empty.\n3. Only reference slot IDs listed in the current FACT_SHEET. Never invent, combine, or calculate slot values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
+const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Every number must come from FACT_SHEET or GROUNDING. Prefer natural sentences and write numbers directly only when they already appear in FACT_SHEET or GROUNDING. For calculator results, prefer slot references from FACT_SHEET.\n3. If you use slot references, only reference IDs listed in FACT_SHEET. Never invent, combine, or calculate values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question. When localized names are provided, use the exact name matching the player's language; never translate a name yourself.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
 
 impl GuideAgent {
     pub fn new(
@@ -94,6 +109,24 @@ impl GuideAgent {
         let mut uncertainty = Vec::new();
         let mut version = self.registry.base_version();
         let known_entity_names = self.registry.known_entity_names();
+        let known_waza_names = self.registry.known_waza_names();
+
+        for candidate in candidate_entities(question, &known_waza_names) {
+            let envelope = self.registry.dispatch(
+                "get_waza",
+                &serde_json::json!({"query": candidate}),
+                &mut grounding_budget,
+            );
+            self.push_grounding_envelope(
+                "get_waza",
+                &serde_json::json!({"query": candidate}),
+                envelope,
+                &mut records,
+                &mut provenance,
+                &mut uncertainty,
+                &mut version,
+            );
+        }
 
         for candidate in candidate_entities(question, &known_entity_names) {
             let resolution = self.registry.dispatch(
@@ -112,29 +145,76 @@ impl GuideAgent {
                 }
                 continue;
             };
-            let tool_name = match kind {
-                "item" => Some("get_item"),
-                "pal" => Some("get_pal"),
-                "technology" => Some("get_technology"),
-                _ => None,
+            let tool_names = match kind {
+                "item" => vec!["get_item", "get_recipe"],
+                "pal" => vec!["get_pal"],
+                "technology" => vec!["get_technology"],
+                _ => Vec::new(),
             };
-            let Some(tool_name) = tool_name else {
-                continue;
-            };
-            let envelope = self.registry.dispatch(
-                tool_name,
-                &serde_json::json!({"query": candidate}),
-                &mut grounding_budget,
-            );
-            self.push_grounding_envelope(
-                tool_name,
-                &serde_json::json!({"query": candidate}),
-                envelope,
-                &mut records,
-                &mut provenance,
-                &mut uncertainty,
-                &mut version,
-            );
+            for tool_name in tool_names {
+                let envelope = self.registry.dispatch(
+                    tool_name,
+                    &serde_json::json!({"query": candidate}),
+                    &mut grounding_budget,
+                );
+                self.push_grounding_envelope(
+                    tool_name,
+                    &serde_json::json!({"query": candidate}),
+                    envelope,
+                    &mut records,
+                    &mut provenance,
+                    &mut uncertainty,
+                    &mut version,
+                );
+            }
+        }
+
+        if has_recipe_grounding_intent(question) {
+            for candidate in candidate_entities(question, &known_entity_names) {
+                for tool_name in ["get_recipe", "get_item"] {
+                    let already_grounded = records.iter().any(|record| {
+                        record.name == tool_name
+                            && record.arguments.get("query").and_then(Value::as_str)
+                                == Some(candidate.as_str())
+                    });
+                    if already_grounded {
+                        continue;
+                    }
+                    let envelope = self.registry.dispatch(
+                        tool_name,
+                        &serde_json::json!({"query": candidate}),
+                        &mut grounding_budget,
+                    );
+                    self.push_grounding_envelope(
+                        tool_name,
+                        &serde_json::json!({"query": candidate}),
+                        envelope,
+                        &mut records,
+                        &mut provenance,
+                        &mut uncertainty,
+                        &mut version,
+                    );
+                }
+            }
+        }
+
+        if has_map_intent(question) {
+            if let Some(arguments) = map_grounding_arguments(question) {
+                for tool_name in ["locate_coordinate", "find_nearby_map_points"] {
+                    let envelope =
+                        self.registry
+                            .dispatch(tool_name, &arguments, &mut grounding_budget);
+                    self.push_grounding_envelope(
+                        tool_name,
+                        &arguments,
+                        envelope,
+                        &mut records,
+                        &mut provenance,
+                        &mut uncertainty,
+                        &mut version,
+                    );
+                }
+            }
         }
 
         let search_arguments = serde_json::json!({"query": question, "limit": 5});
@@ -207,23 +287,25 @@ impl GuideAgent {
         self.ask_with_cancellation(question, &AtomicBool::new(false))
     }
 
+    pub fn ask_with_history(&self, question: &str, history: &[AgentHistoryEntry]) -> AgentAnswer {
+        self.ask_with_history_and_cancellation(question, history, &AtomicBool::new(false))
+    }
+
     pub fn ask_with_cancellation(&self, question: &str, cancelled: &AtomicBool) -> AgentAnswer {
+        self.ask_with_history_and_cancellation(question, &[], cancelled)
+    }
+
+    pub fn ask_with_history_and_cancellation(
+        &self,
+        question: &str,
+        history: &[AgentHistoryEntry],
+        cancelled: &AtomicBool,
+    ) -> AgentAnswer {
         let deadline = Instant::now() + self.config.limits.timeout;
         let mut budget = ToolBudget::new(self.config.limits.max_tool_calls, deadline);
         let known_entity_names = self.registry.known_entity_names();
         let entity_names_by_id = self.registry.canonical_entity_names();
-        let mut tools = self
-            .registry
-            .definitions()
-            .into_iter()
-            .map(|definition| ToolSpec {
-                name: definition.name,
-                description: definition.description,
-                parameters_schema: definition.parameters_schema,
-            })
-            .collect::<Vec<_>>();
-        tools.push(answer::submit_answer_tool());
-
+        let entity_name_variants_by_id = self.registry.entity_name_variants_by_id();
         let GroundingContext {
             records,
             provenance,
@@ -231,12 +313,38 @@ impl GuideAgent {
             version,
             summary,
         } = self.ground_question(question, deadline);
-        let mut messages = vec![ChatMessage::new("user", format!("{question}\n\n{summary}"))];
+        let initial_fact_sheet = FactSheet::build(
+            &records,
+            known_entity_names.clone(),
+            entity_names_by_id.clone(),
+            &entity_name_variants_by_id,
+            &version,
+        );
+        let mut messages = Vec::new();
+        for entry in history {
+            messages.push(ChatMessage::new("user", entry.question.clone()));
+            messages.push(ChatMessage::new(
+                "assistant",
+                entry
+                    .answer
+                    .clone()
+                    .unwrap_or_else(|| "[no answer]".to_string()),
+            ));
+        }
+        messages.push(ChatMessage::new(
+            "user",
+            format!(
+                "{question}\n\n{summary}\n\n{}",
+                initial_fact_sheet.summary()
+            ),
+        ));
         let mut records = records;
         let mut provenance = provenance;
         let mut uncertainty = uncertainty;
         let mut version = version;
-        let rounds = self.config.limits.max_tool_calls + 1;
+        let rounds = self.config.limits.max_tool_calls + 2;
+        let mut submit_retries_used = 0;
+        let mut provider_retries_used = 0;
 
         for round in 0..rounds {
             if cancelled.load(Ordering::SeqCst) {
@@ -244,7 +352,7 @@ impl GuideAgent {
                     records,
                     provenance,
                     uncertainty,
-                    version,
+                    version.clone(),
                     "agent run cancelled before completion",
                 );
             }
@@ -253,10 +361,11 @@ impl GuideAgent {
                     records,
                     provenance,
                     uncertainty,
-                    version,
+                    version.clone(),
                     "agent timeout exceeded before a final answer",
                 );
             }
+            let tools = self.available_tools(&records, question);
             let request = ChatRequest {
                 system: SYSTEM_PROMPT.to_string(),
                 messages: messages.clone(),
@@ -264,15 +373,29 @@ impl GuideAgent {
             };
             let response = match self.provider.complete(&request) {
                 Ok(response) => response,
-                Err(error) => {
-                    return self.error_answer(
-                        records,
-                        provenance,
-                        uncertainty,
-                        version,
-                        format!("provider {}: {error}", self.provider.name()),
-                    )
-                }
+                Err(error) => match (provider_retries_used == 0, &error) {
+                    (true, ProviderError::InvalidResponse(_)) => {
+                        provider_retries_used += 1;
+                        messages.push(ChatMessage::new(
+                            "user",
+                            format!(
+                                "PROVIDER_RESPONSE_ERROR: {error}\n\
+                                 Return one valid tool call or submit_answer. \
+                                 Tool arguments must be valid JSON."
+                            ),
+                        ));
+                        continue;
+                    }
+                    _ => {
+                        return self.error_answer(
+                            records,
+                            provenance,
+                            uncertainty,
+                            version,
+                            format!("provider {}: {error}", self.provider.name()),
+                        )
+                    }
+                },
             };
             if response.tool_requests.is_empty() {
                 return self.model_fallback(
@@ -281,6 +404,7 @@ impl GuideAgent {
                     provenance,
                     uncertainty,
                     version,
+                    &entity_name_variants_by_id,
                 );
             }
             if let Some(tool_request) = response
@@ -288,15 +412,56 @@ impl GuideAgent {
                 .iter()
                 .find(|request| request.name == "submit_answer")
             {
-                return self.submit_answer(
+                match self.try_submit_answer(
                     tool_request,
-                    records,
-                    provenance,
-                    uncertainty,
-                    version,
+                    records.clone(),
+                    provenance.clone(),
+                    uncertainty.clone(),
+                    version.clone(),
                     &known_entity_names,
                     &entity_names_by_id,
-                );
+                    &entity_name_variants_by_id,
+                ) {
+                    Ok(answer) => return answer,
+                    Err(error) if submit_retries_used == 0 => {
+                        submit_retries_used += 1;
+                        messages.push(ChatMessage::new(
+                            "assistant",
+                            if response.content.trim().is_empty() {
+                                "I need to correct my answer.".to_string()
+                            } else {
+                                response.content.clone()
+                            },
+                        ));
+                        messages.push(ChatMessage::new(
+                            "user",
+                            format!(
+                                "SUBMIT_ANSWER_ERROR: {error}\n\
+                                 Call submit_answer again with a corrected draft. \
+                                 Numbers must come from FACT_SHEET or GROUNDING. \
+                                 Use only slot IDs listed in the current FACT_SHEET."
+                            ),
+                        ));
+                        continue;
+                    }
+                    Err(error) => {
+                        uncertainty.push(format!("model draft invalid: {error}"));
+                        let fact_sheet = FactSheet::build(
+                            &records,
+                            known_entity_names.clone(),
+                            entity_names_by_id.clone(),
+                            &entity_name_variants_by_id,
+                            &version,
+                        );
+                        return self.rendered_fallback(
+                            records,
+                            provenance,
+                            uncertainty,
+                            version,
+                            &fact_sheet,
+                        );
+                    }
+                }
             }
 
             let assistant_content = if response.content.trim().is_empty() {
@@ -317,12 +482,133 @@ impl GuideAgent {
                     &mut messages,
                     &known_entity_names,
                     &entity_names_by_id,
+                    &entity_name_variants_by_id,
                 );
             }
         }
 
         uncertainty.push("tool call budget exhausted before a final answer".to_string());
-        self.model_fallback(String::new(), records, provenance, uncertainty, version)
+        self.model_fallback(
+            String::new(),
+            records,
+            provenance,
+            uncertainty,
+            version,
+            &entity_name_variants_by_id,
+        )
+    }
+
+    fn available_tools(&self, records: &[ToolCallRecord], question: &str) -> Vec<ToolSpec> {
+        let completed_tools = records
+            .iter()
+            .map(|record| record.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let successful_tools = records
+            .iter()
+            .filter(|record| record.status == ToolStatus::Ok)
+            .map(|record| record.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let exact_lookup_succeeded = [
+            "get_item",
+            "get_pal",
+            "get_recipe",
+            "get_technology",
+            "get_waza",
+        ]
+        .into_iter()
+        .any(|tool| successful_tools.contains(tool));
+        let calculation_intent = has_calculation_intent(question);
+        let preferred_calculator = preferred_calculation_tool(question);
+        let calculation_succeeded = successful_tools
+            .iter()
+            .any(|tool_name| is_calculation_tool(tool_name));
+        let map_grounding_succeeded = successful_tools
+            .iter()
+            .any(|tool_name| is_map_tool(tool_name));
+        let breeding_intent = has_breeding_intent(question);
+        let map_intent = has_map_intent(question);
+        let state_intent = has_state_intent(question);
+        let conflict_intent = question.contains("冲突");
+        let pal_unlock_intent = question.contains("技能") || question.contains("解锁");
+        let mut tools = self
+            .registry
+            .definitions()
+            .into_iter()
+            .filter(|definition| !completed_tools.contains(definition.name.as_str()))
+            .filter(|definition| {
+                if is_calculation_tool(&definition.name) && !calculation_intent {
+                    return false;
+                }
+                if is_calculation_tool(&definition.name)
+                    && map_grounding_succeeded
+                    && preferred_calculator.is_none()
+                {
+                    return false;
+                }
+                if is_calculation_tool(&definition.name) {
+                    if let Some(preferred) = preferred_calculator {
+                        if definition.name != preferred {
+                            return false;
+                        }
+                    }
+                    if calculation_succeeded {
+                        return false;
+                    }
+                }
+                if is_breeding_tool(&definition.name) && !breeding_intent {
+                    return false;
+                }
+                if is_map_tool(&definition.name) && map_grounding_succeeded {
+                    return false;
+                }
+                if is_map_tool(&definition.name) && !map_intent {
+                    return false;
+                }
+                if is_state_tool(&definition.name) && !state_intent {
+                    return false;
+                }
+                if definition.name == "get_conflicting_records" && !conflict_intent {
+                    return false;
+                }
+                let suppress_exact_lookup = (exact_lookup_succeeded || map_grounding_succeeded)
+                    && matches!(
+                        definition.name.as_str(),
+                        "resolve_name"
+                            | "get_item"
+                            | "get_pal"
+                            | "get_recipe"
+                            | "get_technology"
+                            | "get_waza"
+                    );
+                let suppress_passive_lookups = (successful_tools.contains("get_item")
+                    || successful_tools.contains("get_pal"))
+                    && matches!(
+                        definition.name.as_str(),
+                        "get_type_effectiveness" | "get_work_kind_descriptions"
+                    );
+                let suppress_pal_waza_lookup = definition.name == "get_pal_waza_unlocks"
+                    && (successful_tools.contains("get_waza")
+                        || (successful_tools.contains("get_pal") && !pal_unlock_intent));
+                let suppress_search = definition.name == "search_structured_knowledge"
+                    && (successful_tools.contains("get_item")
+                        || successful_tools.contains("get_pal")
+                        || successful_tools.contains("get_waza"));
+                let suppress_waza_lookup = definition.name == "get_waza"
+                    && successful_tools.contains("get_pal_waza_unlocks");
+                !suppress_exact_lookup
+                    && !suppress_passive_lookups
+                    && !suppress_pal_waza_lookup
+                    && !suppress_search
+                    && !suppress_waza_lookup
+            })
+            .map(|definition| ToolSpec {
+                name: definition.name,
+                description: definition.description,
+                parameters_schema: definition.parameters_schema,
+            })
+            .collect::<Vec<_>>();
+        tools.push(answer::submit_answer_tool());
+        tools
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -338,6 +624,7 @@ impl GuideAgent {
         messages: &mut Vec<ChatMessage>,
         known_entity_names: &BTreeSet<String>,
         entity_names_by_id: &BTreeMap<String, String>,
+        entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
     ) {
         let envelope = self
             .registry
@@ -365,6 +652,7 @@ impl GuideAgent {
             records,
             known_entity_names.clone(),
             entity_names_by_id.clone(),
+            entity_name_variants_by_id,
             version,
         );
         messages.push(ChatMessage::new(
@@ -379,43 +667,38 @@ impl GuideAgent {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn submit_answer(
+    fn try_submit_answer(
         &self,
         tool_request: &ToolRequest,
         records: Vec<ToolCallRecord>,
         provenance: BTreeSet<ProvenanceSummary>,
-        mut uncertainty: Vec<String>,
+        uncertainty: Vec<String>,
         version: VersionInfo,
         known_entity_names: &BTreeSet<String>,
         entity_names_by_id: &BTreeMap<String, String>,
-    ) -> AgentAnswer {
+        entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
+    ) -> Result<AgentAnswer, String> {
         let fact_sheet = FactSheet::build(
             &records,
             known_entity_names.clone(),
             entity_names_by_id.clone(),
+            entity_name_variants_by_id,
             &version,
         );
         let draft = match serde_json::from_value::<AnswerDraft>(tool_request.arguments.clone()) {
             Ok(draft) => draft,
             Err(error) => {
-                uncertainty.push(format!("model draft invalid: invalid arguments: {error}"));
-                return self.rendered_fallback(
-                    records,
-                    provenance,
-                    uncertainty,
-                    version,
-                    &fact_sheet,
-                );
+                return Err(format!("invalid arguments: {error}"));
             }
         };
-        for message in draft.uncertainty.clone().unwrap_or_default() {
-            if !uncertainty.contains(&message) {
-                uncertainty.push(message);
-            }
-        }
         match answer::render(&draft, &fact_sheet, self.config.max_reply_characters) {
             Ok(reply) => {
                 let mut uncertainty = uncertainty;
+                for message in draft.uncertainty.clone().unwrap_or_default() {
+                    if !uncertainty.contains(&message) {
+                        uncertainty.push(message);
+                    }
+                }
                 if records.is_empty()
                     && !uncertainty
                         .iter()
@@ -425,19 +708,16 @@ impl GuideAgent {
                         "no deterministic tool evidence was used for this answer".to_string(),
                     );
                 }
-                self.finished_answer(
+                Ok(self.finished_answer(
                     records,
                     provenance,
                     uncertainty,
                     version,
                     reply,
                     Some(draft.status),
-                )
+                ))
             }
-            Err(error) => {
-                uncertainty.push(format!("model draft invalid: {error}"));
-                self.rendered_fallback(records, provenance, uncertainty, version, &fact_sheet)
-            }
+            Err(error) => Err(error.to_string()),
         }
     }
 
@@ -448,11 +728,17 @@ impl GuideAgent {
         provenance: BTreeSet<ProvenanceSummary>,
         mut uncertainty: Vec<String>,
         version: VersionInfo,
+        entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
     ) -> AgentAnswer {
         let known_entity_names = self.registry.known_entity_names();
         let entity_names_by_id = self.registry.canonical_entity_names();
-        let fact_sheet =
-            FactSheet::build(&records, known_entity_names, entity_names_by_id, &version);
+        let fact_sheet = FactSheet::build(
+            &records,
+            known_entity_names,
+            entity_names_by_id,
+            entity_name_variants_by_id,
+            &version,
+        );
         let trimmed = content.trim();
         if !trimmed.is_empty() {
             let status = match answer_status(&records) {
@@ -463,7 +749,6 @@ impl GuideAgent {
                 status,
                 sentences: vec![trimmed.to_string()],
                 steps: None,
-                slots: Vec::new(),
                 uncertainty: None,
             };
             if let Ok(reply) = answer::render(&draft, &fact_sheet, self.config.max_reply_characters)
@@ -580,6 +865,226 @@ impl GuideAgent {
     }
 }
 
+fn is_calculation_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "calculate_materials" | "calculate_shortage" | "calculate_craftable_count"
+    )
+}
+
+fn is_breeding_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "calculate_breeding_result" | "calculate_breeding_chain"
+    )
+}
+
+fn is_map_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "locate_coordinate" | "find_nearby_map_points" | "find_pal_spawn_zones"
+    )
+}
+
+fn is_state_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "import_player_snapshot" | "analyze_inventory" | "analyze_party" | "suggest_next_goals"
+    )
+}
+
+fn has_calculation_intent(question: &str) -> bool {
+    question.chars().any(|character| character.is_ascii_digit())
+        || [
+            "多少",
+            "需要",
+            "几个",
+            "几份",
+            "还缺",
+            "缺什么",
+            "要多少",
+            "总共",
+        ]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+}
+
+fn preferred_calculation_tool(question: &str) -> Option<&'static str> {
+    if ["还缺", "缺什么", "短缺", "missing for"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+    {
+        return Some("calculate_shortage");
+    }
+    if ["能做", "可以做", "可制作", "最多", "can make", "can craft"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+    {
+        return Some("calculate_craftable_count");
+    }
+    if ["需要多少", "材料", "总共", "materials for"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+    {
+        return Some("calculate_materials");
+    }
+    None
+}
+
+fn has_recipe_grounding_intent(question: &str) -> bool {
+    ["怎么做", "怎么制作", "怎么合成", "制作方法", "配方", "合成"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+}
+
+fn has_breeding_intent(question: &str) -> bool {
+    ["配种", "繁殖", "出什么", "生什么", "路线"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+}
+
+fn has_map_intent(question: &str) -> bool {
+    ["坐标", "地图", "附近", "位置", "传送"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+}
+
+fn map_grounding_arguments(question: &str) -> Option<Value> {
+    let (x, y) = labeled_coordinate(question).or_else(|| coordinate_after_marker(question))?;
+    let explicit_world = ["世界坐标", "游戏坐标", "实际坐标", "world coordinate"]
+        .iter()
+        .any(|keyword| question.to_ascii_lowercase().contains(keyword));
+    let explicit_pixel = ["地图坐标", "地图像素", "像素", "pixel"]
+        .iter()
+        .any(|keyword| question.to_ascii_lowercase().contains(keyword));
+    let coordinate_system = if explicit_world {
+        "world"
+    } else if explicit_pixel {
+        "map_pixel"
+    } else if question.contains("百分比") || question.contains("归一化") {
+        "normalized"
+    } else {
+        "world"
+    };
+    let mut x = x;
+    let mut y = y;
+    if !explicit_world
+        && !explicit_pixel
+        && !question.contains("百分比")
+        && !question.contains("归一化")
+        && is_probable_map_display_coordinate(x, y)
+    {
+        x *= 100.0;
+        y *= 100.0;
+    }
+    let mut arguments = serde_json::json!({
+        "x": x,
+        "y": y,
+        "z": 0.0,
+        "coordinate_system": coordinate_system,
+        "limit": 5,
+    });
+    if question.contains("传送") {
+        arguments["kind"] = serde_json::json!("fast_travel");
+    }
+    Some(arguments)
+}
+
+fn is_probable_map_display_coordinate(x: f64, y: f64) -> bool {
+    if x.abs() <= 1.0 && y.abs() <= 1.0 {
+        return false;
+    }
+    x.abs() <= 8192.0 && y.abs() <= 8192.0
+}
+
+fn labeled_coordinate(question: &str) -> Option<(f64, f64)> {
+    let lowercase = question.to_ascii_lowercase();
+    let x = labeled_number_after(&lowercase, "x")?;
+    let y = labeled_number_after(&lowercase, "y")?;
+    Some((x, y))
+}
+
+fn labeled_number_after(text: &str, label: &str) -> Option<f64> {
+    let mut search_start = 0;
+    while let Some(index) = text[search_start..].find(label) {
+        let value_start = search_start + index + label.len();
+        let mut cursor = value_start;
+        while cursor < text.len()
+            && text[cursor..]
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_whitespace() || "=:：为".contains(character))
+        {
+            cursor += text[cursor..].chars().next()?.len_utf8();
+        }
+        if let Some((value, _)) = parse_f64_at(text, cursor) {
+            if text[..value_start]
+                .chars()
+                .next_back()
+                .is_none_or(|character| !character.is_ascii_alphanumeric())
+            {
+                return Some(value);
+            }
+        }
+        search_start = value_start;
+    }
+    None
+}
+
+fn coordinate_after_marker(question: &str) -> Option<(f64, f64)> {
+    let marker = question.rfind("坐标")?;
+    let mut cursor = marker + "坐标".len();
+    while cursor < question.len()
+        && question[cursor..]
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_whitespace() || "是=：:（(".contains(character))
+    {
+        cursor += question[cursor..].chars().next()?.len_utf8();
+    }
+    let (x, after_x) = parse_f64_at(question, cursor)?;
+    let mut separator = after_x;
+    while separator < question.len()
+        && question[separator..]
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_whitespace() || "，,、/".contains(character))
+    {
+        separator += question[separator..].chars().next()?.len_utf8();
+    }
+    let (y, _) = parse_f64_at(question, separator)?;
+    Some((x, y))
+}
+
+fn parse_f64_at(text: &str, start: usize) -> Option<(f64, usize)> {
+    let bytes = text.as_bytes();
+    let mut end = start;
+    if end < bytes.len() && (bytes[end] == b'-' || bytes[end] == b'+') {
+        end += 1;
+    }
+    let digits_start = end;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    if end < bytes.len() && bytes[end] == b'.' {
+        end += 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+    }
+    if end == digits_start || digits_start < start {
+        return None;
+    }
+    let value = text[start..end].parse::<f64>().ok()?;
+    value.is_finite().then_some((value, end))
+}
+
+fn has_state_intent(question: &str) -> bool {
+    ["背包", "队伍", "我的状态", "状态", "下一步"]
+        .iter()
+        .any(|keyword| question.contains(keyword))
+}
+
 fn candidate_entities(question: &str, known_entity_names: &BTreeSet<String>) -> Vec<String> {
     let mut candidates = known_entity_names
         .iter()
@@ -648,6 +1153,48 @@ fn grounding_summary(records: &[ToolCallRecord], search_data: Option<&Value>) ->
 
 fn compact_grounding_data(name: &str, data: &Value) -> Value {
     match name {
+        "get_item" => {
+            let Some(fields) = data.as_object() else {
+                return data.clone();
+            };
+            let mut compact = serde_json::Map::new();
+            for key in ["id", "names", "description", "rarity", "pal_drop_sources"] {
+                if let Some(value) = fields.get(key) {
+                    compact.insert(key.to_string(), value.clone());
+                }
+            }
+            for relation in ["produced_by", "used_as_ingredient", "byproduct_of"] {
+                let Some(values) = fields.get(relation).and_then(Value::as_array) else {
+                    continue;
+                };
+                let trimmed = values
+                    .iter()
+                    .take(8)
+                    .filter_map(|value| value.as_object())
+                    .map(|fields| {
+                        let mut summary = serde_json::Map::new();
+                        for key in [
+                            "id",
+                            "output_item_id",
+                            "output_item_name",
+                            "output_quantity",
+                            "ingredient_quantity",
+                        ] {
+                            if let Some(value) = fields.get(key) {
+                                summary.insert(key.to_string(), value.clone());
+                            }
+                        }
+                        Value::Object(summary)
+                    })
+                    .collect::<Vec<_>>();
+                compact.insert(format!("{relation}_count"), serde_json::json!(values.len()));
+                if values.len() > 8 {
+                    compact.insert(format!("{relation}_truncated"), serde_json::json!(true));
+                }
+                compact.insert(relation.to_string(), Value::Array(trimmed));
+            }
+            Value::Object(compact)
+        }
         "get_pal" => {
             let Some(fields) = data.as_object() else {
                 return data.clone();
