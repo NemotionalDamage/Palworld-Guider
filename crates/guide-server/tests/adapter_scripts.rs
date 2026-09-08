@@ -1,4 +1,4 @@
-//! Source-contract tests for the G5 adapter PowerShell scripts.
+//! Source-contract tests for the UE4SS adapter PowerShell scripts.
 //!
 //! These are string-level source contracts: they assert that each script
 //! contains the safety behaviors required by the task brief without
@@ -11,10 +11,10 @@ const SCRIPTS_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scri
 const UE4SS_DLL_SHA256: &str = "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26";
 
 const ALL_SCRIPTS: [&str; 4] = [
-    "Build-G5Ue4ss.ps1",
-    "Backup-G5Save.ps1",
-    "Install-G5Ue4ss.ps1",
-    "Uninstall-G5Ue4ss.ps1",
+    "Build-Ue4ssAdapter.ps1",
+    "Backup-PalworldSave.ps1",
+    "Install-Ue4ssAdapter.ps1",
+    "Uninstall-Ue4ssAdapter.ps1",
 ];
 
 fn script(name: &str) -> String {
@@ -67,7 +67,7 @@ fn no_script_reads_or_prints_a_token() {
 }
 #[test]
 fn build_script_pins_ue4ss_sha256_and_never_writes_to_the_game() {
-    let content = script("Build-G5Ue4ss.ps1");
+    let content = script("Build-Ue4ssAdapter.ps1");
     assert!(
         content.contains(UE4SS_DLL_SHA256),
         "build must pin the exact UE4SS.dll SHA256"
@@ -96,7 +96,7 @@ fn build_script_pins_ue4ss_sha256_and_never_writes_to_the_game() {
 
 #[test]
 fn backup_script_refuses_unsafe_sources_destinations_and_running_game() {
-    let content = script("Backup-G5Save.ps1");
+    let content = script("Backup-PalworldSave.ps1");
     assert!(
         content.contains("Level.sav"),
         "backup must look for Level.sav in the source"
@@ -143,7 +143,7 @@ fn backup_script_refuses_unsafe_sources_destinations_and_running_game() {
 
 #[test]
 fn install_script_requires_verified_backup_before_any_mods_write() {
-    let content = script("Install-G5Ue4ss.ps1");
+    let content = script("Install-Ue4ssAdapter.ps1");
     let backup_marker = "no verified backup";
     let mods_marker = "Mods\\PalworldGuider";
     let backup_position = content
@@ -192,12 +192,12 @@ fn install_script_requires_verified_backup_before_any_mods_write() {
         content.contains("-LiteralPath"),
         "install must copy with -LiteralPath"
     );
-    assert_remove_item_targets_only_guider("Install-G5Ue4ss.ps1", &content);
+    assert_remove_item_targets_only_guider("Install-Ue4ssAdapter.ps1", &content);
 }
 
 #[test]
 fn uninstall_script_removes_only_the_guider_package() {
-    let content = script("Uninstall-G5Ue4ss.ps1");
+    let content = script("Uninstall-Ue4ssAdapter.ps1");
     assert!(
         content.contains("Get-Process") && content.contains("Palworld"),
         "uninstall must require the game to be stopped"
@@ -226,5 +226,5 @@ fn uninstall_script_removes_only_the_guider_package() {
         !content.contains("UE4SS.dll"),
         "uninstall must never touch UE4SS files"
     );
-    assert_remove_item_targets_only_guider("Uninstall-G5Ue4ss.ps1", &content);
+    assert_remove_item_targets_only_guider("Uninstall-Ue4ssAdapter.ps1", &content);
 }

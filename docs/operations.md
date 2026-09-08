@@ -103,7 +103,7 @@ Each pattern is replaced with `[REDACTED]` on the matching line. The active log 
 Before adapter deployment, use the backup script:
 
 ```powershell
-.\scripts\Backup-G5Save.ps1
+.\scripts\Backup-PalworldSave.ps1
 ```
 
 This copies the complete save directory to `.local/backups/g5/{world-id}/` and writes a `backup-manifest.json`. The install script refuses to proceed without a verified backup. Save backups are retained for 30 days.

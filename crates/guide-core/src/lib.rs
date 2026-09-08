@@ -1,4 +1,4 @@
-//! Phase G2 deterministic guide core.
+//! Deterministic guide core.
 
 mod answers;
 mod breeding;

@@ -1,6 +1,6 @@
 # Knowledge Schema v1
 
-Knowledge v1 is the Phase G1 canonical record format. Canonical data is stored as one JSON object per line in:
+Knowledge v1 is the canonical reviewed-record format. Canonical data is stored as one JSON object per line in:
 
 - `data/reviewed/sources.jsonl`
 - `data/reviewed/facts.jsonl` for the legacy mixed seed set

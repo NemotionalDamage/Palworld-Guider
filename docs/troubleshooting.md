@@ -146,7 +146,7 @@ cargo run -p guide-server -- --data data/reviewed --port 8070 --game-version 1.0
 - Confirm `PALWORLD_GUIDER_GATEWAY_TOKEN` is set to the same bearer token on both the guide-server and the adapter.
 - Confirm the guide-server was started with `--adapter-port` and prints `adapter=127.0.0.1:{port}`.
 - Confirm the adapter package is installed and the game is running.
-- See the G5 deployment record for build, install, and hash-verification steps.
+- See [deployment.md](deployment.md) for build, install, and hash-verification steps.
 
 ## 11. Crash Recovery
 

@@ -14,7 +14,7 @@ Absolute path to the target UE4SS.dll (must match the pinned SHA256).
 
 .PARAMETER OutputDirectory
 Directory that receives the build tree and the staged PalworldGuider/
-package. Defaults to <repo>\.local\build\g5-ue4ss-ninja.
+package. Defaults to <repo>\.local\build\ue4ss-adapter.
 #>
 [CmdletBinding()]
 param(
@@ -38,7 +38,7 @@ if ($ActualUe4ssDllSha256 -ne $ExpectedUe4ssDllSha256) {
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $RepoRoot '.local\build\g5-ue4ss-ninja'
+    $OutputDirectory = Join-Path $RepoRoot '.local\build\ue4ss-adapter'
 }
 
 $VsDevCmd = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat'

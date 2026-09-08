@@ -58,13 +58,13 @@ build, backup, install, and uninstall scripts live in `scripts/` at the
 repository root.
 
 ```powershell
-.\scripts\Build-G5Ue4ss.ps1 -Ue4ssDll "C:\Users\41699\Desktop\Pal\.local\vendor\UE4SS_v3.0.1\UE4SS.dll"
+.\scripts\Build-Ue4ssAdapter.ps1 -Ue4ssDll "C:\path\to\UE4SS_v3.0.1\UE4SS.dll"
 ```
 
 The script verifies the UE4SS DLL SHA256
 (`8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26`),
 builds the native MSVC x64 shim, stages `PalworldGuider/` under
-`.local\build\g5-ue4ss-ninja` (or `-OutputDirectory`), and writes and
+`.local\build\ue4ss-adapter` (or `-OutputDirectory`), and writes and
 verifies a `PalworldGuider.sha256` manifest of the staged package. It
 never writes to the game directory. The staged package contains:
 
@@ -80,9 +80,9 @@ PalworldGuider/Scripts/pal_json.lua
 Always back up the world save before installing or updating the adapter:
 
 ```powershell
-.\scripts\Backup-G5Save.ps1 `
+.\scripts\Backup-PalworldSave.ps1 `
   -SourceDirectory "$env:LOCALAPPDATA\Pal\Saved\SaveGames\76561198694570145\3C2BA10146F65256FD1B889FBF5F854F" `
-  -DestinationDirectory "$PWD\.local\backups\g5\3C2BA10146F65256FD1B889FBF5F854F"
+  -DestinationDirectory "$PWD\.local\backups\palworld\<world-id>"
 ```
 
 The script refuses to run while a `Palworld*` process is running, refuses
@@ -101,10 +101,10 @@ save is never modified.
 3. Install:
 
 ```powershell
-.\scripts\Install-G5Ue4ss.ps1 `
-  -PackageDirectory "$PWD\.local\build\g5-ue4ss-ninja\PalworldGuider" `
-  -ModsDirectory "D:\Steam\steamapps\common\Palworld\Pal\Binaries\Win64\Mods" `
-  -BackupDirectory "$PWD\.local\backups\g5\3C2BA10146F65256FD1B889FBF5F854F"
+.\scripts\Install-Ue4ssAdapter.ps1 `
+  -PackageDirectory "$PWD\.local\build\ue4ss-adapter\PalworldGuider" `
+  -ModsDirectory "<Your Palworld installation>\Pal\Binaries\Win64\Mods" `
+  -BackupDirectory "$PWD\.local\backups\palworld\<world-id>"
 ```
 
 The installer requires the game to be stopped, verifies the backup
@@ -116,7 +116,7 @@ folder. On any failure before completion it rolls back what it added.
 
 4. Start the Rust gateway with matching port and token.
 5. Start the supported single-player or private-server session and type
-   `!g <question>` in chat.
+   `!guide <question>` in chat.
 
 ## Uninstall
 
@@ -124,7 +124,7 @@ folder. On any failure before completion it rolls back what it added.
 2. Run:
 
 ```powershell
-.\scripts\Uninstall-G5Ue4ss.ps1 -ModsDirectory "D:\Steam\steamapps\common\Palworld\Pal\Binaries\Win64\Mods"
+.\scripts\Uninstall-Ue4ssAdapter.ps1 -ModsDirectory "<Your Palworld installation>\Pal\Binaries\Win64\Mods"
 ```
 
 The uninstaller removes only `Mods\PalworldGuider` and the
@@ -132,6 +132,5 @@ The uninstaller removes only `Mods\PalworldGuider` and the
 folders, never modifies other mods.txt entries, and leaves UE4SS itself
 untouched. It reports exactly what it removed.
 
-Live validation remains a separately gated action: only one Guider
-adapter may be enabled, and hashes of the staged files must match the
-built artifacts.
+Adapter installation remains separately gated: only one Guider adapter may be
+enabled, and hashes of the staged files must match the built artifacts.

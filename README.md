@@ -194,23 +194,22 @@ data/
     facts.jsonl              #   38 seed facts & progression edges
 
 docs/                       # Full project documentation
+  mod-rollout-plan.md
   installation.md
   configuration.md
   troubleshooting.md
   data-updates.md
   deployment.md
   operations.md
-  product-goal.md
   knowledge-source-policy.md
-  environment.md
   reference-data/
   schemas/
 
 scripts/                    # UE4SS build, backup, install, uninstall
-  Build-G5Ue4ss.ps1
-  Backup-G5Save.ps1
-  Install-G5Ue4ss.ps1
-  Uninstall-G5Ue4ss.ps1
+  Build-Ue4ssAdapter.ps1
+  Backup-PalworldSave.ps1
+  Install-Ue4ssAdapter.ps1
+  Uninstall-Ue4ssAdapter.ps1
 ```
 
 ## Knowledge Base
@@ -269,11 +268,11 @@ The workspace has 327 tests across 13 crates, including:
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 11 common issues with causes and fixes |
 | [docs/data-updates.md](docs/data-updates.md) | Knowledge-update workflow, source log, conflict handling, version tracking |
 | [docs/operations.md](docs/operations.md) | Performance budgets, crash recovery, backup, secret redaction, monitoring |
-| [docs/product-goal.md](docs/product-goal.md) | Problem statement, core user questions, answer standard, success criteria |
+| [docs/mod-rollout-plan.md](docs/mod-rollout-plan.md) | Level 1 clone-to-game and Level 2 installer rollout plan |
 
 ## Adapter Validation Status
 
-The reviewed knowledge and adapter package target Palworld `1.0.3` / Steam build `24575825`. The later installed Steam build `25094871` caused a heap-corruption exit during the recorded adapter trial, and the adapter was removed immediately.
+The reviewed knowledge and adapter package target Palworld `1.0.3` / Steam build `24575825`. Steam build `25094871` is blocked until the compatibility probe in the rollout plan passes.
 
 Until UE4SS compatibility and every exposed read field are reprobed against build `25094871`, use the Web UI without the adapter. The game itself remains usable without PalworldGuider installed. Do not reinstall the old package merely because the game starts successfully.
 

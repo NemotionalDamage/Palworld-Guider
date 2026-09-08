@@ -100,7 +100,7 @@ The UE4SS adapter enables read-only in-game chat. It is optional and off by defa
 ### Build the Adapter
 
 ```powershell
-.\scripts\Build-G5Ue4ss.ps1 -Ue4ssDll <path-to\UE4SS.dll>
+.\scripts\Build-Ue4ssAdapter.ps1 -Ue4ssDll <path-to\UE4SS.dll>
 ```
 
 This produces a `PalworldGuider` package directory with a SHA256 manifest. The manifest must be verified before installation.
@@ -110,7 +110,7 @@ This produces a `PalworldGuider` package directory with a SHA256 manifest. The m
 Before adapter installation, back up the game save:
 
 ```powershell
-.\scripts\Backup-G5Save.ps1
+.\scripts\Backup-PalworldSave.ps1
 ```
 
 The install script refuses to proceed without a verified non-empty backup manifest (`backup-manifest.json`).
@@ -119,7 +119,7 @@ The install script refuses to proceed without a verified non-empty backup manife
 
 ```powershell
 $env:PALWORLD_GUIDER_GATEWAY_TOKEN = "a-long-random-bearer-token-0123456789"
-.\scripts\Install-G5Ue4ss.ps1 -PackageDirectory <built-package> -ModsDirectory <game-Mods-dir> -BackupDirectory <backup-dir>
+.\scripts\Install-Ue4ssAdapter.ps1 -PackageDirectory <built-package> -ModsDirectory <game-Mods-dir> -BackupDirectory <backup-dir>
 ```
 
 The install script:
@@ -154,7 +154,7 @@ The exact question `!guide ping` returns `Pong: Palworld Guider adapter connecte
 ### Uninstall
 
 ```powershell
-.\scripts\Uninstall-G5Ue4ss.ps1 -ModsDirectory <game-Mods-dir>
+.\scripts\Uninstall-Ue4ssAdapter.ps1 -ModsDirectory <game-Mods-dir>
 ```
 
 This removes exactly `Mods/PalworldGuider` and its `mods.txt` entry. Other mods are preserved.

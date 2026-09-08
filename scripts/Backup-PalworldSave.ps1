@@ -16,7 +16,7 @@ Absolute path to the world save directory that contains Level.sav
 (for example ...\SaveGames\76561198694570145\3C2BA10146F65256FD1B889FBF5F854F).
 
 .PARAMETER DestinationDirectory
-Absolute destination path under <repo>\.local\backups\g5\ that will hold a
+Absolute destination path under <repo>\.local\backups\palworld\ that will hold a
 verified copy of the world directory.
 #>
 [CmdletBinding()]

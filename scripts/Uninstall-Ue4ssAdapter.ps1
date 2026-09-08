@@ -10,7 +10,7 @@ untouched. Reports what was removed.
 
 .PARAMETER ModsDirectory
 The game's UE4SS Mods directory (for example
-D:\Steam\steamapps\common\Palworld\Pal\Binaries\Win64\Mods).
+<Your Palworld installation>\Pal\Binaries\Win64\Mods).
 #>
 [CmdletBinding()]
 param(
