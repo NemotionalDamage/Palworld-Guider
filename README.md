@@ -161,6 +161,8 @@ Enter a single-player or private session and type in the chat box:
 ```text
 !guide ping
 !guide <question>
+!guide retry
+!guide new
 ```
 
 - `!guide ping` returns `Pong: Palworld Guider adapter connected.`
@@ -168,6 +170,11 @@ Enter a single-player or private session and type in the chat box:
 - `!guide <question>` goes through the same grounded agent loop as the
   Web interface and answers items, materials, Pals, recipes, breeding,
   and progression questions with cited knowledge-base evidence.
+- Every question starts with clean context by default; only questions that
+  explicitly refer to the previous answer (继续/刚才/continue/again) carry
+  the latest exchange as follow-up context.
+- `!guide retry` clears the context and re-asks your previous question.
+- `!guide new` clears the conversation without re-asking anything.
 
 Relaunching the game later from the same Steam window keeps the session
 token. If Steam was fully closed, re-run `Start-InGameGuide.ps1` so the

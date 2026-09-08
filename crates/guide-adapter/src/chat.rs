@@ -12,10 +12,14 @@
 //! - Non-ping questions are clamped to `max_question_characters`, run through
 //!   `GuideAgent::ask_with_cancellation` exactly once, and the final reply is
 //!   sent exactly once through `send_chat` (no retry loop).
-//! - History keeps the newest `max_history_exchanges` processed exchanges as
-//!   text-only `Q:`/`A:` pairs; no JSON, tokens, or paths enter the prompts.
-//!   The exchange is recorded when the agent produces a reply, before
-//!   delivery, so a failed delivery does not lose the follow-up context.
+//! - By default every question runs with a clean context; earlier exchanges
+//!   never bleed into unrelated questions. Questions that explicitly refer to
+//!   the previous answer (markers such as 继续/刚才/continue/again) include
+//!   only the newest text-only `Q:`/`A:` pair; no JSON, tokens, or paths
+//!   enter the prompts. The exchange is recorded when the agent produces a
+//!   reply, before delivery, so a failed delivery does not lose follow-up
+//!   context. `!guide retry` clears history and resends the exact previous
+//!   question; `!guide new` clears history without calling the provider.
 //! - A rolling `max_asks_per_minute` window fails closed: an event that would
 //!   exceed the budget is ignored with no provider run and no delivery
 //!   (`AgentStatus::Error`, error `chat rate limit exceeded; try again later`).
@@ -43,8 +47,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const CHAT_PREFIX: &str = "!guide ";
 
 const PONG_REPLY: &str = "Pong: Palworld Guider adapter connected.";
+const SESSION_CLEARED_REPLY: &str = "Guide session cleared.";
 const GUIDE_UNAVAILABLE_PREFIX: &str = "Guide unavailable:";
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(60);
+const FOLLOW_UP_MARKERS: &[&str] = &[
+    "继续", "接着", "刚才", "上面", "前面", "之前", "再说", "那个", "它", "continue", "previous",
+    "again", "above", "earlier",
+];
 
 #[derive(Debug, Clone)]
 pub struct InGameLimits {
@@ -73,6 +82,7 @@ pub struct InGameChatBridge {
     runtime: GameAdapterRuntime,
     limits: InGameLimits,
     history: VecDeque<(String, String)>,
+    last_question: Option<String>,
     ask_timestamps: VecDeque<Instant>,
     debug_log: Option<PathBuf>,
 }
@@ -90,6 +100,7 @@ impl InGameChatBridge {
             runtime,
             limits,
             history: VecDeque::new(),
+            last_question: None,
             ask_timestamps: VecDeque::new(),
             debug_log: None,
         }
@@ -117,26 +128,71 @@ impl InGameChatBridge {
         if question.eq_ignore_ascii_case("ping") {
             return self.pong(event);
         }
+        if question.eq_ignore_ascii_case("new") {
+            return self.clear_session(event);
+        }
+        if question.eq_ignore_ascii_case("retry") {
+            return self.retry_last(agent, event);
+        }
         if self.rate_limited() {
             return self.skip_event(event, "chat rate limit exceeded; try again later");
         }
 
         let question = clamp(question, self.limits.max_question_characters);
+        self.last_question = Some(question.clone());
+        self.run_ask(agent, event, question, "ask")
+    }
+
+    fn build_prompt(&self, question: &str) -> String {
+        let mut lines = Vec::with_capacity(2);
+        if is_follow_up(question) {
+            if let Some((past_question, past_answer)) = self.history.back() {
+                lines.push(format!("Q: {past_question}\nA: {past_answer}"));
+            }
+        }
+        lines.push(format!("Q: {question}"));
+        lines.join("\n")
+    }
+
+    fn run_ask(
+        &mut self,
+        agent: &GuideAgent,
+        event: ChatEvent,
+        question: String,
+        kind: &str,
+    ) -> ChatOutcome {
+        if self.rate_limited() {
+            return self.skip_event(event, "chat rate limit exceeded; try again later");
+        }
         self.record_ask();
         let prompt = self.build_prompt(&question);
         let answer = agent.ask_with_cancellation(&prompt, &AtomicBool::new(false));
         let reply = clamp(&self.reply_for(&answer), self.limits.max_reply_characters);
         self.record_exchange(question.clone(), reply.clone());
-        self.deliver(event, answer, reply, &question, "ask")
+        self.deliver(event, answer, reply, &question, kind)
     }
 
-    fn build_prompt(&self, question: &str) -> String {
-        let mut lines = Vec::with_capacity(self.history.len() + 1);
-        for (past_question, past_answer) in &self.history {
-            lines.push(format!("Q: {past_question}\nA: {past_answer}"));
-        }
-        lines.push(format!("Q: {question}"));
-        lines.join("\n")
+    fn retry_last(&mut self, agent: &GuideAgent, event: ChatEvent) -> ChatOutcome {
+        let Some(question) = self.last_question.clone() else {
+            return self.skip_event(event, "no previous question to retry");
+        };
+        self.history.clear();
+        self.run_ask(agent, event, question, "retry")
+    }
+
+    fn clear_session(&mut self, event: ChatEvent) -> ChatOutcome {
+        self.history.clear();
+        self.last_question = None;
+        let answer = AgentAnswer {
+            status: AgentStatus::Ok,
+            answer: Some(SESSION_CLEARED_REPLY.to_string()),
+            tool_calls: Vec::new(),
+            provenance: Vec::new(),
+            version: unversioned_info(),
+            uncertainty: Vec::new(),
+            errors: Vec::new(),
+        };
+        self.deliver(event, answer, SESSION_CLEARED_REPLY.to_string(), "new", "new")
     }
 
     fn reply_for(&self, answer: &AgentAnswer) -> String {
@@ -272,10 +328,17 @@ impl InGameChatBridge {
 
     fn record_exchange(&mut self, question: String, answer: String) {
         self.history.push_back((question, answer));
-        while self.history.len() > self.limits.max_history_exchanges {
+        while self.history.len() > 1 {
             self.history.pop_front();
         }
     }
+}
+
+fn is_follow_up(question: &str) -> bool {
+    let lowercase = question.to_lowercase();
+    FOLLOW_UP_MARKERS
+        .iter()
+        .any(|marker| lowercase.contains(marker))
 }
 
 fn unavailable_reply(answer: &AgentAnswer) -> String {

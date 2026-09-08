@@ -133,10 +133,16 @@ Adapter gateway: 127.0.0.1:8071
 ```text
 !guide ping
 !guide <问题>
+!guide retry
+!guide new
 ```
 
 - `!guide ping` 返回 `Pong: Palworld Guider adapter connected.`，不会调用模型服务。
 - `!guide <问题>` 走与网页版相同的带落地校验的代理循环，可回答物品、材料、帕鲁、配方、繁殖、进度等各类问题，并附带知识库依据。
+- 每个问题默认使用干净上下文，互不干扰；只有问题中明确指代上一轮回答
+  （如 继续/刚才/continue/again）时才携带最近一轮作为追问上下文。
+- `!guide retry` 清空上下文并重新提问上一个问题。
+- `!guide new` 只清空对话记录，不重新提问。
 
 之后在同一 Steam 窗口再次启动游戏会沿用本次会话令牌；如果 Steam 被完全关闭，请重新运行 `Start-InGameGuide.ps1`，让游戏继承新令牌。
 

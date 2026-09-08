@@ -331,7 +331,7 @@ fn provider_failure_sends_a_clear_non_fabricated_reply() {
 }
 
 #[test]
-fn follow_up_history_is_bounded_and_text_only() {
+fn follow_up_history_keeps_only_the_latest_exchange_for_follow_ups() {
     let runtime = GameAdapterRuntime::new(gateway());
     let address = runtime.endpoint();
     let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
@@ -345,7 +345,7 @@ fn follow_up_history_is_bounded_and_text_only() {
             Arc::clone(&agent),
             chat_event(
                 &format!("event-{index}"),
-                &format!("!guide question {index}"),
+                &format!("!guide 继续 question {index}"),
             ),
         );
         let delivered = adapter.respond_ok();
@@ -361,14 +361,11 @@ fn follow_up_history_is_bounded_and_text_only() {
     let calls = provider.calls();
     assert_eq!(calls.len(), 6);
     let last_prompt = &calls[5].messages[0].content;
-    assert!(last_prompt.contains("Q: question 2"));
-    assert!(last_prompt.contains("Q: question 3"));
-    assert!(last_prompt.contains("Q: question 4"));
-    assert!(last_prompt.contains("Q: question 5"));
-    assert!(last_prompt.contains("Q: question 6"));
+    assert!(last_prompt.contains("Q: 继续 question 5"));
+    assert!(last_prompt.contains("Q: 继续 question 6"));
     assert!(
-        !last_prompt.contains("question 1"),
-        "history must keep only the newest four exchanges: {last_prompt}"
+        !last_prompt.contains("question 1") && !last_prompt.contains("question 4"),
+        "follow-up prompts must keep only the newest exchange: {last_prompt}"
     );
     assert!(
         !last_prompt.contains('{'),
@@ -385,6 +382,183 @@ fn follow_up_history_is_bounded_and_text_only() {
     assert!(
         !last_prompt.contains("C:"),
         "prompts must stay text-only: {last_prompt}"
+    );
+}
+
+#[test]
+fn unrelated_questions_start_with_clean_context() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, provider) = scripted_agent(vec![
+        ChatResponse::text("first answer about breeding"),
+        ChatResponse::text("second answer about fast travel"),
+    ]);
+    let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-1", "!guide how does Lamball breeding work?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "first answer about breeding");
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-2", "!guide where is the nearest fast travel point?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "second answer about fast travel");
+
+    let calls = provider.calls();
+    assert_eq!(calls.len(), 2);
+    let second_prompt = &calls[1].messages[0].content;
+    assert!(
+        !second_prompt.contains("Lamball") && !second_prompt.contains("first answer"),
+        "unrelated questions must not inherit earlier exchanges: {second_prompt}"
+    );
+    assert!(
+        second_prompt.starts_with("Q: where is the nearest fast travel point?"),
+        "the current question must start the clean prompt: {second_prompt}"
+    );
+}
+
+#[test]
+fn retry_reruns_the_last_question_with_clean_context() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, provider) = scripted_agent(vec![
+        ChatResponse::text("contaminated first answer"),
+        ChatResponse::text("clean retried answer"),
+        ChatResponse::text("follow-up answer"),
+    ]);
+    let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-1", "!guide 继续 what is the best early base Pal?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "contaminated first answer");
+
+    let worker = process_in_worker(&bridge, Arc::clone(&agent), chat_event("event-2", "!guide retry"));
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "clean retried answer");
+
+    let calls = provider.calls();
+    assert_eq!(calls.len(), 2);
+    let retry_prompt = &calls[1].messages[0].content;
+    assert!(
+        !retry_prompt.contains("contaminated first answer"),
+        "retry must clear history before rerunning: {retry_prompt}"
+    );
+    assert!(
+        retry_prompt.starts_with("Q: 继续 what is the best early base Pal?"),
+        "retry must resend the exact last question: {retry_prompt}"
+    );
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-3", "!guide 继续 why is that Pal good?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "follow-up answer");
+    let calls = provider.calls();
+    let follow_up_prompt = &calls[2].messages[0].content;
+    assert!(
+        follow_up_prompt.contains("clean retried answer"),
+        "post-retry follow-ups must use the retried exchange: {follow_up_prompt}"
+    );
+}
+
+#[test]
+fn retry_without_a_previous_question_fails_closed() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, provider) = scripted_agent(Vec::new());
+    let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
+
+    let worker = process_in_worker(&bridge, agent, chat_event("event-1", "!guide retry"));
+    let outcome = worker.join().unwrap();
+    adapter.expect_no_delivery();
+
+    assert!(!outcome.delivered);
+    assert_eq!(outcome.answer.status, AgentStatus::Error);
+    assert!(
+        outcome
+            .answer
+            .errors
+            .iter()
+            .any(|error| error.contains("no previous question")),
+        "retry without history must explain itself: {:?}",
+        outcome.answer.errors
+    );
+    assert!(
+        provider.calls().is_empty(),
+        "retry without a previous question must not run the provider"
+    );
+}
+
+#[test]
+fn new_clears_history_without_a_provider_run() {
+    let runtime = GameAdapterRuntime::new(gateway());
+    let address = runtime.endpoint();
+    let mut adapter = FakeAdapter::connect(address, &["send_chat_message"]);
+    let (agent, provider) = scripted_agent(vec![
+        ChatResponse::text("old answer"),
+        ChatResponse::text("fresh answer"),
+    ]);
+    let bridge = Arc::new(Mutex::new(InGameChatBridge::new(runtime, bridge_limits())));
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-1", "!guide what is the best weapon?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "old answer");
+
+    let worker = process_in_worker(&bridge, Arc::clone(&agent), chat_event("event-2", "!guide new"));
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "Guide session cleared.");
+    assert_eq!(outcome.answer.status, AgentStatus::Ok);
+    assert_eq!(provider.calls().len(), 1, "new must not call the provider");
+
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-3", "!guide 继续 what should I craft first?"),
+    );
+    let delivered = adapter.respond_ok();
+    let outcome = worker.join().unwrap();
+    assert!(outcome.delivered);
+    assert_eq!(delivered, "fresh answer");
+    let calls = provider.calls();
+    assert_eq!(calls.len(), 2);
+    let post_new_prompt = &calls[1].messages[0].content;
+    assert!(
+        !post_new_prompt.contains("old answer") && !post_new_prompt.contains("best weapon"),
+        "new must clear all follow-up context: {post_new_prompt}"
     );
 }
 

@@ -114,12 +114,18 @@ supported commands are:
 ```text
 !guide ping
 !guide <question>
+!guide retry
+!guide new
 ```
 
 - `!guide ping` returns `Pong: Palworld Guider adapter connected.` without
   calling the provider.
 - `!guide <question>` is routed through the same grounded agent loop as
   the Web interface.
+- `!guide retry` clears the context and re-asks the previous question;
+  `!guide new` clears the conversation without re-asking. Unrelated
+  questions always start with clean context; explicit follow-up markers
+  (继续/刚才/continue/again) carry only the latest exchange.
 
 #### Uninstall
 
