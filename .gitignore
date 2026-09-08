@@ -2,6 +2,7 @@
 /target/
 
 # Local evidence and generated artifacts
+/.worktrees/
 /.local/
 /dist/
 /build/
