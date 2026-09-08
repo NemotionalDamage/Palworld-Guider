@@ -64,7 +64,12 @@
 
 ## 快速开始
 
-### 游戏内 MOD
+同一套有据可查的引擎，提供两种体验方式：
+
+- **游戏内 MOD** —— 完整体验：直接在帕鲁聊天框用 `!guide` 提问。
+- **仅 Web 网页端** —— 用浏览器获得同样的回答；无需 MOD，也无需运行游戏。
+
+### 游戏内 MOD（完整体验）
 
 只读游戏内 MOD 负责应答帕鲁聊天框中的 `!guide` 问题。整个过程全自动：脚本会定位 Steam 安装（无论游戏装在哪个盘、哪个目录）、找到 UE4SS 的 `Mods` 目录与最新存档、校验哈希，并且在完成存档备份并校验通过之前绝不写入游戏目录。
 
@@ -146,7 +151,28 @@ Adapter gateway: 127.0.0.1:8071
 
 `<游戏目录>` 即 Steam 中显示的帕鲁安装目录（库 → 管理 → 浏览本地文件）。卸载脚本只删除 `Mods\PalworldGuider` 及其在 `mods.txt` 中的那一行，其它 MOD 与 UE4SS 本身均不受影响。
 
-### 1. 确定性离线 CLI（无需 LLM）
+### 仅体验 Web 网页端（无需 MOD、无需游戏）
+
+如果只想体验 Web 网页端，不需要 UE4SS、不需要 MOD，也不需要运行游戏。克隆、构建并启动回环服务器即可：
+
+```powershell
+git clone https://github.com/NemotionalDamage/Palworld-Guider.git
+cd Palworld-Guider
+cargo build --release
+
+$env:GUIDE_PROVIDER = "ollama"        # 或 "openai"
+$env:GUIDE_MODEL = "llama3.2"
+# 使用 GUIDE_PROVIDER=openai 时还需设置：
+#   $env:OPENAI_API_KEY = "your-key"
+
+cargo run -p guide-server -- --data data/reviewed --port 8070
+```
+
+在浏览器打开 <http://127.0.0.1:8070/>。Web 端与 MOD 共用同一套有据可查的问答引擎：可以提出同样的问题、上传玩家状态快照进行状态感知规划、查看每条回答的依据，并在同一会话中多轮追问。在终端按 Ctrl+C 即可停止服务器。
+
+## 命令行工具
+
+### 确定性离线 CLI（无需 LLM）
 
 完全离线运行，不依赖任何模型服务或游戏状态：
 
@@ -162,7 +188,7 @@ cargo run -p guide-core -- chain 4 Lamball Lamball
 
 所有命令返回 JSON，包含 `status`、`data`、`provenance`、`version`、`uncertainty` 与 `errors` 字段。退出码：`0` = 成功，`1` = 未知/有歧义，`2` = 出错。
 
-### 2. 自然语言问答（使用 LLM）
+### 自然语言问答（使用 LLM）
 
 ```powershell
 # Ollama（本地）
@@ -173,19 +199,7 @@ $env:OPENAI_API_KEY = "your-key"
 cargo run -p guide-agent -- ask "Materials for 3 Wooden Clubs?" --provider openai --model gpt-4o-mini
 ```
 
-### 3. 纯网页版向导（不装 MOD）
-
-```powershell
-$env:GUIDE_PROVIDER = "ollama"
-$env:GUIDE_MODEL = "llama3.2"
-cargo run -p guide-server -- --data data/reviewed --port 8070
-```
-
-在浏览器打开 <http://127.0.0.1:8070/>。该 UI 无需额外依赖，支持提问、状态快照上传、依据展示与多轮追问。
-
-使用 OpenAI 兼容服务时，还需设置 `$env:OPENAI_API_KEY = "your-key"`，可选设置 `$env:GUIDE_BASE_URL`。
-
-### 4. 知识库维护
+### 知识库维护
 
 ```powershell
 cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3

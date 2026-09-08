@@ -64,7 +64,12 @@ The public Web guide, offline CLI tools, and a read-only in-game MOD are impleme
 
 ## Quick Start
 
-### In-Game MOD
+Two ways to use the same grounded engine:
+
+- **In-game MOD** - full experience: ask `!guide` questions in the Palworld chat box.
+- **Web guide only** - the same answers in a browser; no MOD and no game needed.
+
+### In-Game MOD (full experience)
 
 The read-only in-game MOD answers `!guide` questions from the Palworld
 chat box. Everything is automatic: the scripts locate the Steam
@@ -184,7 +189,33 @@ Close Palworld and remove only the MOD:
 Browse local files). The uninstaller removes `Mods\PalworldGuider` and
 its `mods.txt` line and preserves every other mod and UE4SS itself.
 
-### 1. Deterministic Offline CLI (no LLM)
+### Web Guide Only (no MOD, no game)
+
+If you only want to try the Web experience, you do not need UE4SS, the
+MOD, or the game running. Clone, build, and start the loopback server:
+
+```powershell
+git clone https://github.com/NemotionalDamage/Palworld-Guider.git
+cd Palworld-Guider
+cargo build --release
+
+$env:GUIDE_PROVIDER = "ollama"        # or "openai"
+$env:GUIDE_MODEL = "llama3.2"
+# when GUIDE_PROVIDER=openai also set:
+#   $env:OPENAI_API_KEY = "your-key"
+
+cargo run -p guide-server -- --data data/reviewed --port 8070
+```
+
+Open <http://127.0.0.1:8070/> in a browser. The Web guide shares the
+same grounded engine as the MOD: ask the same questions, attach a
+player-state snapshot for state-aware planning, inspect the provenance
+behind every answer, and follow up in one thread. Stop the server with
+Ctrl+C in the terminal.
+
+## Command-Line Tools
+
+### Deterministic Offline CLI (no LLM)
 
 Works completely offline with no provider or game state:
 
@@ -200,7 +231,7 @@ cargo run -p guide-core -- chain 4 Lamball Lamball
 
 All commands return JSON with `status`, `data`, `provenance`, `version`, `uncertainty`, and `errors`. Exit codes: `0` = ok, `1` = unknown/ambiguous, `2` = error.
 
-### 2. Natural-Language Guide (with LLM)
+### Natural-Language Guide (with LLM)
 
 ```powershell
 # Ollama (local)
@@ -211,19 +242,7 @@ $env:OPENAI_API_KEY = "your-key"
 cargo run -p guide-agent -- ask "Materials for 3 Wooden Clubs?" --provider openai --model gpt-4o-mini
 ```
 
-### 3. Web-Only Guide (No MOD)
-
-```powershell
-$env:GUIDE_PROVIDER = "ollama"
-$env:GUIDE_MODEL = "llama3.2"
-cargo run -p guide-server -- --data data/reviewed --port 8070
-```
-
-Open <http://127.0.0.1:8070/> in a browser. The dependency-free UI supports questions, snapshot attachment, provenance display, and follow-up history.
-
-For OpenAI-compatible: also set `$env:OPENAI_API_KEY = "your-key"` and optionally `$env:GUIDE_BASE_URL`.
-
-### 4. Knowledge Maintenance
+### Knowledge Maintenance
 
 ```powershell
 cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3

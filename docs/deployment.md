@@ -1,23 +1,24 @@
 # Deployment Guide
 
-This guide covers both Palworld Guider deployment modes. The in-game MOD
-clone-to-game path comes first; the Web-only path follows and remains
-available while the MOD is active.
+This guide covers both Palworld Guider deployment modes: the in-game
+MOD path comes first, followed by the Web-only server (which remains
+available while the MOD is active).
 
 ## UE4SS Adapter Deployment (In-Game MOD)
 
-The UE4SS adapter is the read-only in-game transport for the guide
-server. It is validated only against Palworld Steam build `24575825`
-(game `1.0.3`); Steam build `25094871` is blocked and every preflight
-refuses it before any state change.
+The UE4SS adapter is the read-only in-game transport that carries
+`!guide` questions from the Palworld chat box to the loopback guide
+server. The repository `README.md` is the end-user quick start; this
+guide documents the detailed behavior of the setup, start, and uninstall
+scripts, plus the Web-only server.
 
 ### Prerequisites
 
 - Windows 10/11 x64 with PowerShell 5.1+.
-- Palworld Steam build `24575825` (game `1.0.3`) installed through Steam.
+- Palworld installed through Steam; the game folder may be on any drive.
   Preflight reads `appmanifest_1623730.acf` from the Steam libraries, so a
-  Steam-installed game is required and `-GameRoot` cannot bypass build
-  validation.
+  real Steam-installed game is required and `-GameRoot` cannot bypass
+  discovery.
 - UE4SS `3.0.1` installed into the game at
   `<game>\Pal\Binaries\Win64\UE4SS.dll`. The pinned DLL SHA256 is verified
   during preflight.
@@ -27,7 +28,7 @@ refuses it before any state change.
   `Start-InGameGuide.ps1`: `GUIDE_PROVIDER` (`openai` or `ollama`),
   `GUIDE_MODEL`, and `OPENAI_API_KEY` when `GUIDE_PROVIDER=openai`.
 
-### Clone-To-Game Path
+### Setup And Start
 
 ```powershell
 git clone https://github.com/NemotionalDamage/Palworld-Guider.git
@@ -44,10 +45,9 @@ existing-installation check; a verified save backup; a package build and
 hash verification; and the explicit game install. Details:
 
 - Preflight (`Test-InGameGuide.ps1`) locates the Steam installation and
-  the Palworld app manifest, verifies the build ID against the reviewed
-  support manifest, verifies the installed UE4SS DLL hash, requires the
-  UE4SS `Mods` directory, and finds the newest save containing
-  `Level.sav`.
+  the Palworld app manifest, verifies the installed UE4SS DLL hash,
+  requires the UE4SS `Mods` directory, and finds the newest save
+  containing `Level.sav`.
 - Setup refuses to continue when `Mods\PalworldGuider` already exists and
   prints guidance to run `Uninstall-Ue4ssAdapter.ps1` first.
 - The newest save is backed up to
@@ -58,9 +58,10 @@ hash verification; and the explicit game install. Details:
 - Only then is `Mods\PalworldGuider` installed and enabled in `mods.txt`,
   preserving every unrelated mod.
 
-On a blocked or unsupported build, setup fails closed with exit code `1`
-before backing up, building, or writing to the game directory. `-WhatIf`
-runs preflight and reports the planned stages without changing anything.
+Preflight is read-only and fails closed: on any failure, setup exits
+with code `1` before backing up, building, or writing to the game
+directory. `-WhatIf` runs preflight and reports the planned stages
+without changing anything.
 
 Setup options (all optional; omitted paths are discovered automatically):
 
@@ -130,75 +131,19 @@ The uninstaller removes only `Mods\PalworldGuider` and the
 are preserved. Run it before re-running setup whenever
 `Mods\PalworldGuider` already exists.
 
-#### Blocked And Unsupported Builds
+#### If Preflight Fails
 
-Preflight is read-only and fails closed. Steam build `25094871` is still
-listed in `blocked_game_build_ids`; setup and start exit `1` with
-`Palworld build 25094871 is blocked by the support manifest` before any
-backup, build, or game write. Builds outside the reviewed matrix
-(`24575825`) are refused the same way, as is any UE4SS DLL whose SHA256
-does not match the pinned hash. The `25094871` entry moves into
-`game_build_ids` only after the `full` capability probe passes - see the
-probe record in `docs/mod-rollout-plan.md`.
+Setup and Start never modify anything before the read-only preflight
+passes. When preflight exits with code `1`, no backup, build, or game
+write has happened - check the printed reason first, then:
 
-#### Verified Manual Flow On A Blocked Build (25094871)
-
-The scripts refuse `25094871` by design, yet on 2026-09-08 the adapter
-transport and the chat path were verified live on that build after a
-one-time UE4SS settings fix. The complete step-by-step narrative is in
-the repository `README.md` ("Manual Start On A Blocked Build"); the
-parts that differ from the supported path are summarized here.
-
-First, disable the crashing UE4SS world-load hooks once. In
-`<game>\Pal\Binaries\Win64\UE4SS-settings.ini`:
-
-```ini
-[Hooks]
-HookInitGameState = 0
-HookCallFunctionByNameWithArguments = 0
-HookBeginPlay  = 0
-HookLocalPlayerExec = 0
-```
-
-Keep `HookProcessInternal = 1` and `HookProcessLocalScriptFunction = 1`.
-Without this fix, UE4SS 3.0.1 crashes on save entry (heap corruption
-`0xc0000374`); with it, the game loads normally and `!guide` works,
-because the adapter chat hook (`PalGameStateInGame:BroadcastChatMessage`)
-and transport use none of the disabled hooks.
-
-Then build, back up, and install exactly as in the supported path, but
-with explicit paths because preflight stops first:
-
-```powershell
-cargo build --release
-.\scripts\Build-Ue4ssAdapter.ps1 -Ue4ssDll "<game>\Pal\Binaries\Win64\UE4SS.dll" -Capability chat -OutputDirectory "$PWD\.local\build\ue4ss-adapter"
-.\scripts\Backup-PalworldSave.ps1 -SourceDirectory "<newest save dir containing Level.sav>" -DestinationDirectory "$PWD\.local\backups\palworld\manual-start"
-.\scripts\Install-Ue4ssAdapter.ps1 -PackageDirectory "$PWD\.local\build\ue4ss-adapter\PalworldGuider" -ModsDirectory "<game>\Pal\Binaries\Win64\Mods" -BackupDirectory "$PWD\.local\backups\palworld\manual-start"
-```
-
-`-Capability chat` is the build verified on `25094871`; the default
-`full` build stays reserved for supported `24575825` until the `full`
-layer probe passes. Start the loopback server and launch the game from
-the same PowerShell session so the game inherits the token:
-
-```powershell
-$env:GUIDE_PROVIDER = "ollama"          # or "openai"
-$env:GUIDE_MODEL = "llama3.2"
-# when GUIDE_PROVIDER=openai also set: $env:OPENAI_API_KEY = "your-key"
-$env:PALWORLD_GUIDER_GATEWAY_TOKEN = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
-$env:PALWORLD_GUIDER_GATEWAY_PORT = "8071"
-Start-Process -FilePath "$PWD\target\release\guide-server.exe" -WorkingDirectory $PWD -WindowStyle Hidden -ArgumentList @("--data", "$PWD\data\reviewed", "--game-version", "1.0.3", "--port", "8070", "--adapter-port", "8071", "--adapter-token-env", "PALWORLD_GUIDER_GATEWAY_TOKEN")
-Start-Sleep -Seconds 2
-Get-Process steam -ErrorAction SilentlyContinue | ForEach-Object { $null = $_.CloseMainWindow() }
-Start-Sleep -Seconds 5
-Start-Process "<Steam install>\Steam.exe" -ArgumentList "-applaunch", "1623730"
-```
-
-Enter a save and send `!guide ping` in the chat box; the expected reply
-is `Pong: Palworld Guider adapter connected.` Exit the game and stop
-`guide-server` when done. Verified scope on `25094871`: noop transport
-layer and chat layer; the `full` layer (player/Otomo reads and
-`!guide <question>`) is pending probe.
+- Confirm the installed UE4SS `3.0.1` DLL hash matches the pinned value
+  (a UE4SS reinstall or a game update can change the file).
+- Confirm the Steam library and save locations are readable and that the
+  newest save contains `Level.sav`.
+- See [troubleshooting.md](troubleshooting.md) for the common
+  causes and fixes, including the UE4SS crash-on-save-entry fix (heap
+  corruption `0xc0000374`) and adapter connection failures.
 
 #### Developer Build
 
