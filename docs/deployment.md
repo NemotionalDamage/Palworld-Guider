@@ -24,9 +24,9 @@ scripts, plus the Web-only server.
   during preflight.
 - Rust stable 1.98+ and VS 2022 Build Tools with the Desktop development
   with C++ workload (CMake and Ninja) for the source build.
-- Provider environment variables in the shell that later runs
-  `Start-InGameGuide.ps1`: `GUIDE_PROVIDER` (`openai` or `ollama`),
-  `GUIDE_MODEL`, and `OPENAI_API_KEY` when `GUIDE_PROVIDER=openai`.
+- Provider configuration from `Set-GuideProvider.ps1` (or session environment
+  variables): `GUIDE_PROVIDER` (`openai` or `ollama`), `GUIDE_MODEL`, and
+  `OPENAI_API_KEY` when `GUIDE_PROVIDER=openai`.
 
 ### Setup And Start
 
@@ -80,8 +80,9 @@ Setup options (all optional; omitted paths are discovered automatically):
 `Start-InGameGuide.ps1` validates the installed package files and hash
 manifest, generates a random 64-character gateway token in memory, and
 binds it (and the gateway port) to the launching PowerShell session — never
-to a file, the registry, or the command line. It copies the provider
-environment variables (`GUIDE_PROVIDER`, `GUIDE_MODEL`, `GUIDE_BASE_URL`,
+to a file, the registry, or the command line. It loads the saved provider
+configuration when present, then copies the provider environment variables
+(`GUIDE_PROVIDER`, `GUIDE_MODEL`, `GUIDE_BASE_URL`,
 `GUIDE_DISABLE_REASONING`, `OPENAI_API_KEY`) and the token into the
 child-process environment, launches `target\release\guide-server.exe` (or
 `-ServerExecutable`), and verifies it is listening. Palworld must not
@@ -179,7 +180,7 @@ available at `http://127.0.0.1:8070/` while the MOD is active.
 
 - Rust toolchain (stable) with `cargo`
 - Reviewed knowledge data under `data/reviewed/`
-- A provider configured through environment variables
+- A provider configured once through `Set-GuideProvider.ps1`
 
 ### Build
 
@@ -204,17 +205,17 @@ The release binary is placed at `target/release/guide-server.exe`.
 ### Run
 
 ```powershell
-$env:GUIDE_PROVIDER = "ollama"
-$env:GUIDE_MODEL = "llama3.2"
-./target/release/guide-server --data data/reviewed --game-version 1.0.3 --port 8070
+.\scripts\Set-GuideProvider.ps1   # once per clone
+.\scripts\Start-WebGuide.ps1
 ```
 
-For an OpenAI-compatible provider:
+`Start-WebGuide.ps1` loads `.local\set-provider.ps1` and runs the release
+server in the foreground. For a one-off manual run without the saved
+configuration:
 
 ```powershell
-$env:GUIDE_PROVIDER = "openai"
-$env:GUIDE_MODEL = "gpt-4o-mini"
-$env:OPENAI_API_KEY = "your-key-here"
+$env:GUIDE_PROVIDER = "ollama"        # or "openai"
+$env:GUIDE_MODEL = "llama3.2"
 ./target/release/guide-server --data data/reviewed --game-version 1.0.3 --port 8070
 ```
 

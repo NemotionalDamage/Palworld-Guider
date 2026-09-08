@@ -33,6 +33,36 @@ if ($Port -eq $AdapterPort) {
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+
+$ProviderConfigPath = Join-Path $RepoRoot '.local\set-provider.ps1'
+$ProviderVariableNames = @(
+    'GUIDE_PROVIDER',
+    'GUIDE_MODEL',
+    'GUIDE_BASE_URL',
+    'GUIDE_DISABLE_REASONING',
+    'OPENAI_API_KEY'
+)
+$SessionOverrides = @{}
+foreach ($ProviderVariableName in $ProviderVariableNames) {
+    $SessionValue = [Environment]::GetEnvironmentVariable($ProviderVariableName, 'Process')
+    if ($null -ne $SessionValue) {
+        $SessionOverrides[$ProviderVariableName] = $SessionValue
+    }
+}
+if (Test-Path -LiteralPath $ProviderConfigPath -PathType Leaf) {
+    Write-Host "Loading provider configuration: $ProviderConfigPath"
+    . $ProviderConfigPath
+}
+foreach ($SessionOverrideName in @($SessionOverrides.Keys)) {
+    Set-Item -Path ('Env:' + $SessionOverrideName) -Value $SessionOverrides[$SessionOverrideName]
+}
+if (-not $env:GUIDE_PROVIDER -or -not $env:GUIDE_MODEL) {
+    throw 'GUIDE_PROVIDER and GUIDE_MODEL are not configured; run .\scripts\Set-GuideProvider.ps1 once, or set them in this session'
+}
+if ($env:GUIDE_PROVIDER -eq 'openai' -and -not $env:OPENAI_API_KEY) {
+    throw 'OPENAI_API_KEY is required when GUIDE_PROVIDER=openai; run .\scripts\Set-GuideProvider.ps1 once, or set it in this session'
+}
+
 if (-not $ServerExecutable) {
     $ServerExecutable = Join-Path $RepoRoot 'target\release\guide-server.exe'
 }

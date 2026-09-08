@@ -115,20 +115,21 @@ and enables it in `mods.txt`, preserving every other mod. `-WhatIf`
 reports the planned stages without changing anything. Any preflight
 failure stops the command before a single file is written.
 
-#### Configure The Provider
+#### Configure The Provider (once)
 
-Set these variables in the same PowerShell session you will start from:
+Run the interactive setup once; the API key prompt hides what you type:
 
 ```powershell
-$env:GUIDE_PROVIDER = "ollama"        # or "openai"
-$env:GUIDE_MODEL = "llama3.2"
-# when GUIDE_PROVIDER=openai also set:
-#   $env:OPENAI_API_KEY = "your-key"
-# optional: $env:GUIDE_BASE_URL = "https://..."
+.\scripts\Set-GuideProvider.ps1
 ```
 
-With `GUIDE_PROVIDER=ollama`, Ollama must be running (`ollama serve`)
-and the model named in `GUIDE_MODEL` must be pulled (`ollama list`).
+The settings are saved to `.local\set-provider.ps1` (excluded from Git), and
+`Start-InGameGuide.ps1` loads them automatically from then on. Re-run the
+script with `-Force` to change them. You can still set `GUIDE_PROVIDER`,
+`GUIDE_MODEL`, `GUIDE_BASE_URL`, and `OPENAI_API_KEY` in a session instead;
+session values override the saved file. With `GUIDE_PROVIDER=ollama`, Ollama
+must be running (`ollama serve`) and the model named in `GUIDE_MODEL` must
+be pulled (`ollama list`).
 
 #### Start
 
@@ -199,13 +200,12 @@ git clone https://github.com/NemotionalDamage/Palworld-Guider.git
 cd Palworld-Guider
 cargo build --release
 
-$env:GUIDE_PROVIDER = "ollama"        # or "openai"
-$env:GUIDE_MODEL = "llama3.2"
-# when GUIDE_PROVIDER=openai also set:
-#   $env:OPENAI_API_KEY = "your-key"
-
-cargo run -p guide-server -- --data data/reviewed --port 8070
+.\scripts\Set-GuideProvider.ps1
+.\scripts\Start-WebGuide.ps1
 ```
+
+The provider setup above is the same one used by the MOD, so you only ever
+configure it once per clone.
 
 Open <http://127.0.0.1:8070/> in a browser. The Web guide shares the
 same grounded engine as the MOD: ask the same questions, attach a
@@ -254,7 +254,7 @@ cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 
 ## Configuration
 
-All configuration is environment-only. No credentials appear on the command line or in Git.
+All configuration is environment-only. `Set-GuideProvider.ps1` stores the provider values in the gitignored `.local\set-provider.ps1`, so no credentials appear on the command line or in Git.
 
 | Variable | Used by | Description |
 |---|---|---|

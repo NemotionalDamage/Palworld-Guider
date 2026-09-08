@@ -94,19 +94,20 @@ cargo build --release
 
 `Setup-InGameGuide.ps1` 一条命令即可，无需任何路径参数：游戏根目录、UE4SS DLL 与最新存档都会自动发现（可选参数 `-GameRoot`、`-Ue4ssDll`、`-SaveDirectory`、`-OutputDirectory` 仅用于覆盖自动发现）。脚本会先做只读预检；若 `Mods\PalworldGuider` 已存在则拒绝继续（请先运行卸载脚本）；随后在 `.local\backups\palworld` 下为最新存档创建并校验备份；接着构建并暂存 MOD 包、校验暂存哈希清单；最后才安装 `Mods\PalworldGuider` 并在 `mods.txt` 中启用它，同时保留其它所有 MOD。加 `-WhatIf` 只报告计划执行的阶段、不做任何改动。任何预检失败都会在任何文件被写入之前停止。
 
-#### 配置模型服务（Provider）
+#### 配置模型服务（Provider，仅需一次）
 
-在将要启动的同一个 PowerShell 会话中设置以下变量：
+运行一次交互式配置，API Key 输入时会自动隐藏：
 
 ```powershell
-$env:GUIDE_PROVIDER = "ollama"        # 或 "openai"
-$env:GUIDE_MODEL = "llama3.2"
-# 使用 GUIDE_PROVIDER=openai 时还需设置：
-#   $env:OPENAI_API_KEY = "your-key"
-# 可选：$env:GUIDE_BASE_URL = "https://..."
+.\scripts\Set-GuideProvider.ps1
 ```
 
-当 `GUIDE_PROVIDER=ollama` 时，需要先启动 Ollama（`ollama serve`），并确保 `GUIDE_MODEL` 指定的模型已拉取（`ollama list`）。
+配置会保存到 `.local\set-provider.ps1`（已被 Git 排除），之后
+`Start-InGameGuide.ps1` 会自动加载。需要修改时加 `-Force` 重新运行即可。
+你仍然可以在会话中手动设置 `GUIDE_PROVIDER`、`GUIDE_MODEL`、
+`GUIDE_BASE_URL`、`OPENAI_API_KEY`；会话中的值优先于保存的文件。当
+`GUIDE_PROVIDER=ollama` 时，需要先启动 Ollama（`ollama serve`），并确保
+`GUIDE_MODEL` 指定的模型已拉取（`ollama list`）。
 
 #### 启动（Start）
 
@@ -160,13 +161,11 @@ git clone https://github.com/NemotionalDamage/Palworld-Guider.git
 cd Palworld-Guider
 cargo build --release
 
-$env:GUIDE_PROVIDER = "ollama"        # 或 "openai"
-$env:GUIDE_MODEL = "llama3.2"
-# 使用 GUIDE_PROVIDER=openai 时还需设置：
-#   $env:OPENAI_API_KEY = "your-key"
-
-cargo run -p guide-server -- --data data/reviewed --port 8070
+.\scripts\Set-GuideProvider.ps1
+.\scripts\Start-WebGuide.ps1
 ```
+
+上面的 Provider 配置与 MOD 完全共用，整个克隆只需配置一次。
 
 在浏览器打开 <http://127.0.0.1:8070/>。Web 端与 MOD 共用同一套有据可查的问答引擎：可以提出同样的问题、上传玩家状态快照进行状态感知规划、查看每条回答的依据，并在同一会话中多轮追问。在终端按 Ctrl+C 即可停止服务器。
 
@@ -211,7 +210,7 @@ cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 
 ## 配置
 
-所有配置只通过环境变量提供，凭据不会出现在命令行或 Git 历史中。
+所有配置只通过环境变量提供。`Set-GuideProvider.ps1` 会把 Provider 配置保存到被 Git 忽略的 `.local\set-provider.ps1`，凭据不会出现在命令行或 Git 历史中。
 
 | 变量 | 使用方 | 说明 |
 |---|---|---|

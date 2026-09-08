@@ -14,7 +14,7 @@ const ADAPTER_DIRECTORY: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../adapter/read-only/ue4ss");
 const UE4SS_DLL_SHA256: &str = "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26";
 
-const ALL_SCRIPTS: [&str; 7] = [
+const ALL_SCRIPTS: [&str; 9] = [
     "Build-Ue4ssAdapter.ps1",
     "Test-InGameGuide.ps1",
     "Backup-PalworldSave.ps1",
@@ -22,6 +22,8 @@ const ALL_SCRIPTS: [&str; 7] = [
     "Uninstall-Ue4ssAdapter.ps1",
     "Setup-InGameGuide.ps1",
     "Start-InGameGuide.ps1",
+    "Start-WebGuide.ps1",
+    "Set-GuideProvider.ps1",
 ];
 
 fn script(name: &str) -> String {
@@ -186,15 +188,53 @@ fn all_scripts_exist_and_are_non_empty() {
 fn no_script_reads_or_prints_a_token() {
     for name in ALL_SCRIPTS {
         let content = script(name);
-        assert!(
-            !content.contains("Read-Host"),
-            "{name} reads input with Read-Host (no token or secret input is allowed)"
+        if name == "Set-GuideProvider.ps1" {
+            assert!(
+                content.contains("-AsSecureString"),
+                "provider setup must read the API key with hidden input"
+            );
+            assert!(
+                !content.contains("Write-Host $ApiKey"),
+                "provider setup must never print the API key"
+            );
+        } else {
+            assert!(
+                !content.contains("Read-Host"),
+                "{name} reads input with Read-Host (no token or secret input is allowed)"
+            );
+        }
+        let references_lowercase_api_key =
+            content.contains("api_key") || content.contains("api-key");
+        let may_reference_api_key = matches!(
+            name,
+            "Start-InGameGuide.ps1" | "Start-WebGuide.ps1" | "Set-GuideProvider.ps1"
         );
         assert!(
-            !content.contains("api_key")
-                && !content.contains("api-key")
-                && (name == "Start-InGameGuide.ps1" || !content.contains("API_KEY")),
+            !references_lowercase_api_key
+                && (!content.contains("API_KEY") || may_reference_api_key),
             "{name} references an API key (scripts must never read or print secrets)"
+        );
+    }
+}
+
+#[test]
+fn provider_config_is_local_gitignored_and_loaded_by_both_start_paths() {
+    let setup = script("Set-GuideProvider.ps1");
+    assert!(
+        setup.contains(".local")
+            && setup.contains("set-provider.ps1")
+            && setup.contains("-Force"),
+        "provider setup must write the gitignored local provider configuration"
+    );
+    for name in ["Start-InGameGuide.ps1", "Start-WebGuide.ps1"] {
+        let content = script(name);
+        assert!(
+            content.contains("set-provider.ps1"),
+            "{name} must load the saved provider configuration"
+        );
+        assert!(
+            content.contains("SessionOverrides"),
+            "{name} must let session environment variables override the saved file"
         );
     }
 }
