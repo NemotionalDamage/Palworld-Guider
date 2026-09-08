@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
   "game_build_ids": [
-    "24575825"
+    "24575825",
+    "25094871"
   ],
   "game_version": "1.0.3",
   "ue4ss_version": "3.0.1",
@@ -16,8 +17,5 @@
   "lua_capability": {
     "default": "full",
     "values": ["noop", "chat", "full"]
-  },
-  "blocked_game_build_ids": [
-    "25094871"
-  ]
+  }
 }

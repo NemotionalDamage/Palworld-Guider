@@ -47,7 +47,9 @@ hash verification; and the explicit game install. Details:
 - Preflight (`Test-InGameGuide.ps1`) locates the Steam installation and
   the Palworld app manifest, verifies the installed UE4SS DLL hash,
   requires the UE4SS `Mods` directory, and finds the newest save
-  containing `Level.sav`.
+  containing `Level.sav`. Unreviewed Steam build IDs produce a warning
+  only, so normal game updates do not break setup; the UE4SS version and
+  pinned DLL hash remain hard requirements.
 - Setup refuses to continue when `Mods\PalworldGuider` already exists and
   prints guidance to run `Uninstall-Ue4ssAdapter.ps1` first.
 - The newest save is backed up to

@@ -30,7 +30,7 @@ fn script(name: &str) -> String {
 }
 
 #[test]
-fn support_manifest_defines_the_reviewed_and_blocked_game_builds() {
+fn support_manifest_defines_reviewed_game_builds_without_a_blocklist() {
     let path = format!("{ADAPTER_DIRECTORY}/support-manifest.json");
     let content =
         fs::read_to_string(&path).unwrap_or_else(|error| panic!("failed to read {path}: {error}"));
@@ -48,7 +48,6 @@ fn support_manifest_defines_the_reviewed_and_blocked_game_builds() {
         "ue4ss_dll_sha256",
         "member_variable_layout_sha256",
         "package_files",
-        "blocked_game_build_ids",
     ] {
         assert!(
             object.contains_key(key),
@@ -58,13 +57,13 @@ fn support_manifest_defines_the_reviewed_and_blocked_game_builds() {
 
     let supported_builds = manifest["game_build_ids"].as_array().unwrap();
     assert!(
-        supported_builds.contains(&Value::String("24575825".to_owned())),
-        "support manifest must allow reviewed Steam build 24575825"
+        supported_builds.contains(&Value::String("24575825".to_owned()))
+            && supported_builds.contains(&Value::String("25094871".to_owned())),
+        "support manifest must list the reviewed Steam builds 24575825 and 25094871"
     );
-    let blocked_builds = manifest["blocked_game_build_ids"].as_array().unwrap();
     assert!(
-        blocked_builds.contains(&Value::String("25094871".to_owned())),
-        "support manifest must explicitly block Steam build 25094871"
+        !object.contains_key("blocked_game_build_ids"),
+        "support manifest must not maintain a blocked-build list; unreviewed builds warn instead of failing"
     );
     assert_eq!(
         manifest["ue4ss_dll_sha256"], UE4SS_DLL_SHA256,

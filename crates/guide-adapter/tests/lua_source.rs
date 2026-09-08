@@ -229,8 +229,8 @@ fn invalid_lua_capability_and_current_build_fail_closed() {
     );
     assert_contains(
         &support_manifest,
-        "\"blocked_game_build_ids\": [\n    \"25094871\"\n  ]",
-        "current build must remain blocked",
+        "\"game_build_ids\": [\n    \"24575825\",\n    \"25094871\"\n  ]",
+        "both live-verified builds are reviewed",
     );
 }
 

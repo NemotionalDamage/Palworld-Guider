@@ -5,8 +5,8 @@ Validates the Palworld, UE4SS, save, and Guider support state.
 .DESCRIPTION
 Performs read-only discovery and validation. It discovers Steam libraries from
 libraryfolders.vdf, reads Palworld's appmanifest_1623730.acf, finds the newest
-Level.sav, verifies the reviewed build and pinned UE4SS DLL hash, and validates
-the repository support manifest. It never changes files.
+Level.sav, warns on unreviewed game builds, verifies the pinned UE4SS DLL hash,
+and validates the repository support manifest. It never changes files.
 #>
 [CmdletBinding()]
 param(
@@ -249,8 +249,7 @@ foreach ($propertyName in @(
     'ue4ss_version',
     'ue4ss_dll_sha256',
     'member_variable_layout_sha256',
-    'package_files',
-    'blocked_game_build_ids'
+    'package_files'
 )) {
     if (-not $SupportManifest.PSObject.Properties[$propertyName]) {
         throw "support manifest is missing required property $propertyName"
@@ -258,9 +257,8 @@ foreach ($propertyName in @(
 }
 
 $AllowedGameBuildIds = @($SupportManifest.game_build_ids | Where-Object { $_ -is [string] })
-$BlockedGameBuildIds = @($SupportManifest.blocked_game_build_ids | Where-Object { $_ -is [string] })
 $PackageFiles = @($SupportManifest.package_files | Where-Object { $_ -is [string] })
-if ($AllowedGameBuildIds.Count -eq 0 -or $BlockedGameBuildIds.Count -eq 0 -or $PackageFiles.Count -eq 0) {
+if ($AllowedGameBuildIds.Count -eq 0 -or $PackageFiles.Count -eq 0) {
     throw "support manifest game build or package file lists are empty or invalid"
 }
 if (-not $SupportManifest.game_version -or -not $SupportManifest.ue4ss_version) {
@@ -275,11 +273,8 @@ foreach ($packageFile in $PackageFiles) {
     }
 }
 
-if ($BlockedGameBuildIds -contains $PalworldBuildId) {
-    throw "Palworld build $PalworldBuildId is blocked by the support manifest"
-}
 if ($AllowedGameBuildIds -notcontains $PalworldBuildId) {
-    throw "Palworld build $PalworldBuildId is not supported; reviewed build: $($AllowedGameBuildIds -join ', ')"
+    Write-Warning "Palworld build $PalworldBuildId is not in the reviewed list ($($AllowedGameBuildIds -join ', ')); continuing because the pinned UE4SS version and DLL hash are verified"
 }
 
 $ActualUe4ssDllSha256 = (Get-FileHash -LiteralPath $ResolvedUe4ssDll -Algorithm SHA256).Hash
