@@ -7,9 +7,9 @@ with verification and a 30-day retention manifest.
 Refuses to run when Level.sav is missing, when the destination already
 contains files, when the destination resolves outside the repo .local
 directory, or while a Palworld process is running. Copies the world
-directory with -LiteralPath, verifies file count and total byte length
-against the source, and records completion time plus retention in a
-backup-manifest.json. The source save is never modified.
+directory with -LiteralPath, verifies file count, total byte length, and each
+file's SHA256 against the source, and records completion time, retention, and
+per-file records in backup-manifest.json. The source save is never modified.
 
 .PARAMETER SourceDirectory
 Absolute path to the world save directory that contains Level.sav
@@ -28,6 +28,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$SourceDirectory = (Resolve-Path -LiteralPath $SourceDirectory).Path
 
 $LevelSavPath = Join-Path $SourceDirectory 'Level.sav'
 if (-not (Test-Path -LiteralPath $LevelSavPath)) {
@@ -41,7 +42,11 @@ if ($RunningGame) {
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$LocalRoot = (Resolve-Path -LiteralPath (Join-Path $RepoRoot '.local')).Path
+$LocalRootPath = Join-Path $RepoRoot '.local'
+if (-not (Test-Path -LiteralPath $LocalRootPath -PathType Container)) {
+    New-Item -ItemType Directory -Path $LocalRootPath -Force | Out-Null
+}
+$LocalRoot = (Resolve-Path -LiteralPath $LocalRootPath).Path
 if (-not [System.IO.Path]::IsPathRooted($DestinationDirectory)) {
     throw "refusing to back up outside .local: destination must be an absolute path"
 }
@@ -74,6 +79,28 @@ if ($SourceBytes -ne $CopiedBytes) {
     throw "backup verification failed: source bytes $SourceBytes do not match copied $CopiedBytes"
 }
 
+$FileRecords = @(
+    foreach ($CopiedFile in $CopiedFiles) {
+        $RelativePath = $CopiedFile.FullName.Substring($DestinationFull.Length + 1)
+        $SourceFile = $SourceFiles | Where-Object {
+            $_.FullName.Substring($SourceDirectory.Length + 1) -eq $RelativePath
+        } | Select-Object -First 1
+        if (-not $SourceFile) {
+            throw "backup verification failed: unexpected copied file $RelativePath"
+        }
+        $SourceHash = (Get-FileHash -LiteralPath $SourceFile.FullName -Algorithm SHA256).Hash
+        $CopiedHash = (Get-FileHash -LiteralPath $CopiedFile.FullName -Algorithm SHA256).Hash
+        if ($SourceHash -ne $CopiedHash) {
+            throw "backup verification failed: SHA256 mismatch for $RelativePath"
+        }
+        [ordered]@{
+            path   = $RelativePath
+            sha256 = $SourceHash.ToLowerInvariant()
+            length = $SourceFile.Length
+        }
+    }
+)
+
 $RetentionDays = 30
 $CompletedAt = Get-Date
 $ManifestRecord = [ordered]@{
@@ -84,6 +111,7 @@ $ManifestRecord = [ordered]@{
     retention_until = $CompletedAt.AddDays($RetentionDays).ToString('o')
     file_count      = $CopiedFiles.Count
     total_bytes     = $CopiedBytes
+    files           = $FileRecords
 }
 $ManifestPath = Join-Path $DestinationFull 'backup-manifest.json'
 $ManifestRecord | ConvertTo-Json | Set-Content -LiteralPath $ManifestPath -Encoding Utf8

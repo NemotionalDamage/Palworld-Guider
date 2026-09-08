@@ -10,6 +10,13 @@ if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "PalworldGuider requires x64")
 endif()
 
+set(GUIDER_LUA_CAPABILITY "full" CACHE STRING
+    "Compile-time Lua capability: noop, chat, or full")
+set_property(CACHE GUIDER_LUA_CAPABILITY PROPERTY STRINGS noop chat full)
+if(NOT GUIDER_LUA_CAPABILITY MATCHES "^(noop|chat|full)$")
+    message(FATAL_ERROR "GUIDER_LUA_CAPABILITY must be one of: noop, chat, full")
+endif()
+
 set(UE4SS_DLL "" CACHE FILEPATH "Path to the target UE4SS.dll")
 if(NOT EXISTS "${UE4SS_DLL}")
     message(FATAL_ERROR "UE4SS_DLL must point to the target UE4SS.dll")
@@ -79,6 +86,11 @@ target_link_libraries(PalworldGuider PRIVATE UE4SS winhttp)
 set_target_properties(PalworldGuider PROPERTIES OUTPUT_NAME main)
 
 get_filename_component(GUIDER_SCRIPTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Scripts" ABSOLUTE)
+set(GUIDER_SCRIPTS_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated/Scripts")
+file(MAKE_DIRECTORY "${GUIDER_SCRIPTS_GENERATED_DIR}")
+configure_file("${GUIDER_SCRIPTS_DIR}/main.lua"
+               "${GUIDER_SCRIPTS_GENERATED_DIR}/main.lua"
+               @ONLY)
 
 add_custom_command(TARGET PalworldGuider POST_BUILD
                    COMMAND "${CMAKE_COMMAND}" -E make_directory
@@ -89,7 +101,7 @@ add_custom_command(TARGET PalworldGuider POST_BUILD
                            "$<TARGET_FILE:PalworldGuider>"
                            "${CMAKE_BINARY_DIR}/PalworldGuider/dlls/main.dll"
                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                           "${GUIDER_SCRIPTS_DIR}/main.lua"
+                           "${GUIDER_SCRIPTS_GENERATED_DIR}/main.lua"
                            "${CMAKE_BINARY_DIR}/PalworldGuider/Scripts/main.lua"
                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                            "${GUIDER_SCRIPTS_DIR}/pal_transport.lua"

@@ -20,7 +20,8 @@ package. Defaults to <repo>\.local\build\ue4ss-adapter.
 param(
     [Parameter(Mandatory = $true)]
     [string]$Ue4ssDll,
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [ValidateSet('noop', 'chat', 'full')][string]$Capability = 'full'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,18 +42,32 @@ if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $RepoRoot '.local\build\ue4ss-adapter'
 }
 
-$VsDevCmd = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat'
-$CmakeExe = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-$NinjaExe = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
+$VswhereExe = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path -LiteralPath $VswhereExe -PathType Leaf)) {
+    throw "vswhere.exe not found. Install Visual Studio 2022 Build Tools with the 'Desktop development with C++' workload (including MSVC v143 x64/x86 build tools), then retry."
+}
+
+$VisualStudioRoot = & $VswhereExe `
+    -latest `
+    -products * `
+    -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+    -property installationPath
+if ($LASTEXITCODE -ne 0 -or -not $VisualStudioRoot -or -not (Test-Path -LiteralPath $VisualStudioRoot -PathType Container)) {
+    throw "Visual Studio 2022 with the 'Desktop development with C++' workload was not found. Install Visual Studio 2022 Build Tools, MSVC v143 x64/x86 build tools, CMake, and Ninja, then retry."
+}
+
+$VsDevCmd = Join-Path $VisualStudioRoot 'Common7\Tools\VsDevCmd.bat'
+$CmakeExe = Join-Path $VisualStudioRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+$NinjaExe = Join-Path $VisualStudioRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
 
 foreach ($toolPath in @($VsDevCmd, $CmakeExe, $NinjaExe)) {
     if (-not (Test-Path -LiteralPath $toolPath)) {
-        throw "required VS 2022 Build Tools component not found: $toolPath"
+        throw "required Visual Studio 2022 C++ component not found: $toolPath. Install the 'Desktop development with C++' workload, including CMake and Ninja, then retry."
     }
 }
 
 $NativeSource = Join-Path $RepoRoot 'adapter\read-only\ue4ss\native'
-$BuildCommand = "call `"$VsDevCmd`" -arch=x64 && `"$CmakeExe`" -S `"$NativeSource`" -B `"$OutputDirectory`" -G Ninja -DUE4SS_DLL=`"$Ue4ssDll`" && `"$CmakeExe`" --build `"$OutputDirectory`""
+$BuildCommand = "call `"$VsDevCmd`" -arch=x64 && `"$CmakeExe`" -S `"$NativeSource`" -B `"$OutputDirectory`" -G Ninja -DUE4SS_DLL=`"$Ue4ssDll`" -DGUIDER_LUA_CAPABILITY=$Capability && `"$CmakeExe`" --build `"$OutputDirectory`""
 & cmd /d /c $BuildCommand
 if ($LASTEXITCODE -ne 0) {
     throw "CMake build failed with exit code $LASTEXITCODE"

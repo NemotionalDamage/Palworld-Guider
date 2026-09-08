@@ -139,11 +139,11 @@ cargo run -p guide-server -- --data data/reviewed --port 8070 --game-version 1.0
 
 **Symptom:** The in-game adapter cannot connect to the gateway, or `!guide` questions receive no reply while the Web interface still works.
 
-**Cause:** The gateway token is missing or mismatched, the guide-server is not running with `--adapter-port`, or the game-side adapter is not installed or running.
+**Cause:** The gateway token is missing or mismatched, the guide-server is not running with `--adapter-port`, the game was launched by a Steam client that did not inherit the `Start-InGameGuide.ps1` session token, or the game-side adapter is not installed or running.
 
 **Fix:**
 
-- Confirm `PALWORLD_GUIDER_GATEWAY_TOKEN` is set to the same bearer token on both the guide-server and the adapter.
+- Exit Palworld and re-run `Start-InGameGuide.ps1` with the game closed: it binds the token to its own PowerShell session, closes a stale Steam client, and relaunches Palworld through Steam so the game inherits the token. Do not launch Palworld from a Steam window that predates Start.
 - Confirm the guide-server was started with `--adapter-port` and prints `adapter=127.0.0.1:{port}`.
 - Confirm the adapter package is installed and the game is running.
 - See [deployment.md](deployment.md) for build, install, and hash-verification steps.
@@ -157,3 +157,20 @@ cargo run -p guide-server -- --data data/reviewed --port 8070 --game-version 1.0
 - If the guide-server crashed: restart it. Sessions are in-memory and will be lost; create a new session. The knowledge base on disk is never mutated by the server, so no data is lost.
 - If the game crashed: restart the game, then restart the guide-server. The adapter reconnects automatically on the next `!guide` event.
 - During a guide-server outage, the game keeps running; `!guide` questions receive no reply and are not retried. Once the server returns, the adapter resumes normal delivery.
+
+## 12. Game Crashes When Entering A Save (UE4SS Heap Corruption)
+
+**Symptom:** Palworld exits with heap corruption (`0xc0000374`, faulting module `ntdll.dll`) when loading a save while UE4SS 3.0.1 is enabled on Steam build `25094871`. The crash also reproduces with `PalworldGuider` disabled in `mods.txt` and disappears when UE4SS is disabled.
+
+**Cause:** UE4SS 3.0.1's optional world-load hooks are unstable on this Palworld build. The Guider adapter does not use them; its chat hook is registered by name (`/Script/Pal.PalGameStateInGame:BroadcastChatMessage`).
+
+**Fix:** In `<game>\Pal\Binaries\Win64\UE4SS-settings.ini`, keep `HookProcessInternal = 1` and `HookProcessLocalScriptFunction = 1`, and set the four world-load hooks to `0`:
+
+```ini
+HookInitGameState = 0
+HookCallFunctionByNameWithArguments = 0
+HookBeginPlay  = 0
+HookLocalPlayerExec = 0
+```
+
+Optionally set `GuiConsoleEnabled = 0`. The save then loads normally, and `!guide ping` was verified live on build `25094871` after this change (2026-09-08). Keep the change while playing this build; only re-enable the hooks if another UE4SS mod needs them. The same fix is required before the manual-start flow in `README.md` or `docs/deployment.md` can run on `25094871`.

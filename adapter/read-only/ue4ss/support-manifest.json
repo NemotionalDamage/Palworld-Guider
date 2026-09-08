@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "game_build_ids": [
+    "24575825"
+  ],
+  "game_version": "1.0.3",
+  "ue4ss_version": "3.0.1",
+  "ue4ss_dll_sha256": "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26",
+  "member_variable_layout_sha256": "F62898EB3CD755D2D1116C9CF547705E357CC138DFB7B83B856585A5748328C6",
+  "package_files": [
+    "dlls/main.dll",
+    "Scripts/main.lua",
+    "Scripts/pal_transport.lua",
+    "Scripts/pal_json.lua"
+  ],
+  "lua_capability": {
+    "default": "full",
+    "values": ["noop", "chat", "full"]
+  },
+  "blocked_game_build_ids": [
+    "25094871"
+  ]
+}

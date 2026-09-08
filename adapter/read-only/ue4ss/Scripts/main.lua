@@ -16,6 +16,14 @@ local EVENT_NONCE = tostring(os.clock()):gsub("%.", "-", 1)
 local EVENT_SEQUENCE = 0
 local PalTransport = require("pal_transport")
 
+-- Build-time capability switch. CMake replaces the @...@ placeholder with
+-- exactly one of: noop (heartbeat and ping only), chat (plus chat hook and
+-- send_chat_message), or full (all four approved tools). There is no runtime
+-- user input for this value.
+local LUA_CAPABILITY = "@GUIDER_LUA_CAPABILITY@"
+local READ_CAPABILITY_ENABLED = LUA_CAPABILITY == "full"
+local CHAT_CAPABILITY_ENABLED = LUA_CAPABILITY == "chat" or LUA_CAPABILITY == "full"
+
 local function valid_object(object)
     if object == nil then
         return false
@@ -119,6 +127,42 @@ local function write_response(frame)
     end
     return sent
 end
+
+local function capability_tools(capability)
+    if capability == "noop" then
+        return {
+            {name = "ping", mutation = false, evidence = "A", status = "enabled"},
+        }
+    elseif capability == "chat" then
+        return {
+            {name = "ping", mutation = false, evidence = "A", status = "enabled"},
+            {name = "send_chat_message", mutation = true, evidence = "A", status = "enabled"},
+        }
+    elseif capability == "full" then
+        return {
+            {name = "ping", mutation = false, evidence = "A", status = "enabled"},
+            {name = "get_player_status", mutation = false, evidence = "A", status = "enabled"},
+            {name = "get_active_pal_status", mutation = false, evidence = "A", status = "enabled"},
+            {name = "send_chat_message", mutation = true, evidence = "A", status = "enabled"},
+        }
+    end
+    return nil
+end
+
+local function capability_manifest_frame(sequence)
+    local tools = capability_tools(LUA_CAPABILITY)
+    if tools == nil then
+        return nil
+    end
+    return {
+        schema_version = SCHEMA_VERSION,
+        type = "capability_manifest",
+        seq = sequence,
+        timestamp_ms = os.time() * 1000,
+        data = {tools = tools},
+    }
+end
+
 local function handle_player_status(call_id)
     local world = get_world()
     local controller = get_player_controller()
@@ -277,12 +321,12 @@ local function handle_request(frame)
     end
     if frame.tool == "ping" then
         write_response(response_frame(call_id, "ok", {service = "palworld-guider"}, nil))
-    elseif frame.tool == "get_player_status" then
-        handle_player_status(call_id)
-    elseif frame.tool == "get_active_pal_status" then
-        handle_active_pal_status(call_id)
-    elseif frame.tool == "send_chat_message" then
+    elseif CHAT_CAPABILITY_ENABLED and frame.tool == "send_chat_message" then
         handle_send_chat(call_id, frame.args)
+    elseif READ_CAPABILITY_ENABLED and frame.tool == "get_player_status" then
+        handle_player_status(call_id)
+    elseif READ_CAPABILITY_ENABLED and frame.tool == "get_active_pal_status" then
+        handle_active_pal_status(call_id)
     else
         write_response(response_frame(call_id, "unsupported", nil, "tool is not whitelisted"))
     end
@@ -304,6 +348,12 @@ end
 local function poll_transport()
     PalTransport.poll(dispatch_request_to_game_thread, 0)
 end
+
+if not capability_tools(LUA_CAPABILITY) then
+    print(TAG .. " invalid compile-time capability switch")
+    return
+end
+PalTransport.capability_manifest_frame = capability_manifest_frame
 
 if not PalTransport.connect() then
     print(TAG .. " websocket transport configuration unavailable")
@@ -369,10 +419,20 @@ local function ensure_chat_hook()
     end
 end
 
-ensure_chat_hook()
-print(TAG .. " loaded; use " .. COMMAND_PREFIX .. "<question> in chat")
+if CHAT_CAPABILITY_ENABLED then
+    ensure_chat_hook()
+end
+if CHAT_CAPABILITY_ENABLED then
+    print(TAG .. " loaded; capability=" .. LUA_CAPABILITY
+        .. "; use " .. COMMAND_PREFIX .. "<question> in chat")
+else
+    print(TAG .. " loaded; capability=" .. LUA_CAPABILITY
+        .. "; transport heartbeat and ping only")
+end
 LoopAsync(50, function()
     poll_transport()
-    ensure_chat_hook()
+    if CHAT_CAPABILITY_ENABLED then
+        ensure_chat_hook()
+    end
     return false
 end)

@@ -132,6 +132,7 @@ Never store credentials in files under version control.
 - `OPENAI_API_KEY` and `PALWORLD_GUIDER_GATEWAY_TOKEN` are read from the environment only.
 - These values are never written to logs, answer envelopes, API responses, or Git.
 - The adapter token is never printed; startup output shows only the environment variable name.
+- `Start-InGameGuide.ps1` binds the token to its own PowerShell session, so Palworld must be launched by the Steam client that script starts to inherit the same token.
 - Provider construction occurs outside the async runtime to avoid credential leakage through panic backtraces.
 
 ### Snapshot Metadata

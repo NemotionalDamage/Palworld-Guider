@@ -2,7 +2,7 @@
 
 A read-only, state-aware in-game advisor for Palworld. It answers questions about items, materials, Pals, recipes, breeding, and progression — grounded in a versioned knowledge base and personalized with the player's own state when available — without ever leaving the game.
 
-The public static-information guide and single-user state-aware guide are implemented. The optional UE4SS adapter is currently validated only against Palworld Steam build `24575825`; do not install or run it against build `25094871` until that target has been reprobed.
+The public Web guide, offline CLI tools, and a read-only in-game MOD are implemented. The in-game MOD targets Palworld Steam build `24575825` (game `1.0.3`) and is officially supported there. Steam build `25094871` is still listed in `blocked_game_build_ids` until the `full` capability probe passes, but the adapter transport and the `!guide ping` chat path were verified live on `25094871` (2026-09-08) after a one-time UE4SS 3.0.1 settings fix - see the manual-start flow under [In-Game MOD](#in-game-mod-recommended).
 
 ## Key Features
 
@@ -62,19 +62,216 @@ The public static-information guide and single-user state-aware guide are implem
 
 ## Quick Start
 
-### Prerequisites
+### In-Game MOD (Recommended)
 
-- **Rust toolchain**: stable 1.98+ (<https://rustup.rs>)
-- **OS**: Windows 10/11
-- **Shell**: PowerShell 5.1+
-
-### Build
+The read-only in-game MOD is the recommended path: clone the repository,
+build once, then run one setup command and one start command.
 
 ```powershell
-git clone git@github.com:NemotionalDamage/Palworld-Guider.git
+git clone https://github.com/NemotionalDamage/Palworld-Guider.git
 cd Palworld-Guider
 cargo build --release
+.\scripts\Setup-InGameGuide.ps1
+.\scripts\Start-InGameGuide.ps1
 ```
+
+#### Prerequisites
+
+- Windows 10/11 x64 with PowerShell 5.1+
+- Palworld Steam build `24575825` (game `1.0.3`) - the supported target.
+  Steam build `25094871` is still in `blocked_game_build_ids`, and the
+  setup/start scripts refuse it; a verified manual flow for it is
+  documented below
+- UE4SS `3.0.1` installed at `<game>\Pal\Binaries\Win64\UE4SS.dll`; the
+  pinned DLL hash is verified during preflight
+- Rust stable 1.98+ (<https://rustup.rs>)
+- VS 2022 Build Tools with the Desktop development with C++ workload
+  (CMake and Ninja included)
+- Provider environment variables in the shell that runs
+  `Start-InGameGuide.ps1`: `GUIDE_PROVIDER` (`openai` or `ollama`),
+  `GUIDE_MODEL`, and `OPENAI_API_KEY` when `GUIDE_PROVIDER=openai`
+
+#### Setup
+
+`Setup-InGameGuide.ps1` runs the read-only preflight first (Steam
+manifest and Palworld build, UE4SS DLL hash, newest `Level.sav`), refuses
+an existing `Mods\PalworldGuider` (run `Uninstall-Ue4ssAdapter.ps1`
+first), creates a verified save backup under `.local\backups\palworld`,
+builds and stages the package under `.local\build`, verifies the staged
+hash manifest, and only then installs into the game directory. Optional
+`-GameRoot`, `-Ue4ssDll`, `-SaveDirectory`, and `-OutputDirectory`
+override discovery; `-WhatIf` reports the planned stages without
+changing anything. On a blocked or unsupported build, setup fails closed
+with exit code `1` before backing up, building, or writing.
+
+#### Start
+
+`Start-InGameGuide.ps1` revalidates the installed package, generates the
+gateway token in memory, and binds it to the launching PowerShell session
+(never to a file, the registry, or the command line). It forwards provider
+environment values only to the child process, starts the loopback guide
+server, and relaunches Palworld through Steam from that same session so the
+game process inherits the token. Run it with Palworld closed. It prints the
+Web interface and adapter gateway addresses and never prints the gateway
+token or provider credentials.
+
+#### In-Game Usage
+
+Palworld opens automatically in the Steam client that
+`Start-InGameGuide.ps1` launched; enter a single-player or private session
+and type in the chat box:
+
+```text
+!guide ping
+!guide <question>
+```
+
+`!guide ping` returns `Pong: Palworld Guider adapter connected.` without
+calling the provider; `!guide <question>` routes through the same
+grounded agent loop as the Web interface. Relaunching the game later from
+the same Steam window keeps the session token; fully exiting Steam and
+re-running `Start-InGameGuide.ps1` rotates it.
+
+#### Manual Start On A Blocked Build (verified on Steam build 25094871)
+
+`Setup-InGameGuide.ps1` and `Start-InGameGuide.ps1` refuse builds that
+are still listed in `blocked_game_build_ids` (today: Steam build
+`25094871`) - that refusal is intentional and fails closed. The sequence
+below is the developer flow that was verified live on 2026-09-08 on Steam
+build `25094871` with UE4SS `3.0.1` (save
+`3C2BA10146F65256FD1B889FBF5F854F`): the game loads the save without
+crashing, and `!guide ping` returns the fixed pong message through the
+live gateway.
+
+**One-time UE4SS crash fix.** UE4SS 3.0.1 crashes this Palworld build
+when its world-load hooks are enabled (heap corruption `0xc0000374` on
+save entry, reproduced even with PalworldGuider disabled). Edit
+`<game>\Pal\Binaries\Win64\UE4SS-settings.ini` and set:
+
+```ini
+[Hooks]
+HookInitGameState = 0
+HookCallFunctionByNameWithArguments = 0
+HookBeginPlay  = 0
+HookLocalPlayerExec = 0
+```
+
+Keep `HookProcessInternal = 1` and `HookProcessLocalScriptFunction = 1`
+(the Guider adapter and its chat hook
+`/Script/Pal.PalGameStateInGame:BroadcastChatMessage` do not use the
+disabled hooks). Optionally set `GuiConsoleEnabled = 0`. The change
+affects every UE4SS mod: only re-enable the hooks if another mod on this
+build requires them.
+
+**Then run these steps from one PowerShell session at the repository
+root** (the same session must launch the game so it inherits the gateway
+token):
+
+1. Build the release server and the verified adapter package:
+
+   ```powershell
+   cargo build --release
+   .\scripts\Build-Ue4ssAdapter.ps1 -Ue4ssDll "<game>\Pal\Binaries\Win64\UE4SS.dll" -Capability chat -OutputDirectory "$PWD\.local\build\ue4ss-adapter"
+   ```
+
+   `chat` is the capability verified on this build (transport plus
+   `!guide ping`). The default `full` capability additionally enables
+   the player and active-Otomo reads and remains the player-facing build
+   for the supported Steam build `24575825`; the `full` layer probe on
+   `25094871` is pending, so use `chat` here until it passes.
+
+2. Back up the newest save before any game-directory write:
+
+   ```powershell
+   .\scripts\Backup-PalworldSave.ps1 -SourceDirectory "$env:LOCALAPPDATA\Pal\Saved\SaveGames\76561198694570145\3C2BA10146F65256FD1B889FBF5F854F" -DestinationDirectory "$PWD\.local\backups\palworld\manual-start"
+   ```
+
+   The Steam account id and world id differ per machine; the source is
+   the newest directory containing `Level.sav`. Setup normally discovers
+   it, but on a blocked build the scripts stop before discovery, so pass
+   it explicitly.
+
+3. Install and enable the package (`PalworldGuider : 1` is added to
+   `mods.txt`):
+
+   ```powershell
+   .\scripts\Install-Ue4ssAdapter.ps1 -PackageDirectory "$PWD\.local\build\ue4ss-adapter\PalworldGuider" -ModsDirectory "<game>\Pal\Binaries\Win64\Mods" -BackupDirectory "$PWD\.local\backups\palworld\manual-start"
+   ```
+
+4. Configure the provider and bind a fresh gateway token to this
+   session:
+
+   ```powershell
+   $env:GUIDE_PROVIDER = "ollama"        # or "openai"
+   $env:GUIDE_MODEL = "llama3.2"
+   # when GUIDE_PROVIDER=openai also set: $env:OPENAI_API_KEY = "your-key"
+   # optional: $env:GUIDE_BASE_URL = "https://..."
+   $env:PALWORLD_GUIDER_GATEWAY_TOKEN = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+   $env:PALWORLD_GUIDER_GATEWAY_PORT = "8071"
+   ```
+
+5. Start the loopback guide server from this session and confirm the
+   adapter listener is up:
+
+   ```powershell
+   $server = Start-Process -FilePath "$PWD\target\release\guide-server.exe" -WorkingDirectory $PWD -WindowStyle Hidden -ArgumentList @("--data", "$PWD\data\reviewed", "--game-version", "1.0.3", "--port", "8070", "--adapter-port", "8071", "--adapter-token-env", "PALWORLD_GUIDER_GATEWAY_TOKEN") -PassThru
+   Start-Sleep -Seconds 2
+   Get-NetTCPConnection -LocalPort 8071 -State Listen -ErrorAction SilentlyContinue
+   ```
+
+   The server prints `Palworld Guider listening on http://127.0.0.1:8070`
+   and `adapter=127.0.0.1:8071`; it never prints the token.
+
+6. Close Steam if it is running, then launch Palworld through Steam from
+   this same session so the game process inherits the token and port:
+
+   ```powershell
+   Get-Process steam -ErrorAction SilentlyContinue | ForEach-Object { $null = $_.CloseMainWindow() }
+   Start-Sleep -Seconds 5
+   Start-Process "<Steam install>\Steam.exe" -ArgumentList "-applaunch", "1623730"
+   ```
+
+7. Enter a single-player or private save, open the chat box, and send:
+
+   ```text
+   !guide ping
+   ```
+
+   The game chat returns `Pong: Palworld Guider adapter connected.` The
+   gateway log confirms the exchange: `hello`, `capability_manifest`,
+   `heartbeat`, `event`, `tool_call` (`send_chat_message`), and
+   `tool_result` frames are accepted.
+
+8. When done, exit Palworld, stop the guide server, and either keep the
+   package enabled for the next run or uninstall it:
+
+   ```powershell
+   Stop-Process -Name guide-server -Force -ErrorAction SilentlyContinue
+   .\scripts\Uninstall-Ue4ssAdapter.ps1 -ModsDirectory "<game>\Pal\Binaries\Win64\Mods"
+   ```
+
+**Scope:** on `25094871`, layers 1 (noop) and 2 (chat) are verified; the
+`full` capability layer (`!guide <question>` with player and Otomo reads)
+is not yet probed, and the manifest keeps `25094871` blocked until it
+passes. Follow the probe record in
+[docs/mod-rollout-plan.md](docs/mod-rollout-plan.md).
+
+#### Uninstall And Unsupported Builds
+
+Close Palworld and remove only the MOD:
+
+```powershell
+.\scripts\Uninstall-Ue4ssAdapter.ps1 -ModsDirectory "<game>\Pal\Binaries\Win64\Mods"
+```
+
+The uninstaller removes `Mods\PalworldGuider` and its `mods.txt` line and
+preserves every other mod and UE4SS itself. If Palworld is on a build
+outside the reviewed support matrix (Steam build `25094871` is still in
+`blocked_game_build_ids`), preflight and setup fail closed before any
+change. The scripts never force the MOD onto an unsupported build; the
+manual flow above documents how such a build is verified before it can
+be unblocked. See [docs/deployment.md](docs/deployment.md) for full
+details.
 
 ### 1. Deterministic Offline CLI (no LLM)
 
@@ -103,7 +300,7 @@ $env:OPENAI_API_KEY = "your-key"
 cargo run -p guide-agent -- ask "Materials for 3 Wooden Clubs?" --provider openai --model gpt-4o-mini
 ```
 
-### 3. Local Web Guide
+### 3. Web-Only Guide (No MOD)
 
 ```powershell
 $env:GUIDE_PROVIDER = "ollama"
@@ -115,29 +312,7 @@ Open <http://127.0.0.1:8070/> in a browser. The dependency-free UI supports ques
 
 For OpenAI-compatible: also set `$env:OPENAI_API_KEY = "your-key"` and optionally `$env:GUIDE_BASE_URL`.
 
-### 4. In-Game Chat (UE4SS Adapter)
-
-The optional read-only in-game adapter requires a built PalworldGuider package and a running UE4SS-enabled Palworld. See [docs/deployment.md](docs/deployment.md) for full build, backup, install, and uninstall instructions.
-
-Quick start once the adapter is installed:
-
-```powershell
-$env:GUIDE_PROVIDER = "ollama"
-$env:GUIDE_MODEL = "llama3.2"
-$env:PALWORLD_GUIDER_GATEWAY_TOKEN = "a-long-random-bearer-token-0123456789"
-cargo run -p guide-server -- --data data/reviewed --port 8070 --adapter-port 8071
-```
-
-In the Palworld chat box, type:
-
-```text
-!guide What do I need to build a saddle?
-!guide ping
-```
-
-`!guide ping` returns `Pong: Palworld Guider adapter connected.` without calling the provider.
-
-### 5. Knowledge Maintenance
+### 4. Knowledge Maintenance
 
 ```powershell
 cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
@@ -159,7 +334,8 @@ All configuration is environment-only. No credentials appear on the command line
 | `GUIDE_BASE_URL` | `guide-server` | Overrides the provider endpoint |
 | `GUIDE_DISABLE_REASONING` | `guide-server`, `guide-agent` | Set to `1` to suppress reasoning tokens |
 | `OLLAMA_BASE_URL` | `guide-agent` | Overrides the Ollama endpoint (defaults to `http://localhost:11434`) |
-| `PALWORLD_GUIDER_GATEWAY_TOKEN` | `guide-server` (adapter mode) | Bearer token for the loopback adapter gateway (16–4096 chars, never logged) |
+| `PALWORLD_GUIDER_GATEWAY_TOKEN` | `guide-server`, in-game adapter | Bearer token for the loopback adapter gateway (16–4096 chars, never logged); `Start-InGameGuide.ps1` binds it to the launching session |
+| `PALWORLD_GUIDER_GATEWAY_PORT` | in-game adapter | Loopback gateway port read by the adapter; `Start-InGameGuide.ps1` sets it to `-AdapterPort` (default `8071`) |
 | `PALWORLD_GUIDER_CHAT_DEBUG_LOG` | `guide-server` (optional) | JSONL debug log path under a gitignored directory |
 
 See [docs/configuration.md](docs/configuration.md) for full CLI flags, server limits, payload limits, and log rotation details.
@@ -205,11 +381,14 @@ docs/                       # Full project documentation
   reference-data/
   schemas/
 
-scripts/                    # UE4SS build, backup, install, uninstall
+scripts/                  # UE4SS preflight, build, backup, install, setup, start, uninstall
+  Test-InGameGuide.ps1
   Build-Ue4ssAdapter.ps1
   Backup-PalworldSave.ps1
   Install-Ue4ssAdapter.ps1
   Uninstall-Ue4ssAdapter.ps1
+  Setup-InGameGuide.ps1
+  Start-InGameGuide.ps1
 ```
 
 ## Knowledge Base
@@ -264,17 +443,33 @@ The workspace has 327 tests across 13 crates, including:
 |---|---|
 | [docs/installation.md](docs/installation.md) | Build, data layout, first run, verification commands |
 | [docs/configuration.md](docs/configuration.md) | Environment variables, CLI flags, server/payload limits, log rotation |
-| [docs/deployment.md](docs/deployment.md) | Web and UE4SS adapter deployment, API endpoints, safety checks |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | 11 common issues with causes and fixes |
+| [docs/deployment.md](docs/deployment.md) | In-game MOD clone-to-game path, then Web-only deployment, API endpoints, safety checks |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 12 common issues with causes and fixes |
 | [docs/data-updates.md](docs/data-updates.md) | Knowledge-update workflow, source log, conflict handling, version tracking |
 | [docs/operations.md](docs/operations.md) | Performance budgets, crash recovery, backup, secret redaction, monitoring |
 | [docs/mod-rollout-plan.md](docs/mod-rollout-plan.md) | Level 1 clone-to-game and Level 2 installer rollout plan |
 
 ## Adapter Validation Status
 
-The reviewed knowledge and adapter package target Palworld `1.0.3` / Steam build `24575825`. Steam build `25094871` is blocked until the compatibility probe in the rollout plan passes.
+The reviewed knowledge base and the adapter package target Palworld
+`1.0.3` / Steam build `24575825` (the `game_build_ids` entry). On
+2026-09-08 the adapter transport was verified live on Steam build
+`25094871` with UE4SS `3.0.1` after the world-load-hook fix above:
 
-Until UE4SS compatibility and every exposed read field are reprobed against build `25094871`, use the Web UI without the adapter. The game itself remains usable without PalworldGuider installed. Do not reinstall the old package merely because the game starts successfully.
+- Layer 1 (`noop`) passed: the save loads and stays stable, and the
+  gateway accepts the adapter `hello`, `capability_manifest`, and
+  heartbeat frames.
+- Layer 2 (`chat`) passed: `!guide ping` returns
+  `Pong: Palworld Guider adapter connected.` through the live gateway
+  (`event` to `send_chat_message` to `tool_result`).
+- Layer 3 (`full`) is not yet probed on `25094871`, so that build remains
+  in `blocked_game_build_ids` and `Setup-InGameGuide.ps1` /
+  `Start-InGameGuide.ps1` still refuse it before any state change.
+
+Until the `full` layer passes on `25094871`, use the `chat` capability
+build (verified above) or Steam build `24575825` for the full
+player-facing experience. The game itself remains usable without
+PalworldGuider installed; the uninstaller removes it cleanly.
 
 ## License
 

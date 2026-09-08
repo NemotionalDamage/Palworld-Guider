@@ -2,7 +2,8 @@
 //!
 //! These tests read the adapter sources on disk and enforce the approved
 //! transport-only interface contract: exact environment names, a bounded
-//! four-tool manifest, guarded chat handling, the validated active-Otomo
+//! four-tool manifest, the compile-time capability switch that overrides the
+//! manifest from main.lua, guarded chat handling, the validated active-Otomo
 //! chain, finite-position guards, and the absence of file IPC, mutation
 //! tools, chat-body logging, and token logging.
 
@@ -40,6 +41,215 @@ fn transport_lua() -> String {
     read("Scripts/pal_transport.lua")
 }
 
+fn repo(relative: &str) -> String {
+    read(&format!("../../../{relative}"))
+}
+
+#[test]
+fn lua_capability_switch_is_compile_time_and_default_full() {
+    let main = main_lua();
+    let cmake = repo("adapter/read-only/ue4ss/native/CMakeLists.txt");
+    let build_script = repo("scripts/Build-Ue4ssAdapter.ps1");
+    let support_manifest = read("support-manifest.json");
+
+    assert_contains(
+        &main,
+        "local LUA_CAPABILITY = \"@GUIDER_LUA_CAPABILITY@\"",
+        "templated compile-time capability",
+    );
+    assert_not_contains(&main, "os.getenv(", "runtime capability input");
+    assert_contains(
+        &cmake,
+        "set(GUIDER_LUA_CAPABILITY \"full\" CACHE STRING",
+        "CMake capability default",
+    );
+    assert_contains(
+        &cmake,
+        "GUIDER_LUA_CAPABILITY MATCHES \"^(noop|chat|full)$\"",
+        "CMake capability allowlist",
+    );
+    assert_contains(
+        &cmake,
+        "configure_file(\"${GUIDER_SCRIPTS_DIR}/main.lua\"",
+        "CMake Lua templating",
+    );
+    assert_contains(
+        &build_script,
+        "[ValidateSet('noop', 'chat', 'full')][string]$Capability = 'full'",
+        "build wrapper capability allowlist",
+    );
+    assert_contains(
+        &build_script,
+        "-DGUIDER_LUA_CAPABILITY=$Capability",
+        "build wrapper forwards capability",
+    );
+    assert_contains(
+        &support_manifest,
+        "\"lua_capability\": {\n    \"default\": \"full\",\n    \"values\": [\"noop\", \"chat\", \"full\"]\n  }",
+        "support manifest capability contract",
+    );
+}
+
+#[test]
+fn capability_manifest_matches_each_mode() {
+    let main = main_lua();
+    let transport = transport_lua();
+    assert_contains(&main, "capability == \"noop\"", "noop manifest branch");
+    assert_contains(&main, "capability == \"chat\"", "chat manifest branch");
+    assert_contains(&main, "capability == \"full\"", "full manifest branch");
+    assert_contains(
+        &main,
+        "{name = \"ping\", mutation = false, evidence = \"A\", status = \"enabled\"}",
+        "noop retains ping",
+    );
+
+    let noop_start = main
+        .find("if capability == \"noop\" then")
+        .expect("noop branch");
+    let noop_end = main[noop_start..]
+        .find("elseif capability == \"chat\" then")
+        .map(|offset| noop_start + offset)
+        .expect("chat branch");
+    let noop_branch = &main[noop_start..noop_end];
+    for disabled_tool in [
+        "get_player_status",
+        "get_active_pal_status",
+        "send_chat_message",
+    ] {
+        assert_not_contains(noop_branch, disabled_tool, "noop capability manifest");
+    }
+
+    let chat_start = noop_end;
+    let chat_end = main[chat_start..]
+        .find("elseif capability == \"full\" then")
+        .map(|offset| chat_start + offset)
+        .expect("full branch");
+    let chat_branch = &main[chat_start..chat_end];
+    assert_contains(chat_branch, "send_chat_message", "chat capability manifest");
+    for disabled_tool in ["get_player_status", "get_active_pal_status"] {
+        assert_not_contains(chat_branch, disabled_tool, "chat capability manifest");
+    }
+    assert_contains(
+        &main,
+        "data = {tools = tools}",
+        "override manifest embeds selected tools",
+    );
+    for forbidden in [
+        "GUIDER_LUA_CAPABILITY",
+        "set_capability",
+        "capability == \"noop\"",
+        "capability == \"chat\"",
+    ] {
+        assert_not_contains(
+            &transport,
+            forbidden,
+            "transport must stay capability-agnostic",
+        );
+    }
+}
+
+#[test]
+fn main_overrides_transport_manifest_before_connect() {
+    let main = main_lua();
+    assert_contains(
+        &main,
+        "PalTransport.capability_manifest_frame = capability_manifest_frame",
+        "main-only manifest override",
+    );
+    assert_contains(
+        &main,
+        "local function capability_manifest_frame(sequence)",
+        "main defines the overriding manifest frame",
+    );
+    let override_position = main
+        .find("PalTransport.capability_manifest_frame = capability_manifest_frame")
+        .expect("manifest override");
+    let connect_position = main.find("if not PalTransport.connect()").expect("connect");
+    assert!(
+        override_position < connect_position,
+        "capability manifest override must happen before PalTransport.connect()"
+    );
+}
+
+#[test]
+fn dispatch_and_chat_hook_match_each_capability_mode() {
+    let main = main_lua();
+    assert_contains(
+        &main,
+        "local READ_CAPABILITY_ENABLED = LUA_CAPABILITY == \"full\"",
+        "full-only read switch",
+    );
+    assert_contains(
+        &main,
+        "local CHAT_CAPABILITY_ENABLED = LUA_CAPABILITY == \"chat\" or LUA_CAPABILITY == \"full\"",
+        "chat/full chat switch",
+    );
+    assert_contains(
+        &main,
+        "READ_CAPABILITY_ENABLED and frame.tool == \"get_player_status\"",
+        "player read dispatch gate",
+    );
+    assert_contains(
+        &main,
+        "READ_CAPABILITY_ENABLED and frame.tool == \"get_active_pal_status\"",
+        "Otomo read dispatch gate",
+    );
+    assert_contains(
+        &main,
+        "CHAT_CAPABILITY_ENABLED and frame.tool == \"send_chat_message\"",
+        "chat tool dispatch gate",
+    );
+    assert_contains(
+        &main,
+        "if CHAT_CAPABILITY_ENABLED then\n    ensure_chat_hook()",
+        "initial chat hook gate",
+    );
+    assert_contains(
+        &main,
+        "if CHAT_CAPABILITY_ENABLED then\n        ensure_chat_hook()",
+        "poll chat hook gate",
+    );
+}
+
+#[test]
+fn invalid_lua_capability_and_current_build_fail_closed() {
+    let main = main_lua();
+    let cmake = repo("adapter/read-only/ue4ss/native/CMakeLists.txt");
+    let support_manifest = read("support-manifest.json");
+
+    assert_contains(
+        &cmake,
+        "message(FATAL_ERROR \"GUIDER_LUA_CAPABILITY must be one of: noop, chat, full\")",
+        "CMake invalid capability rejection",
+    );
+    assert_contains(
+        &main,
+        "if not capability_tools(LUA_CAPABILITY) then\n    print(TAG .. \" invalid compile-time capability switch\")\n    return\nend",
+        "invalid capability startup rejection",
+    );
+    assert_contains(
+        &support_manifest,
+        "\"blocked_game_build_ids\": [\n    \"25094871\"\n  ]",
+        "current build must remain blocked",
+    );
+}
+
+#[test]
+fn capability_switch_introduces_no_mutation_api() {
+    for source in [main_lua(), transport_lua()] {
+        for forbidden_api in [
+            "SetPlayerPosition",
+            "SpawnItem",
+            "AddInventoryItem",
+            "SetHealth",
+            "SetStamina",
+            "TeleportTo",
+            "MoveTo",
+        ] {
+            assert_not_contains(&source, forbidden_api, "capability mutation API");
+        }
+    }
+}
 #[test]
 fn lua_adapter_files_exist() {
     assert!(
@@ -92,8 +302,9 @@ fn lua_chat_prefix_is_exactly_guide() {
 }
 
 #[test]
-fn manifest_contains_exactly_four_guider_tools() {
+fn transport_manifest_remains_full_default_and_is_overridden_by_main() {
     let transport = transport_lua();
+    let main = main_lua();
     for tool in [
         "ping",
         "get_player_status",
@@ -103,12 +314,25 @@ fn manifest_contains_exactly_four_guider_tools() {
         assert_contains(
             &transport,
             &format!("name = \"{tool}\""),
-            "capability manifest tool",
+            "unmodified transport manifest tool",
         );
     }
-    assert_not_contains(&transport, "\"get_game_info\"", "manifest");
-    assert_not_contains(&transport, "\"move_to\"", "manifest");
-    assert_not_contains(&transport, "\"follow_player\"", "manifest");
+    assert_not_contains(
+        &transport,
+        "\"get_game_info\"",
+        "unmodified transport manifest",
+    );
+    assert_not_contains(&transport, "\"move_to\"", "unmodified transport manifest");
+    assert_not_contains(
+        &transport,
+        "\"follow_player\"",
+        "unmodified transport manifest",
+    );
+    assert_contains(
+        &main,
+        "PalTransport.capability_manifest_frame = capability_manifest_frame",
+        "runtime manifest override in main",
+    );
 }
 #[test]
 fn request_dispatch_covers_exactly_the_four_tools() {

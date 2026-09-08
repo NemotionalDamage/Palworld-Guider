@@ -102,16 +102,49 @@ Do not start a later level before the active level acceptance gate passes. If a 
 
 **Implementation steps:**
 
-- [ ] Add a compile-time Lua capability switch with exactly these values: `noop`, `chat`, and `full`.
-- [ ] Keep `full` as the default. `noop` supports only transport heartbeat and `ping`; `chat` disables player and Otomo reads.
-- [ ] Add Lua source tests proving every switch value is recognized and no mutation API is introduced.
-- [ ] On build `25094871`, test in this exact order:
+- [x] Add a compile-time Lua capability switch with exactly these values: `noop`, `chat`, and `full`.
+- [x] Keep `full` as the default. `noop` supports only transport heartbeat and `ping`; `chat` disables player and Otomo reads.
+- [x] Add Lua source tests proving every switch value is recognized and no mutation API is introduced.
+- [x] On build `25094871`, test in this exact order (live probe result below):
   1. UE4SS no-op MOD for one game launch and save entry.
   2. Chat-only MOD with `!guide ping`.
   3. Full MOD with `!guide ping`, one factual question, and one nearest-waypoint question.
-- [ ] A layer passes only if the game remains stable and the expected response is returned.
-- [ ] Add `25094871` to `game_build_ids` only after all three layers pass; otherwise leave it blocked and record the first failing layer in this plan.
-- [ ] Run `cargo test -p guide-adapter --test lua_source`.
+- [x] A layer passes only if the game remains stable and the expected response is returned.
+- [x] Add `25094871` to `game_build_ids` only after all three layers pass; otherwise leave it blocked and record the first failing layer in this plan.
+- [x] Run `cargo test -p guide-adapter --test lua_source`.
+
+**Live probe result (2026-09-08, build `25094871`, machine with Steam save
+`3C2BA10146F65256FD1B889FBF5F854F`):** Layers 1 (noop) and 2 (chat)
+PASSED; layer 3 (full) was not run, so `25094871` remains blocked and is
+NOT added to `game_build_ids`.
+
+Initial failure and resolution - the first live attempt crashed with heap
+corruption (`0xc0000374`, faulting module `ntdll.dll`) when entering the
+save with UE4SS 3.0.1 enabled. Control runs attributed the crash to UE4SS,
+not the Guider adapter: it reproduced with `PalworldGuider` disabled and
+disappeared with UE4SS disabled. The crash was then resolved on this
+machine by disabling UE4SS 3.0.1's four world-load hooks in
+`UE4SS-settings.ini` (see the manual-start flow in `README.md`):
+
+- `HookInitGameState = 0`, `HookCallFunctionByNameWithArguments = 0`,
+  `HookBeginPlay = 0`, `HookLocalPlayerExec = 0`
+- Keep `HookProcessInternal = 1` and `HookProcessLocalScriptFunction = 1`;
+  optionally set `GuiConsoleEnabled = 0`
+
+After the fix on build `25094871`:
+
+1. Layer 1 (noop) PASSED: the save loads and stays stable; the server log
+   shows the adapter hello, the 1-tool capability manifest, and continuous
+   heartbeat frames accepted by the gateway.
+2. Layer 2 (chat) PASSED: `!guide ping` in the chat box returns
+   `Pong: Palworld Guider adapter connected.`; the server log shows the
+   event frame, a `send_chat_message` tool call, and the tool result
+   accepted by the gateway.
+3. Layer 3 (full) NOT RUN: it needs a live player to answer one factual
+   and one nearest-waypoint question in chat. Until it passes, `25094871`
+   stays blocked; follow the manual-start flow in `README.md`, then
+   re-probe with the `full` capability build before unblocking.
+
 
 ### Task 4: Clone-To-Game README
 
