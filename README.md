@@ -263,6 +263,8 @@ cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 
 All configuration is environment-only. `Set-GuideProvider.ps1` stores the provider values in the gitignored `.local\set-provider.ps1`, so no credentials appear on the command line or in Git.
 
+Both start scripts wait up to 300 seconds for a model response. If your model is consistently faster, pass a smaller value such as `-ProviderTimeoutSeconds 120`.
+
 | Variable | Used by | Description |
 |---|---|---|
 | `GUIDE_PROVIDER` | `guide-server` | `openai` or `ollama` (required) |

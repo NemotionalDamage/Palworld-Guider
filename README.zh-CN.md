@@ -218,6 +218,8 @@ cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 
 所有配置只通过环境变量提供。`Set-GuideProvider.ps1` 会把 Provider 配置保存到被 Git 忽略的 `.local\set-provider.ps1`，凭据不会出现在命令行或 Git 历史中。
 
+两个启动脚本默认最多等待模型 300 秒。如果你的模型明显更快，可以传入更小的值，例如 `-ProviderTimeoutSeconds 120`。
+
 | 变量 | 使用方 | 说明 |
 |---|---|---|
 | `GUIDE_PROVIDER` | `guide-server` | `openai` 或 `ollama`（必填） |

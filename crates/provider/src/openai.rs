@@ -56,9 +56,7 @@ impl ChatProvider for OpenAiCompatibleProvider {
             .send()
             .map_err(map_request_error)?;
         let status = response.status();
-        let body = response
-            .text()
-            .map_err(|error| ProviderError::Network(error.to_string()))?;
+        let body = response.text().map_err(map_request_error)?;
         if !status.is_success() {
             return Err(ProviderError::Api(format!(
                 "HTTP {}: {}",

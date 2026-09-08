@@ -20,6 +20,7 @@ param(
     [UInt16]$Port = 8070,
     [ValidateRange(1, 65535)]
     [UInt16]$AdapterPort = 8071,
+    [ValidateRange(1, 300)][UInt32]$ProviderTimeoutSeconds = 300,
     [string]$ServerExecutable,
     [string]$SteamExecutable
 )
@@ -222,6 +223,8 @@ $ServerArguments = @(
     $GameVersion,
     '--port',
     [string]$Port,
+    '--timeout-seconds',
+    [string]$ProviderTimeoutSeconds,
     '--adapter-port',
     [string]$AdapterPort,
     '--adapter-token-env',

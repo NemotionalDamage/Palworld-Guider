@@ -9,7 +9,8 @@ the foreground on a loopback port. Press Ctrl+C to stop the server.
 #>
 [CmdletBinding()]
 param(
-    [ValidateRange(1, 65535)][UInt16]$Port = 8070
+    [ValidateRange(1, 65535)][UInt16]$Port = 8070,
+    [ValidateRange(1, 300)][UInt32]$ProviderTimeoutSeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,5 +66,6 @@ Write-Host "Web guide: http://127.0.0.1:$Port/ (press Ctrl+C to stop)"
 & $ServerExecutable `
     --data (Join-Path $RepoRoot 'data\reviewed') `
     --game-version $GameVersion `
-    --port ([string]$Port)
+    --port ([string]$Port) `
+    --timeout-seconds ([string]$ProviderTimeoutSeconds)
 exit $LASTEXITCODE

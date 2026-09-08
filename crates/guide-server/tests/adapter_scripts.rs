@@ -221,9 +221,7 @@ fn no_script_reads_or_prints_a_token() {
 fn provider_config_is_local_gitignored_and_loaded_by_both_start_paths() {
     let setup = script("Set-GuideProvider.ps1");
     assert!(
-        setup.contains(".local")
-            && setup.contains("set-provider.ps1")
-            && setup.contains("-Force"),
+        setup.contains(".local") && setup.contains("set-provider.ps1") && setup.contains("-Force"),
         "provider setup must write the gitignored local provider configuration"
     );
     for name in ["Start-InGameGuide.ps1", "Start-WebGuide.ps1"] {
@@ -238,6 +236,22 @@ fn provider_config_is_local_gitignored_and_loaded_by_both_start_paths() {
         );
     }
 }
+#[test]
+fn start_scripts_use_a_long_configurable_provider_timeout() {
+    for name in ["Start-InGameGuide.ps1", "Start-WebGuide.ps1"] {
+        let content = script(name);
+        assert!(
+            content.contains("[ValidateRange(1, 300)][UInt32]$ProviderTimeoutSeconds = 300"),
+            "{name} must default to the maximum provider ask timeout"
+        );
+        assert!(
+            content.contains("--timeout-seconds")
+                && content.contains("[string]$ProviderTimeoutSeconds"),
+            "{name} must pass the configurable provider timeout to guide-server"
+        );
+    }
+}
+
 #[test]
 fn build_script_pins_ue4ss_sha256_and_never_writes_to_the_game() {
     let content = script("Build-Ue4ssAdapter.ps1");

@@ -102,6 +102,7 @@ Start options (all optional):
 |---|---|---|
 | `-Port` | `8070` | Loopback Web server port |
 | `-AdapterPort` | `8071` | Loopback adapter gateway port; must differ from `-Port` |
+| `-ProviderTimeoutSeconds` | `300` | Maximum wait for one model response |
 | `-ServerExecutable` | `target\release\guide-server.exe` | guide-server binary to launch |
 | `-SteamExecutable` | Discovered from Steam's registry `InstallPath` | Steam client used to launch Palworld (app `1623730`) |
 
@@ -237,9 +238,8 @@ $env:GUIDE_MODEL = "llama3.2"
 | `--adapter-token-env <name>` | `PALWORLD_GUIDER_GATEWAY_TOKEN` | Environment variable carrying the adapter bearer token. |
 | `--host` | Rejected | Explicitly rejected; the server is loopback-only. |
 
-`Start-InGameGuide.ps1` passes `--data`, `--game-version`, `--port`,
-`--adapter-port`, and `--adapter-token-env` automatically; you normally do
-not need to call `guide-server` with adapter flags by hand.
+`Start-InGameGuide.ps1` and `Start-WebGuide.ps1` pass the timeout automatically;
+you normally do not need to call `guide-server` with adapter flags by hand.
 
 ### Loopback Binding
 
@@ -320,5 +320,5 @@ mutation path exists anywhere in the codebase. The guide is read-only.
 - Session TTL: 30 minutes.
 - Maximum tool calls per question: 6.
 - Maximum reply length: 1,200 characters.
-- Agent timeout: 30 seconds (configurable via `--timeout-seconds`, range
-  1..=300).
+- Start-script model timeout: 300 seconds (`-ProviderTimeoutSeconds`, range
+  1..=300). Direct `guide-server` startup defaults to 30 seconds.

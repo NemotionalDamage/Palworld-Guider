@@ -40,7 +40,8 @@ cargo run -p guide-server -- --data C:\path\to\Palworld-Guider\data\reviewed --p
 
 **Fix:**
 
-- Increase the deadline with `--timeout-seconds` (default 60):
+- Increase the deadline with `--timeout-seconds` (direct server default 30;
+  both start scripts default to 300 through `-ProviderTimeoutSeconds`):
 
 ```powershell
 cargo run -p guide-server -- --data data/reviewed --port 8070 --timeout-seconds 120

@@ -4,6 +4,10 @@ use provider::{
     ProviderError, ToolSpec,
 };
 use serde_json::json;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::thread;
+use std::time::Duration;
 
 fn sample_request() -> ChatRequest {
     ChatRequest {
@@ -211,4 +215,37 @@ fn provider_error_display_is_clear() {
     assert!(ProviderError::InvalidResponse("bad".to_string())
         .to_string()
         .contains("invalid provider response"));
+}
+
+#[test]
+fn openai_response_read_timeouts_are_reported_as_timeouts() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener");
+    let address = listener.local_addr().expect("test address");
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("test connection");
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request);
+        let _ = stream.write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 128\r\n\r\npartial",
+        );
+        let _ = stream.flush();
+        thread::sleep(Duration::from_millis(500));
+    });
+    let endpoint = format!("http://{address}/chat/completions");
+    let provider = provider::OpenAiCompatibleProvider::new(
+        endpoint,
+        "test-key",
+        "test-model",
+        Duration::from_millis(100),
+        false,
+    )
+    .expect("test provider");
+    let error = provider
+        .complete(&sample_request())
+        .expect_err("read must time out");
+    server.join().expect("test server");
+    assert!(
+        matches!(error, ProviderError::Timeout(_)),
+        "unexpected error: {error:?}"
+    );
 }
