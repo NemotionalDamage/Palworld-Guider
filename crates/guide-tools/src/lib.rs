@@ -1,8 +1,9 @@
 //! Typed tool registry around the deterministic guide core.
 
 use guide_core::{
-    AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry, MapPointKind,
-    ProvenanceSummary, Resolution, VersionInfo, WorldCoordinate,
+    map_display_to_world, AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry,
+    MapDisplayCoordinate, MapPointKind, ProvenanceSummary, Resolution, TravelAnchorSeed,
+    VersionInfo, WorldCoordinate,
 };
 use guide_planner::{GuidePlanner, PlannerAnswer, PlannerStatus};
 use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, ProvenanceBrief};
@@ -448,6 +449,7 @@ impl ToolRegistry {
             },
             "find_nearby_map_points" => self.nearby_map_points(arguments, version),
             "find_pal_spawn_zones" => self.pal_spawn_zones(arguments, version),
+            "plan_travel_route" => self.plan_travel_route(arguments, version),
             "search_structured_knowledge" => self.search(arguments, version),
             "calculate_materials" => match self.material_arguments(arguments) {
                 Ok((query, quantity, rarity)) => ToolEnvelope::from_answer(
@@ -674,14 +676,22 @@ impl ToolRegistry {
             .get("coordinate_system")
             .and_then(Value::as_str)
             .unwrap_or("world");
-        if !matches!(system, "world" | "map_pixel" | "normalized") {
+        if !matches!(system, "world" | "map_pixel" | "normalized" | "map_display") {
             return Err(
-                "argument \"coordinate_system\" must be world, map_pixel, or normalized"
+                "argument \"coordinate_system\" must be world, map_pixel, normalized, or map_display"
                     .to_string(),
             );
         }
         if system == "world" {
             return Ok(location);
+        }
+        if system == "map_display" {
+            let mut world = map_display_to_world(MapDisplayCoordinate {
+                x: location.x,
+                y: location.y,
+            });
+            world.z = location.z;
+            return Ok(world);
         }
 
         let requested_map_id = arguments.get("map_id").and_then(Value::as_str);
@@ -751,6 +761,150 @@ impl ToolRegistry {
             }
             Err(message) => ToolEnvelope::error(message, version),
         }
+    }
+
+    fn plan_travel_route(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
+        let result: Result<_, String> = (|| {
+            let from = self.coordinate(require_object(arguments, "from")?)?;
+            let (to, destination_name) = self.travel_destination(arguments, from)?;
+            let extra_anchors = self.travel_extra_anchors(arguments)?;
+            Ok((from, to, destination_name, extra_anchors))
+        })();
+        match result {
+            Ok((from, to, destination_name, extra_anchors)) => ToolEnvelope::from_answer(
+                self.engine
+                    .plan_travel_route(from, to, destination_name, &extra_anchors),
+            ),
+            Err(message) => ToolEnvelope::error(message, version),
+        }
+    }
+
+    fn travel_destination(
+        &self,
+        arguments: &Value,
+        from: WorldCoordinate,
+    ) -> Result<(WorldCoordinate, Option<String>), String> {
+        if arguments.get("to").is_some() {
+            return self
+                .coordinate(require_object(arguments, "to")?)
+                .map(|to| (to, None));
+        }
+        let query = require_string(arguments, "to_query")?;
+        self.resolve_travel_destination(&query, from)
+            .map(|(to, name)| (to, Some(name)))
+    }
+
+    fn resolve_travel_destination(
+        &self,
+        query: &str,
+        from: WorldCoordinate,
+    ) -> Result<(WorldCoordinate, String), String> {
+        let normalize = |value: &str| {
+            value
+                .chars()
+                .filter(|character| character.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        };
+        let normalized_query = normalize(query);
+        let map_points = self
+            .engine
+            .store()
+            .map_points()
+            .filter(|point| {
+                normalize(&point.id) == normalized_query
+                    || normalize(&point.native_id) == normalized_query
+                    || normalize(&point.names.en) == normalized_query
+                    || point
+                        .names
+                        .zh_hans
+                        .as_deref()
+                        .is_some_and(|name| normalize(name) == normalized_query)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if map_points.len() == 1 {
+            let point = &map_points[0];
+            return Ok((point.location, point.names.en.clone()));
+        }
+        if map_points.len() > 1 {
+            let ids = map_points
+                .iter()
+                .map(|point| point.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!("ambiguous map point; candidates: {ids}"));
+        }
+
+        match self.engine.resolve(query, Some(EntityKind::Pal)) {
+            Resolution::Unique(resolved) => {
+                let Some(pal) = self.engine.store().pal(&resolved.id) else {
+                    return Err("resolved Pal is absent from the store".to_string());
+                };
+                let zones = pal
+                    .habitat_ids
+                    .iter()
+                    .filter_map(|zone_id| self.engine.store().pal_habitat_zone(zone_id))
+                    .min_by(|left, right| {
+                        let left_distance =
+                            (left.location.x - from.x).hypot(left.location.y - from.y);
+                        let right_distance =
+                            (right.location.x - from.x).hypot(right.location.y - from.y);
+                        left_distance
+                            .total_cmp(&right_distance)
+                            .then_with(|| left.id.cmp(&right.id))
+                    });
+                match zones {
+                    Some(zone) => Ok((zone.location, resolved.matched_name)),
+                    None => Err(format!("Pal \"{query}\" has no reviewed habitat coverage")),
+                }
+            }
+            Resolution::Ambiguous(candidates) => {
+                let ids = candidates
+                    .iter()
+                    .map(|candidate| candidate.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Err(format!("ambiguous Pal; candidates: {ids}"))
+            }
+            Resolution::Unknown => {
+                Err("unknown destination; no reviewed map point or Pal matches".to_string())
+            }
+        }
+    }
+
+    fn travel_extra_anchors(&self, arguments: &Value) -> Result<Vec<TravelAnchorSeed>, String> {
+        let mut anchors = Vec::new();
+        if let Some(extra_anchors) = arguments.get("extra_anchors") {
+            let items = extra_anchors.as_array().ok_or_else(|| {
+                "argument \"extra_anchors\" must be an array of world-coordinate anchors"
+                    .to_string()
+            })?;
+            for item in items {
+                anchors.push(travel_anchor_seed(item)?);
+            }
+        }
+        if arguments
+            .get("via_base_camps")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            if let Some(runtime) = &self.runtime_tools {
+                if runtime
+                    .definitions()
+                    .iter()
+                    .any(|definition| definition.name == "get_base_camps")
+                {
+                    let result = runtime.dispatch("get_base_camps", &json!({}));
+                    if result.status == ToolStatus::Ok {
+                        if let Some(data) = result.data {
+                            anchors.extend(base_camp_anchors(&data)?);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(anchors)
     }
 }
 
@@ -844,22 +998,51 @@ fn build_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "locate_coordinate".to_string(),
-            description: "Map a world, logical-map-pixel, or normalized coordinate to a reviewed logical map.".to_string(),
+            description: "Map a world, logical-map-pixel, normalized, or in-game map display coordinate to a reviewed logical map.".to_string(),
             parameters_schema: coordinate_schema(),
         },
         ToolDefinition {
             name: "find_nearby_map_points".to_string(),
-            description: "Find reviewed anchors near a world, logical-map-pixel, or normalized coordinate.".to_string(),
+            description: "Find reviewed anchors near a world, logical-map-pixel, normalized, or in-game map display coordinate.".to_string(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
                     "x": {"type": "number"},
                     "y": {"type": "number"},
                     "z": {"type": "number"},
+                    "coordinate_system": {"type": "string", "enum": ["world", "map_pixel", "normalized", "map_display"]},
                     "kind": {"type": "string", "enum": ["fast_travel", "boss_tower"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20}
                 },
                 "required": ["x", "y"]
+            }),
+        },
+        ToolDefinition {
+            name: "plan_travel_route".to_string(),
+            description: "Compare direct travel with fast-travel legs from a from coordinate to a destination coordinate or named map point/Pal habitat.".to_string(),
+            parameters_schema: json!({
+                "type": "object",
+                "properties": {
+                    "from": coordinate_schema(),
+                    "to": coordinate_schema(),
+                    "to_query": {"type": "string"},
+                    "via_base_camps": {"type": "boolean"},
+                    "extra_anchors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                                "x": {"type": "number"},
+                                "y": {"type": "number"},
+                                "z": {"type": "number"}
+                            },
+                            "required": ["x", "y"]
+                        }
+                    }
+                },
+                "required": ["from"]
             }),
         },
         ToolDefinition {
@@ -872,6 +1055,7 @@ fn build_definitions() -> Vec<ToolDefinition> {
                     "x": {"type": "number"},
                     "y": {"type": "number"},
                     "z": {"type": "number"},
+                    "coordinate_system": {"type": "string", "enum": ["world", "map_pixel", "normalized", "map_display"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20}
                 },
                 "required": ["pal", "x", "y"]
@@ -1001,8 +1185,8 @@ fn coordinate_schema() -> Value {
                     "z": {"type": "number"},
                     "coordinate_system": {
                         "type": "string",
-                        "enum": ["world", "map_pixel", "normalized"],
-                        "description": "Use world for Unreal world units, map_pixel for 0..logical_size pixels, or normalized for 0..1 coordinates."
+                        "enum": ["world", "map_pixel", "normalized", "map_display"],
+                        "description": "Use world for Unreal world units, map_pixel for 0..logical_size pixels, normalized for 0..1 coordinates, or map_display for the in-game map display coordinates."
                     },
                     "map_id": {"type": "string"}
                 },
@@ -1058,6 +1242,54 @@ fn require_string(arguments: &Value, name: &str) -> Result<String, String> {
         return Err(format!("argument \"{name}\" must be a non-empty string"));
     }
     Ok(string.trim().to_string())
+}
+
+fn require_object<'a>(arguments: &'a Value, name: &str) -> Result<&'a Value, String> {
+    let value = arguments
+        .get(name)
+        .ok_or_else(|| format!("missing required argument \"{name}\""))?;
+    value
+        .as_object()
+        .map(|_| value)
+        .ok_or_else(|| format!("argument \"{name}\" must be an object"))
+}
+
+fn travel_anchor_seed(value: &Value) -> Result<TravelAnchorSeed, String> {
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("base_camp")
+        .to_string();
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or(&name)
+        .to_string();
+    let read_axis = |axis: &str| -> Result<f64, String> {
+        value
+            .get(axis)
+            .and_then(Value::as_f64)
+            .filter(|number| number.is_finite())
+            .ok_or_else(|| format!("anchor \"{axis}\" must be a finite number"))
+    };
+    Ok(TravelAnchorSeed {
+        id,
+        name,
+        location: WorldCoordinate {
+            x: read_axis("x")?,
+            y: read_axis("y")?,
+            z: value.get("z").and_then(Value::as_f64).unwrap_or(0.0),
+        },
+    })
+}
+
+fn base_camp_anchors(data: &Value) -> Result<Vec<TravelAnchorSeed>, String> {
+    let items = data
+        .get("base_camps")
+        .and_then(Value::as_array)
+        .or_else(|| data.as_array())
+        .ok_or_else(|| "get_base_camps returned an unsupported shape".to_string())?;
+    items.iter().map(travel_anchor_seed).collect()
 }
 
 fn require_bounded_integer(

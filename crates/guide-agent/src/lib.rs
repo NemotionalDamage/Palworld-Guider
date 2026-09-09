@@ -566,7 +566,7 @@ impl GuideAgent {
                 if is_breeding_tool(&definition.name) && !breeding_intent {
                     return false;
                 }
-                if is_map_tool(&definition.name) && map_grounding_succeeded {
+                if is_grounding_map_tool(&definition.name) && map_grounding_succeeded {
                     return false;
                 }
                 if is_map_tool(&definition.name) && !map_intent {
@@ -1142,6 +1142,16 @@ fn is_breeding_tool(name: &str) -> bool {
 fn is_map_tool(name: &str) -> bool {
     matches!(
         name,
+        "locate_coordinate"
+            | "find_nearby_map_points"
+            | "find_pal_spawn_zones"
+            | "plan_travel_route"
+    )
+}
+
+fn is_grounding_map_tool(name: &str) -> bool {
+    matches!(
+        name,
         "locate_coordinate" | "find_nearby_map_points" | "find_pal_spawn_zones"
     )
 }
@@ -1204,9 +1214,20 @@ fn has_breeding_intent(question: &str) -> bool {
 }
 
 fn has_map_intent(question: &str) -> bool {
-    ["坐标", "地图", "附近", "位置", "传送"]
-        .iter()
-        .any(|keyword| question.contains(keyword))
+    [
+        "坐标",
+        "地图",
+        "附近",
+        "位置",
+        "传送",
+        "去哪",
+        "怎么去",
+        "前往",
+        "多远",
+        "距离",
+    ]
+    .iter()
+    .any(|keyword| question.contains(keyword))
 }
 
 fn map_grounding_arguments(question: &str) -> Option<Value> {
@@ -1224,19 +1245,8 @@ fn map_grounding_arguments(question: &str) -> Option<Value> {
     } else if question.contains("百分比") || question.contains("归一化") {
         "normalized"
     } else {
-        "world"
+        "map_display"
     };
-    let mut x = x;
-    let mut y = y;
-    if !explicit_world
-        && !explicit_pixel
-        && !question.contains("百分比")
-        && !question.contains("归一化")
-        && is_probable_map_display_coordinate(x, y)
-    {
-        x *= 100.0;
-        y *= 100.0;
-    }
     let mut arguments = serde_json::json!({
         "x": x,
         "y": y,
@@ -1248,13 +1258,6 @@ fn map_grounding_arguments(question: &str) -> Option<Value> {
         arguments["kind"] = serde_json::json!("fast_travel");
     }
     Some(arguments)
-}
-
-fn is_probable_map_display_coordinate(x: f64, y: f64) -> bool {
-    if x.abs() <= 1.0 && y.abs() <= 1.0 {
-        return false;
-    }
-    x.abs() <= 8192.0 && y.abs() <= 8192.0
 }
 
 fn labeled_coordinate(question: &str) -> Option<(f64, f64)> {

@@ -3,7 +3,10 @@ use game_knowledge::{
     MapPointKind, MapPointRecord, PalHabitatZoneRecord, PalRecord, PalSpawnPlacementKind,
     Provenance, ReviewStatus, SourceRecord, WorldCoordinate,
 };
-use guide_core::{AnswerStatus, GuideEngine};
+use guide_core::{
+    map_display_to_world, world_to_map_display, AnswerStatus, GuideEngine, MapDisplayCoordinate,
+    TravelAnchorSeed,
+};
 
 #[test]
 fn locates_coordinates_and_returns_deterministic_nearby_points() {
@@ -31,8 +34,26 @@ fn locates_coordinates_and_returns_deterministic_nearby_points() {
     assert_eq!(points.len(), 2);
     assert_eq!(points[0].id, "POINT_NEAR");
     assert_eq!(points[1].id, "POINT_FAR");
-    assert_eq!(points[0].distance, 5000.0);
+    assert_eq!(points[0].distance_meters, 50.0);
     assert_eq!(points[0].bearing_degrees, 90.0);
+}
+
+#[test]
+fn map_display_coordinates_use_the_verified_world_transform() {
+    let dry_dunes = map_display_to_world(MapDisplayCoordinate {
+        x: -698.0,
+        y: -635.0,
+    });
+    assert!((dry_dunes.x - (-414_974.0)).abs() < 0.001);
+    assert!((dry_dunes.y - (-160_760.0)).abs() < 0.001);
+
+    let deep_dunes = map_display_to_world(MapDisplayCoordinate { x: 527.0, y: 526.0 });
+    assert!((deep_dunes.x - 117_925.0).abs() < 0.001);
+    assert!((deep_dunes.y - 401_515.0).abs() < 0.001);
+
+    let display = world_to_map_display(dry_dunes);
+    assert!((display.x - (-698.0)).abs() < 0.001);
+    assert!((display.y - (-635.0)).abs() < 0.001);
 }
 
 #[test]
@@ -64,6 +85,65 @@ fn ranks_pal_habitats_by_reviewed_radius_then_distance() {
     assert_eq!(zones[0].zone_id, "ZONE_NEAR");
     assert!(zones[0].within_reviewed_radius);
     assert!(!zones[1].within_reviewed_radius);
+}
+
+#[test]
+fn plan_travel_route_compares_direct_and_fast_travel_legs() {
+    let engine = engine(records());
+    let from = WorldCoordinate {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let direct_destination = WorldCoordinate {
+        x: 4_000.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let route = engine
+        .plan_travel_route(
+            from,
+            direct_destination,
+            Some("Direct Destination".to_string()),
+            &[],
+        )
+        .data
+        .expect("route exists");
+    assert_eq!(route.recommended_mode, "direct");
+    assert!((route.recommended_distance_meters - 40.0).abs() < 0.001);
+    assert_eq!(route.from_nearest_fast_travel.id, "POINT_NEAR");
+    assert_eq!(route.to_nearest_fast_travel.id, "POINT_NEAR");
+}
+
+#[test]
+fn plan_travel_route_includes_supplied_base_camp_anchors() {
+    let engine = engine(records());
+    let from = WorldCoordinate {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let to = WorldCoordinate {
+        x: 4_000.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    let extra_anchor = TravelAnchorSeed {
+        id: "BASE_1".to_string(),
+        name: "Base 1".to_string(),
+        location: WorldCoordinate {
+            x: 3_900.0,
+            y: 0.0,
+            z: 0.0,
+        },
+    };
+    let route = engine
+        .plan_travel_route(from, to, None, &[extra_anchor])
+        .data
+        .expect("route exists");
+    assert_eq!(route.to_nearest_fast_travel.id, "BASE_1");
+    assert_eq!(route.recommended_mode, "fast_travel");
+    assert!((route.fast_travel_distance_meters - 40.0).abs() < 0.001);
 }
 
 fn records() -> Vec<KnowledgeRecord> {

@@ -11,18 +11,25 @@ pub struct NormalizedMapCoordinate {
     pub pixel_y: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MapDisplayCoordinate {
+    pub x: f64,
+    pub y: f64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoordinateLocation {
     pub map_id: String,
     pub map_names: game_knowledge::LocaleNames,
     pub location: WorldCoordinate,
     pub normalized: NormalizedMapCoordinate,
+    pub map_display: MapDisplayCoordinate,
     pub approximate_region: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MapPointDistance {
-    pub distance: f64,
+    pub distance_meters: f64,
     pub bearing_degrees: f64,
 }
 
@@ -33,7 +40,8 @@ pub struct NearbyMapPoint {
     pub names: game_knowledge::LocaleNames,
     pub kind: MapPointKind,
     pub location: WorldCoordinate,
-    pub distance: f64,
+    pub map_display: MapDisplayCoordinate,
+    pub distance_meters: f64,
     pub bearing_degrees: f64,
 }
 
@@ -46,9 +54,41 @@ pub struct NearbyHabitatZone {
     pub radius: f64,
     pub level_min: u32,
     pub level_max: u32,
-    pub distance: f64,
+    pub distance_meters: f64,
     pub bearing_degrees: f64,
     pub within_reviewed_radius: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TravelAnchor {
+    pub id: String,
+    pub name: String,
+    pub names: game_knowledge::LocaleNames,
+    pub kind: Option<MapPointKind>,
+    pub location: WorldCoordinate,
+    pub map_display: MapDisplayCoordinate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TravelAnchorSeed {
+    pub id: String,
+    pub name: String,
+    pub location: WorldCoordinate,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TravelRoute {
+    pub destination_name: Option<String>,
+    pub from: WorldCoordinate,
+    pub from_map_display: MapDisplayCoordinate,
+    pub to: WorldCoordinate,
+    pub to_map_display: MapDisplayCoordinate,
+    pub direct_distance_meters: f64,
+    pub from_nearest_fast_travel: TravelAnchor,
+    pub to_nearest_fast_travel: TravelAnchor,
+    pub fast_travel_distance_meters: f64,
+    pub recommended_mode: String,
+    pub recommended_distance_meters: f64,
 }
 
 impl GuideEngine {
@@ -85,6 +125,7 @@ impl GuideEngine {
                 map_names: map.names.clone(),
                 location,
                 normalized,
+                map_display: world_to_map_display(location),
                 approximate_region: None,
             }),
             vec![&map.provenance],
@@ -112,13 +153,14 @@ impl GuideEngine {
                 names: point.names.clone(),
                 kind: point.kind,
                 location: point.location,
-                distance: distance(&location, &point.location),
+                map_display: world_to_map_display(point.location),
+                distance_meters: distance_meters(&location, &point.location),
                 bearing_degrees: bearing(&location, &point.location),
             })
             .collect::<Vec<_>>();
         points.sort_by(|left, right| {
-            left.distance
-                .total_cmp(&right.distance)
+            left.distance_meters
+                .total_cmp(&right.distance_meters)
                 .then_with(|| left.id.cmp(&right.id))
         });
         points.truncate(limit);
@@ -180,7 +222,7 @@ impl GuideEngine {
                     radius: zone.radius,
                     level_min: zone.level_min,
                     level_max: zone.level_max,
-                    distance,
+                    distance_meters: distance_meters(&location, &zone.location),
                     bearing_degrees: bearing(&location, &zone.location),
                     within_reviewed_radius: distance <= zone.radius,
                 }
@@ -190,7 +232,7 @@ impl GuideEngine {
             right
                 .within_reviewed_radius
                 .cmp(&left.within_reviewed_radius)
-                .then_with(|| left.distance.total_cmp(&right.distance))
+                .then_with(|| left.distance_meters.total_cmp(&right.distance_meters))
                 .then_with(|| left.zone_id.cmp(&right.zone_id))
         });
         zones.truncate(limit);
@@ -208,6 +250,98 @@ impl GuideEngine {
         );
         answer
     }
+
+    pub fn plan_travel_route(
+        &self,
+        from: WorldCoordinate,
+        to: WorldCoordinate,
+        destination_name: Option<String>,
+        extra_anchors: &[TravelAnchorSeed],
+    ) -> GuideAnswer<TravelRoute> {
+        let mut anchors = self
+            .store()
+            .map_points()
+            .filter(|point| point.kind == MapPointKind::FastTravel)
+            .map(|point| TravelAnchor {
+                id: point.id.clone(),
+                name: point.names.en.clone(),
+                names: point.names.clone(),
+                kind: Some(MapPointKind::FastTravel),
+                location: point.location,
+                map_display: world_to_map_display(point.location),
+            })
+            .collect::<Vec<_>>();
+        anchors.extend(extra_anchors.iter().map(|anchor| TravelAnchor {
+            id: anchor.id.clone(),
+            name: anchor.name.clone(),
+            names: game_knowledge::LocaleNames {
+                en: anchor.name.clone(),
+                zh_hans: Some(anchor.name.clone()),
+            },
+            kind: None,
+            location: anchor.location,
+            map_display: world_to_map_display(anchor.location),
+        }));
+        if anchors.is_empty() {
+            return self
+                .context()
+                .unknown("no fast-travel anchors are available for routing");
+        }
+
+        let nearest_to = |origin: &WorldCoordinate| -> TravelAnchor {
+            anchors
+                .iter()
+                .min_by(|left, right| {
+                    distance_meters(origin, &left.location)
+                        .total_cmp(&distance_meters(origin, &right.location))
+                        .then_with(|| left.id.cmp(&right.id))
+                })
+                .expect("anchor list is non-empty")
+                .clone()
+        };
+        let from_anchor = nearest_to(&from);
+        let to_anchor = nearest_to(&to);
+        let direct_distance_meters = distance_meters(&from, &to);
+        let fast_travel_distance_meters = distance_meters(&from, &from_anchor.location)
+            + distance_meters(&to, &to_anchor.location);
+        let recommended_mode = if fast_travel_distance_meters > direct_distance_meters {
+            "direct"
+        } else {
+            "fast_travel"
+        };
+        let recommended_distance_meters = direct_distance_meters.min(fast_travel_distance_meters);
+        let route = TravelRoute {
+            destination_name,
+            from,
+            from_map_display: world_to_map_display(from),
+            to,
+            to_map_display: world_to_map_display(to),
+            direct_distance_meters,
+            from_nearest_fast_travel: from_anchor,
+            to_nearest_fast_travel: to_anchor,
+            fast_travel_distance_meters,
+            recommended_mode: recommended_mode.to_string(),
+            recommended_distance_meters,
+        };
+        let provenances = [&route.from_nearest_fast_travel.id, &route.to_nearest_fast_travel.id]
+            .into_iter()
+            .filter_map(|id| self.store().map_point(id))
+            .map(|point| &point.provenance)
+            .collect::<Vec<_>>();
+        let mut answer =
+            self.context()
+                .answer(AnswerStatus::Ok, Some(route), provenances, Vec::new());
+        answer.uncertainty.push(
+            "distances are straight-line values, not terrain-verified travel paths".into(),
+        );
+        if extra_anchors.is_empty() {
+            answer.uncertainty.push(
+                "route considered reviewed fast-travel points only; player base camps were not included"
+                    .into(),
+            );
+        }
+        answer
+    }
 }
 
 fn bearing(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
@@ -219,4 +353,23 @@ fn bearing(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
 
 fn distance(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
     (target.x - origin.x).hypot(target.y - origin.y)
+}
+
+fn distance_meters(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
+    distance(origin, target) / 100.0
+}
+
+pub fn map_display_to_world(display: MapDisplayCoordinate) -> WorldCoordinate {
+    WorldCoordinate {
+        x: -123_509.0 + display.y * 459.0,
+        y: 159_622.0 + display.x * 459.0,
+        z: 0.0,
+    }
+}
+
+pub fn world_to_map_display(location: WorldCoordinate) -> MapDisplayCoordinate {
+    MapDisplayCoordinate {
+        x: (location.y - 159_622.0) / 459.0,
+        y: (location.x + 123_509.0) / 459.0,
+    }
 }

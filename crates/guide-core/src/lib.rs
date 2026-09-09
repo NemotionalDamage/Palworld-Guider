@@ -17,8 +17,9 @@ pub use calculators::{
 pub use enriched::PalWazaUnlockDetail;
 pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
 pub use map::{
-    CoordinateLocation, MapPointDistance, NearbyHabitatZone, NearbyMapPoint,
-    NormalizedMapCoordinate,
+    map_display_to_world, world_to_map_display, CoordinateLocation, MapDisplayCoordinate,
+    MapPointDistance, NearbyHabitatZone, NearbyMapPoint, NormalizedMapCoordinate, TravelAnchor,
+    TravelAnchorSeed, TravelRoute,
 };
 pub use resolver::{EntityKind, Resolution, ResolvedEntity};
 

@@ -282,7 +282,7 @@ fn map_pixel_questions_are_grounded_before_model_tool_selection() {
 
 #[test]
 fn unlabeled_map_display_units_are_converted_before_nearest_lookup() {
-    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-391978.125,"y":-16978.125,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let store = test_store_with_extra_lines(&[near, snowfield]);
     let (agent, provider) = scripted_agent_with_store(
@@ -293,20 +293,93 @@ fn unlabeled_map_display_units_are_converted_before_nearest_lookup() {
         1200,
     );
 
-    let answer = agent.ask("坐标 -3919,-169 附近最近的传送点是什么？");
+    let answer = agent.ask("坐标 240,-512 附近最近的传送点是什么？");
 
     assert_eq!(answer.status, AgentStatus::Ok);
     let message = &provider.calls()[0].messages[0].content;
     assert!(message.contains("Ancient Civilization Ruins"));
     assert!(message.contains("古代文明遗址"));
     assert!(
-        message.contains("\"distance\":110.48543456039805"),
+        message.contains("\"map_display\":{\"x\":240.0,\"y\":-512.0}"),
         "message={message}"
     );
     assert!(
-        !message.contains("\"distance\":392256.5"),
+        message.contains("\"distance_meters\":0.0"),
         "message={message}"
     );
+}
+
+#[test]
+fn route_questions_expose_plan_travel_route_tool() {
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let store = test_store_with_extra_lines(&[near]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "plan_travel_route",
+                json!({
+                    "from": {"coordinate_system": "map_display", "x": 240.0, "y": -512.0},
+                    "to_query": "Ancient Civilization Ruins"
+                }),
+            ),
+            submit_ok(&["可以直接前往古代文明遗址。"], &[]),
+        ],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("从初始台地到古代文明遗址怎么去？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let first_tools = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(first_tools.contains(&"plan_travel_route"));
+    assert!(calls[1].messages.iter().any(|message| message
+        .content
+        .contains("TOOL_RESULT call_1 plan_travel_route")));
+}
+
+#[test]
+fn plan_travel_route_stays_available_after_map_grounding() {
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let dry_dunes = r#"{"record_type":"map_point","id":"MAP_POINT_DRY_DUNES","map_id":"MAP_MAIN","native_id":"DryDunes","kind":"fast_travel","names":{"en":"Dry Dunes","zh_hans":"干燥沙丘"},"location":{"x":-415272.22,"y":-162408.61,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let store = test_store_with_extra_lines(&[near, dry_dunes]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "plan_travel_route",
+                json!({
+                    "from": {"coordinate_system": "map_display", "x": 240.0, "y": -512.0},
+                    "to_query": "Dry Dunes"
+                }),
+            ),
+            submit_ok(&["可以传送到干燥沙丘附近。"], &[]),
+        ],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("坐标 240,-512 到 Dry Dunes 怎么去？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    let calls = provider.calls();
+    let first_tools = calls[0]
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(first_tools.contains(&"plan_travel_route"));
+    assert!(!first_tools.contains(&"find_nearby_map_points"));
 }
 #[test]
 fn agent_never_receives_raw_snapshot_state() {

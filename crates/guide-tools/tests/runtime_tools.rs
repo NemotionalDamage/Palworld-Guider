@@ -101,6 +101,56 @@ fn map_pixel_coordinates_convert_before_nearby_point_ranking() {
 }
 
 #[test]
+fn map_display_coordinates_convert_with_the_verified_transform() {
+    let registry = test_registry(None);
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch(
+        "find_nearby_map_points",
+        &json!({
+            "coordinate_system": "map_display",
+            "x": 240.0,
+            "y": -512.0,
+            "kind": "fast_travel",
+            "limit": 1
+        }),
+        &mut budget,
+    );
+
+    assert_eq!(envelope.status, ToolStatus::Ok);
+    let data = envelope.data.expect("nearby map points exist");
+    let point = &data.as_array().expect("nearby map points are an array")[0];
+    assert_eq!(point["id"], "MAP_POINT_FAST_TRAVEL_FTPoint23");
+    assert!((point["map_display"]["x"].as_f64().unwrap() - 236.0).abs() < 1.0);
+    assert!((point["map_display"]["y"].as_f64().unwrap() - (-513.0)).abs() < 1.0);
+    assert!((point["distance_meters"].as_f64().unwrap() - 18.6).abs() < 0.1);
+}
+
+#[test]
+fn plan_travel_route_resolves_named_destinations_from_map_display() {
+    let registry = test_registry(None);
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch(
+        "plan_travel_route",
+        &json!({
+            "from": {"coordinate_system": "map_display", "x": 240.0, "y": -512.0},
+            "to_query": "Hill of Beginnings",
+            "via_base_camps": false
+        }),
+        &mut budget,
+    );
+
+    assert_eq!(envelope.status, ToolStatus::Ok);
+    let route = envelope.data.expect("route exists");
+    assert_eq!(route["destination_name"], "Hill of Beginnings");
+    assert_eq!(
+        route["to_nearest_fast_travel"]["id"],
+        "MAP_POINT_FAST_TRAVEL_FTPoint23"
+    );
+    assert!(route["recommended_distance_meters"].as_f64().unwrap() < 20.0);
+    assert!((route["from_map_display"]["x"].as_f64().unwrap() - 240.0).abs() < 0.001);
+}
+
+#[test]
 fn runtime_definitions_are_published_and_dispatched() {
     let registry = test_registry(None)
         .try_with_runtime_tools(Arc::new(Runtime::observing()))

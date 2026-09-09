@@ -16,7 +16,11 @@ use std::time::Duration;
 use thiserror::Error;
 
 /// Read-only adapter tools the language model is allowed to see and call.
-pub const MODEL_VISIBLE_RUNTIME_TOOLS: &[&str] = &["get_player_status", "get_active_pal_status"];
+pub const MODEL_VISIBLE_RUNTIME_TOOLS: &[&str] = &[
+    "get_player_status",
+    "get_active_pal_status",
+    "get_base_camps",
+];
 
 /// Internal adapter tools callable by the runtime itself, never by the model.
 pub const INTERNAL_RUNTIME_TOOLS: &[&str] = &["send_chat_message"];
@@ -142,6 +146,9 @@ fn runtime_tool_description(name: &str) -> String {
         }
         "get_active_pal_status" => {
             "Return the observed active Pal status from the authenticated in-game adapter session. The answer is empty or Unknown when no observed state is available.".to_string()
+        }
+        "get_base_camps" => {
+            "Return the observed player base-camp anchor coordinates from the authenticated in-game adapter session. The answer is empty or Unknown when base camps cannot be read.".to_string()
         }
         _ => format!("Read-only adapter capability \"{name}\"."),
     }
