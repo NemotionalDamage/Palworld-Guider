@@ -1365,6 +1365,104 @@ fn quantities_route_through_deterministic_calculator() {
 }
 
 #[test]
+fn direct_material_questions_skip_the_provider_and_render_in_chinese() {
+    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let store = test_store_with_extra_lines(&[club_alias, wood_alias]);
+    let (agent, provider) = scripted_agent_with_store(store, None, Vec::new(), 4, 1200);
+
+    let answer = agent.ask("制造3个木棒需要什么材料？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("制造 3 个木棒需要：木材 15 个。")
+    );
+    assert_eq!(
+        provider.calls().len(),
+        0,
+        "material arithmetic must not wait for the provider"
+    );
+    assert_eq!(answer.tool_calls.len(), 1);
+    assert_eq!(answer.tool_calls[0].name, "calculate_materials");
+    assert_eq!(answer.tool_calls[0].arguments["quantity"], 3);
+    assert!(answer.uncertainty.is_empty());
+
+    let answer = agent.ask("制造一个木棒需要什么材料？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("制造 1 个木棒需要：木材 5 个。")
+    );
+    assert_eq!(provider.calls().len(), 0);
+    assert_eq!(
+        answer
+            .tool_calls
+            .last()
+            .expect("calculation exists")
+            .arguments["quantity"],
+        1
+    );
+}
+
+#[test]
+fn direct_material_routing_requires_a_material_question() {
+    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let store = test_store_with_extra_lines(&[club_alias]);
+    let (agent, provider) = scripted_agent_with_store(
+        store,
+        None,
+        vec![submit_ok(&["需要原始工作台。"], &[])],
+        4,
+        1200,
+    );
+
+    let _answer = agent.ask("制造3个木棒要什么工作台？");
+
+    assert_eq!(
+        provider.calls().len(),
+        1,
+        "non-material crafting questions must not take the direct material path"
+    );
+}
+
+#[test]
+fn direct_material_questions_accept_item_before_quantity() {
+    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let store = test_store_with_extra_lines(&[club_alias, wood_alias]);
+    let (agent, provider) = scripted_agent_with_store(store, None, Vec::new(), 4, 1200);
+
+    let answer = agent.ask("制造木棒三个需要什么材料？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("制造 3 个木棒需要：木材 15 个。")
+    );
+    assert_eq!(provider.calls().len(), 0);
+}
+
+#[test]
+fn system_prompt_requires_the_player_language_for_model_answers() {
+    let (agent, provider) =
+        scripted_agent(None, vec![ChatResponse::text("Wood 是基础材料。")], 4, 1200);
+
+    let answer = agent.ask("介绍一下木材");
+
+    assert_eq!(answer.status, AgentStatus::Unknown);
+    let request = &provider.calls()[0];
+    assert!(
+        request
+            .system
+            .contains("same language as the player's question"),
+        "system prompt must preserve the player's language: {}",
+        request.system
+    );
+}
+
+#[test]
 fn model_cannot_bypass_tool_registry() {
     let (agent, _provider) = scripted_agent(
         None,

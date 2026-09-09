@@ -7,7 +7,7 @@ use guide_core::{ProvenanceSummary, VersionInfo};
 use guide_tools::{ToolBudget, ToolEnvelope, ToolRegistry, ToolStatus};
 use provider::{ChatMessage, ChatProvider, ChatRequest, ProviderError, ToolRequest, ToolSpec};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use state_snapshot::PlayerStateSnapshot;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -83,7 +83,7 @@ pub struct GuideAgent {
     config: AgentConfig,
 }
 
-const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Every number must come from FACT_SHEET or GROUNDING. Prefer natural sentences and write numbers directly only when they already appear in FACT_SHEET or GROUNDING. For calculator results, prefer slot references from FACT_SHEET.\n3. If you use slot references, only reference IDs listed in FACT_SHEET. Never invent, combine, or calculate values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question. When localized names are provided, use the exact name matching the player's language; never translate a name yourself.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
+const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer in the same language as the player's question. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Every number must come from FACT_SHEET or GROUNDING. Prefer natural sentences and write numbers directly only when they already appear in FACT_SHEET or GROUNDING. For calculator results, prefer slot references from FACT_SHEET.\n3. If you use slot references, only reference IDs listed in FACT_SHEET. Never invent, combine, or calculate values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question. When localized names are provided, use the exact name matching the player's language; never translate a name yourself.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
 
 impl GuideAgent {
     pub fn new(
@@ -302,10 +302,18 @@ impl GuideAgent {
         cancelled: &AtomicBool,
     ) -> AgentAnswer {
         let deadline = Instant::now() + self.config.limits.timeout;
+        if let Some(request) = DirectMaterialRequest::parse(question) {
+            let entity_name_variants_by_id = self.registry.entity_name_variants_by_id();
+            if let Some(answer) =
+                self.direct_material_answer(&request, deadline, &entity_name_variants_by_id)
+            {
+                return answer;
+            }
+        }
+        let entity_name_variants_by_id = self.registry.entity_name_variants_by_id();
         let mut budget = ToolBudget::new(self.config.limits.max_tool_calls, deadline);
         let known_entity_names = self.registry.known_entity_names();
         let entity_names_by_id = self.registry.canonical_entity_names();
-        let entity_name_variants_by_id = self.registry.entity_name_variants_by_id();
         let GroundingContext {
             records,
             provenance,
@@ -863,6 +871,258 @@ impl GuideAgent {
             errors: vec![message.into()],
         }
     }
+
+    fn direct_material_answer(
+        &self,
+        request: &DirectMaterialRequest,
+        deadline: Instant,
+        entity_name_variants_by_id: &BTreeMap<String, BTreeSet<String>>,
+    ) -> Option<AgentAnswer> {
+        let mut budget = ToolBudget::new(1, deadline);
+        let envelope = self.registry.dispatch(
+            "calculate_materials",
+            &json!({
+                "query": request.query,
+                "quantity": request.quantity,
+            }),
+            &mut budget,
+        );
+        if envelope.status != ToolStatus::Ok {
+            return None;
+        }
+        let data = envelope.data.clone().unwrap_or_else(|| json!({}));
+        let localized = request.localized;
+        let target_name = data
+            .get("target_id")
+            .and_then(Value::as_str)
+            .map(|target_id| {
+                localized_entity_name(
+                    target_id,
+                    data.get("target_name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown"),
+                    entity_name_variants_by_id,
+                    localized,
+                )
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        let totals = data
+            .get("totals")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let materials = totals
+            .iter()
+            .map(|total| {
+                let quantity = total.get("required_quantity").and_then(Value::as_u64)?;
+                let item_id = total.get("item_id").and_then(Value::as_str)?;
+                let fallback = total
+                    .get("item_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                Some(format!(
+                    "{} {} 个",
+                    localized_entity_name(item_id, fallback, entity_name_variants_by_id, localized),
+                    quantity
+                ))
+            })
+            .collect::<Option<Vec<String>>>()?;
+        if materials.is_empty() {
+            return None;
+        }
+        let reply = format!(
+            "制造 {} 个{}需要：{}。",
+            request.quantity,
+            target_name,
+            materials.join("，")
+        );
+        let record = ToolCallRecord {
+            round: 0,
+            id: "direct_calculate_materials".to_string(),
+            name: "calculate_materials".to_string(),
+            arguments: json!({
+                "query": request.query,
+                "quantity": request.quantity,
+            }),
+            status: envelope.status,
+            data: Some(data),
+            errors: envelope.errors,
+        };
+        let provenance = envelope.provenance.into_iter().collect::<BTreeSet<_>>();
+        Some(self.finished_answer(
+            vec![record],
+            provenance,
+            envelope.uncertainty,
+            envelope.version,
+            reply,
+            Some(AnswerStatus::Ok),
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct DirectMaterialRequest {
+    query: String,
+    quantity: u32,
+    localized: bool,
+}
+
+impl DirectMaterialRequest {
+    fn parse(question: &str) -> Option<Self> {
+        let question = question.trim();
+        let localized = question.chars().any(is_han_character);
+        let unit = question
+            .char_indices()
+            .find(|(_, character)| *character == '个')?;
+        let mut quantity_start = unit.0;
+        while quantity_start > 0 {
+            let character = question[..quantity_start].chars().next_back()?;
+            if character.is_ascii_digit() || is_chinese_numeral(character) {
+                quantity_start -= character.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if quantity_start == unit.0 {
+            return None;
+        }
+        let prefix = question[..quantity_start].trim();
+        let crafting_verbs = ["制作", "制造", "合成", "做", "造"];
+        let prefix_ends_with_verb = crafting_verbs
+            .iter()
+            .any(|verb| prefix.is_empty() || prefix.ends_with(verb));
+        let query_before_unit = if prefix_ends_with_verb {
+            None
+        } else {
+            let verb = crafting_verbs
+                .iter()
+                .find(|verb| prefix.starts_with(*verb))?;
+            let query = prefix.strip_prefix(verb)?.trim();
+            (!query.is_empty()).then_some(query)
+        };
+        let quantity_text = &question[quantity_start..unit.0];
+        let quantity = if quantity_text
+            .chars()
+            .all(|character| character.is_ascii_digit())
+        {
+            quantity_text.parse().ok()?
+        } else {
+            parse_chinese_quantity(quantity_text)?
+        };
+        if quantity == 0 {
+            return None;
+        }
+        let mut item_start = unit.0 + unit.1.len_utf8();
+        while question[item_start..].starts_with('的') {
+            item_start += '的'.len_utf8();
+        }
+        let remainder = &question[item_start..];
+        let material_start = remainder.find("材料")?;
+        let material_prefix = &remainder[..material_start];
+        let suffix_start = ["需要", "要"]
+            .iter()
+            .filter_map(|marker| material_prefix.find(marker))
+            .min()?;
+        if suffix_start == 0 && query_before_unit.is_none() {
+            return None;
+        }
+        let query = query_before_unit
+            .unwrap_or(remainder[..suffix_start].trim())
+            .trim_end_matches(['？', '?', '。', '.', '！', '!', '，', ','])
+            .trim();
+        if query.is_empty() || query.chars().count() > 120 {
+            return None;
+        }
+        Some(Self {
+            query: query.to_string(),
+            quantity,
+            localized,
+        })
+    }
+}
+
+fn localized_entity_name(
+    item_id: &str,
+    fallback: &str,
+    variants_by_id: &BTreeMap<String, BTreeSet<String>>,
+    localized: bool,
+) -> String {
+    if !localized {
+        return fallback.to_string();
+    }
+    variants_by_id
+        .get(item_id)
+        .and_then(|variants| {
+            variants
+                .iter()
+                .find(|variant| variant.chars().any(is_han_character))
+        })
+        .map(String::as_str)
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn is_han_character(character: char) -> bool {
+    matches!(character, '\u{4E00}'..='\u{9FFF}')
+}
+
+fn is_chinese_numeral(character: char) -> bool {
+    matches!(
+        character,
+        '零' | '一'
+            | '二'
+            | '两'
+            | '三'
+            | '四'
+            | '五'
+            | '六'
+            | '七'
+            | '八'
+            | '九'
+            | '十'
+            | '百'
+            | '千'
+    )
+}
+
+fn parse_chinese_quantity(value: &str) -> Option<u32> {
+    let mut total = 0_u32;
+    let mut current = 0_u32;
+    for character in value.chars() {
+        let digit = match character {
+            '零' => 0,
+            '一' => 1,
+            '二' | '两' => 2,
+            '三' => 3,
+            '四' => 4,
+            '五' => 5,
+            '六' => 6,
+            '七' => 7,
+            '八' => 8,
+            '九' => 9,
+            '十' => {
+                total += if current == 0 { 10 } else { current * 10 };
+                current = 0;
+                continue;
+            }
+            '百' => {
+                total += if current == 0 { 100 } else { current * 100 };
+                current = 0;
+                continue;
+            }
+            '千' => {
+                total += if current == 0 { 1_000 } else { current * 1_000 };
+                current = 0;
+                continue;
+            }
+            _ => return None,
+        };
+        current = current
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(digit))
+            .filter(|value| *value < 10_000)?;
+    }
+    total.checked_add(current).filter(|value| *value != 0)
 }
 
 fn is_calculation_tool(name: &str) -> bool {

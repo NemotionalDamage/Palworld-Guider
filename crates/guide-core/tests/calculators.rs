@@ -144,6 +144,37 @@ fn calculates_canonical_materials_shortage_and_craftable_count() {
 }
 
 #[test]
+fn early_axe_and_club_use_distinct_reviewed_recipes() {
+    let engine =
+        GuideEngine::load_directory("../../data/reviewed", None).expect("canonical dataset loads");
+
+    let club = engine
+        .calculate_materials("木棒", 1)
+        .data
+        .expect("Wooden Club calculation exists");
+    assert_eq!(club.target_id, "ITEM_WOODEN_CLUB");
+    assert_eq!(
+        club.totals
+            .iter()
+            .map(|total| (total.item_id.as_str(), total.required_quantity))
+            .collect::<Vec<_>>(),
+        vec![("ITEM_WOOD", 5)]
+    );
+
+    let axe = engine
+        .calculate_materials("石斧", 1)
+        .data
+        .expect("Stone Axe calculation exists");
+    assert_eq!(axe.target_id, "ITEM_AXE_TIER_00");
+    let axe_totals = axe
+        .totals
+        .iter()
+        .map(|total| (total.item_id.as_str(), total.required_quantity))
+        .collect::<Vec<_>>();
+    assert_eq!(axe_totals, vec![("ITEM_STONE", 5), ("ITEM_WOOD", 5)]);
+}
+
+#[test]
 fn scales_multiple_outputs_and_aggregates_duplicate_ingredients() {
     let engine = test_store(vec![
         item("ITEM_RESULT", "Result"),
