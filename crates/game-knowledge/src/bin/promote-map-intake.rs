@@ -135,6 +135,7 @@ fn update_pal_habitats(
                     source_table: "DT_PalSpawnerPlacement + DT_PalWildSpawner".to_string(),
                     localization_status: game_knowledge::LocalizationStatus::NotApplicable,
                     unresolved_fields: Vec::new(),
+                    reviewed_empty_fields: Vec::new(),
                     transformation_notes: "habitats resolved from target-build spawner volumes."
                         .to_string(),
                 });

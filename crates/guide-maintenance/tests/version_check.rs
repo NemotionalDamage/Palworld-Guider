@@ -9,7 +9,7 @@ const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/re
 fn synthetic_provenance() -> Provenance {
     Provenance {
         source_id: "SRC-SYNTHETIC".to_string(),
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         retrieved_on: "2026-08-31".to_string(),
         reviewer: "Codex".to_string(),
         review_status: ReviewStatus::Reviewed,
@@ -27,7 +27,7 @@ fn synthetic_store() -> KnowledgeStore {
             supplier: "test".to_string(),
             retrieved_on: "2026-08-31".to_string(),
             evidence_urls: vec!["https://example.com".to_string()],
-            applicable_game_version: "1.0.3".to_string(),
+            applicable_game_version: "1.0".to_string(),
             reviewer: "Codex".to_string(),
             review_status: ReviewStatus::Reviewed,
             confidence: Confidence::ReviewedSecondary,
@@ -56,7 +56,7 @@ fn synthetic_mixed_store() -> KnowledgeStore {
     provenance_a.applicable_game_version = "1.0.2".to_string();
     let mut provenance_b = synthetic_provenance();
     provenance_b.source_id = "SRC-SYNTHETIC-B".to_string();
-    provenance_b.applicable_game_version = "1.0.3".to_string();
+    provenance_b.applicable_game_version = "1.0".to_string();
 
     let records = vec![
         KnowledgeRecord::Source(SourceRecord {
@@ -77,7 +77,7 @@ fn synthetic_mixed_store() -> KnowledgeStore {
             supplier: "test".to_string(),
             retrieved_on: "2026-08-31".to_string(),
             evidence_urls: vec!["https://example.com/b".to_string()],
-            applicable_game_version: "1.0.3".to_string(),
+            applicable_game_version: "1.0".to_string(),
             reviewer: "Codex".to_string(),
             review_status: ReviewStatus::Reviewed,
             confidence: Confidence::ReviewedSecondary,
@@ -116,8 +116,8 @@ fn synthetic_mixed_store() -> KnowledgeStore {
 #[test]
 fn version_check_with_matching_configured_version_has_no_warnings() {
     let store = synthetic_store();
-    let report = version_check(&store, Some("1.0.3"), None);
-    assert_eq!(report.knowledge_version, "1.0.3");
+    let report = version_check(&store, Some("1.0"), None);
+    assert_eq!(report.knowledge_version, "1.0");
     assert!(report.game_version_matches);
     assert!(!report.has_warnings());
     assert!(report.all_match());
@@ -127,7 +127,7 @@ fn version_check_with_matching_configured_version_has_no_warnings() {
 fn version_check_with_mismatched_configured_version_warns() {
     let store = synthetic_store();
     let report = version_check(&store, Some("0.9"), None);
-    assert_eq!(report.knowledge_version, "1.0.3");
+    assert_eq!(report.knowledge_version, "1.0");
     assert!(!report.game_version_matches);
     assert!(report.has_warnings());
     assert!(report
@@ -140,7 +140,7 @@ fn version_check_with_mismatched_configured_version_warns() {
 fn version_check_with_none_configured_version_matches() {
     let store = synthetic_store();
     let report = version_check(&store, None, None);
-    assert_eq!(report.knowledge_version, "1.0.3");
+    assert_eq!(report.knowledge_version, "1.0");
     assert!(report.game_version_matches);
     assert!(!report.has_warnings());
 }
@@ -148,7 +148,7 @@ fn version_check_with_none_configured_version_matches() {
 #[test]
 fn version_check_with_mixed_versions_warns() {
     let store = synthetic_mixed_store();
-    let report = version_check(&store, Some("1.0.3"), None);
+    let report = version_check(&store, Some("1.0"), None);
     assert_eq!(report.knowledge_version, "mixed");
     assert!(!report.game_version_matches);
     assert!(report.has_warnings());
@@ -161,15 +161,15 @@ fn version_check_with_mixed_versions_warns() {
 #[test]
 fn version_check_includes_index_version_when_provided() {
     let store = synthetic_store();
-    let report = version_check(&store, Some("1.0.3"), Some("1.0.3"));
-    assert_eq!(report.index_version, Some("1.0.3".to_string()));
+    let report = version_check(&store, Some("1.0"), Some("1.0"));
+    assert_eq!(report.index_version, Some("1.0".to_string()));
     assert!(report.all_match());
 }
 
 #[test]
 fn version_check_with_mismatched_index_version_warns() {
     let store = synthetic_store();
-    let report = version_check(&store, Some("1.0.3"), Some("0.8"));
+    let report = version_check(&store, Some("1.0"), Some("0.8"));
     assert!(report
         .warnings
         .iter()
@@ -187,8 +187,8 @@ fn version_check_embedding_version_is_none() {
 fn version_check_on_canonical_dataset() {
     let store = KnowledgeStore::load_directory(DATA_DIRECTORY)
         .expect("canonical reviewed dataset is valid");
-    let report = version_check(&store, Some("1.0.3"), None);
-    assert_eq!(report.knowledge_version, "1.0.3");
+    let report = version_check(&store, Some("1.0"), None);
+    assert_eq!(report.knowledge_version, "1.0");
     assert!(report.game_version_matches);
     assert!(!report.has_warnings());
 }

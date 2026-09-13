@@ -167,12 +167,13 @@ player-facing build. See
 
 #### Adapter Read-Only Boundary
 
-- The adapter reads only the player position and the active-Otomo
-  identity/position. No inventory, party, health, stamina, save, or
-  nearby-actor reads.
+- The adapter reads only the player position, the active-Otomo
+  identity/position, and player base-camp positions. No inventory,
+  party, health, stamina, save, or nearby-actor reads.
 - No mutation path exists: no movement, combat, gathering, construction,
   inventory mutation, or world writes. The model-visible tool allowlist is
-  fixed at compile time (`get_player_status`, `get_active_pal_status`),
+  fixed at compile time (`get_player_status`, `get_active_pal_status`,
+  `get_base_camps`),
   and `send_chat_message` is internal.
 - The Web server and adapter gateway bind only `127.0.0.1`; chat bodies
   are never logged and the gateway token is never printed or written.
@@ -223,7 +224,7 @@ configuration:
 ```powershell
 $env:GUIDE_PROVIDER = "ollama"        # or "openai"
 $env:GUIDE_MODEL = "llama3.2"
-./target/release/guide-server --data data/reviewed --game-version 1.0.3 --port 8070
+./target/release/guide-server --data data/reviewed --game-version 1.0 --port 8070
 ```
 
 ### CLI Flags

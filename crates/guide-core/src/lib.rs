@@ -15,7 +15,10 @@ pub use calculators::{
     MaterialCalculation, MaterialNode, MaterialTotal, ShortageCalculation, ShortageMaterial,
 };
 pub use enriched::PalWazaUnlockDetail;
-pub use lookup::{ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup, TechnologyLookup};
+pub use lookup::{
+    describe_acquisition_leads, ByproductRecipeSummary, ItemLookup, PalLookup, RecipeLookup,
+    TechnologyLookup,
+};
 pub use map::{
     map_display_to_world, world_to_map_display, CoordinateLocation, MapDisplayCoordinate,
     MapPointDistance, NearbyHabitatZone, NearbyMapPoint, NormalizedMapCoordinate, TravelAnchor,

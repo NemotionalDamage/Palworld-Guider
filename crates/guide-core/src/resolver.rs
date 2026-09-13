@@ -1,6 +1,7 @@
 use crate::GuideEngine;
-use game_knowledge::LocaleNames;
+use game_knowledge::{ItemRecord, LocaleNames};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,7 +30,7 @@ pub enum Resolution {
     Unknown,
 }
 
-fn normalize(value: &str) -> String {
+pub(crate) fn normalize(value: &str) -> String {
     value
         .chars()
         .filter(|character| character.is_alphanumeric())
@@ -101,6 +102,9 @@ impl GuideEngine {
                         .next()
                         .expect("one output match is present"),
                 );
+            }
+            if let Some(base) = self.base_tier_match(&output_matches) {
+                return Resolution::Unique(base);
             }
             if output_matches.len() > 1 {
                 return Resolution::Ambiguous(output_matches);
@@ -174,9 +178,64 @@ impl GuideEngine {
         matches.dedup_by(|left, right| left.id == right.id && left.kind == right.kind);
 
         match matches.len() {
-            0 => Resolution::Unknown,
+            0 => self.retry_without_leading_rarity(query, kind, rarity),
             1 => Resolution::Unique(matches.into_iter().next().expect("one match is present")),
-            _ => Resolution::Ambiguous(matches),
+            _ => match self.base_tier_match(&matches) {
+                Some(base) => Resolution::Unique(base),
+                None => Resolution::Ambiguous(matches),
+            },
+        }
+    }
+
+    /// Callers often write the tier into the name ("Legendary Metal Armor"). The exact name is
+    /// matched first, so an item really named "Legendary Sphere" keeps resolving; otherwise the
+    /// leading rarity word is split off and the remainder is retried with that tier.
+    fn retry_without_leading_rarity(
+        &self,
+        query: &str,
+        kind: Option<EntityKind>,
+        rarity: Option<&str>,
+    ) -> Resolution {
+        let Some((detected, rest)) = split_leading_rarity(query) else {
+            return Resolution::Unknown;
+        };
+        self.resolve_with_rarity(&rest, kind, rarity.or(Some(detected)))
+    }
+
+    /// Rank variants of one item share a localized name, so one name can match several records.
+    /// The base (lowest-rarity) tier answers a bare name; another tier is returned only when the
+    /// caller asked for it, and a family whose tiers all sit at one rarity stays ambiguous.
+    fn base_tier_match(&self, matches: &[ResolvedEntity]) -> Option<ResolvedEntity> {
+        if matches.len() < 2 {
+            return None;
+        }
+        let mut families = BTreeSet::new();
+        let mut ranked = Vec::with_capacity(matches.len());
+        for candidate in matches {
+            let item = self.candidate_item(candidate)?;
+            families.insert(normalize(&item.names.en));
+            ranked.push((rarity_rank(&item.rarity)?, candidate));
+        }
+        if families.len() != 1 {
+            return None;
+        }
+        let lowest = ranked.iter().map(|(rank, _)| *rank).min()?;
+        let mut tiers = ranked.iter().filter(|(rank, _)| *rank == lowest);
+        let (_, base) = tiers.next()?;
+        if tiers.next().is_some() {
+            return None;
+        }
+        Some((*base).clone())
+    }
+
+    fn candidate_item(&self, candidate: &ResolvedEntity) -> Option<&ItemRecord> {
+        match candidate.kind {
+            EntityKind::Item => self.store().item(&candidate.id),
+            EntityKind::Recipe => self
+                .store()
+                .recipe(&candidate.id)
+                .and_then(|recipe| self.store().item(&recipe.output.item_id)),
+            _ => None,
         }
     }
 
@@ -233,6 +292,44 @@ impl GuideEngine {
             None
         }
     }
+}
+
+/// Rarity tiers run from the craftable base item up to the schematic-only tiers.
+pub(crate) fn rarity_rank(rarity: &str) -> Option<u8> {
+    match rarity.to_ascii_lowercase().as_str() {
+        "common" => Some(0),
+        "uncommon" => Some(1),
+        "rare" => Some(2),
+        "epic" => Some(3),
+        "legendary" => Some(4),
+        "mythic" => Some(5),
+        _ => None,
+    }
+}
+
+/// Splits a leading rarity word from a query, so "Legendary Metal Armor" can be read as the
+/// legendary tier of "Metal Armor".
+fn split_leading_rarity(query: &str) -> Option<(&'static str, String)> {
+    let trimmed = query.trim_start();
+    let (word, rest) = match trimmed.split_once(char::is_whitespace) {
+        Some((word, rest)) => (word, rest),
+        None => (trimmed, ""),
+    };
+    let rarity = match word
+        .trim_matches(|character: char| !character.is_alphanumeric())
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "common" => "common",
+        "uncommon" => "uncommon",
+        "rare" => "rare",
+        "epic" => "epic",
+        "legendary" => "legendary",
+        "mythic" => "mythic",
+        _ => return None,
+    };
+    let rest = rest.trim();
+    (!rest.is_empty()).then(|| (rarity, rest.to_string()))
 }
 
 fn names_match(names: &LocaleNames, normalized: &str) -> bool {

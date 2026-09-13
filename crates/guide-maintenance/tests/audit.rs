@@ -27,7 +27,7 @@ fn synthetic_store_with_conflict() -> KnowledgeStore {
             supplier: "test".to_string(),
             retrieved_on: "2026-08-31".to_string(),
             evidence_urls: vec!["https://example.com".to_string()],
-            applicable_game_version: "1.0.3".to_string(),
+            applicable_game_version: "1.0".to_string(),
             reviewer: "Codex".to_string(),
             review_status: ReviewStatus::Reviewed,
             confidence: Confidence::ReviewedSecondary,
@@ -44,7 +44,7 @@ fn synthetic_store_with_conflict() -> KnowledgeStore {
             acquisition_leads: Vec::new(),
             native_row_id: None,
             local_evidence: None,
-            provenance: synthetic_provenance("1.0.3"),
+            provenance: synthetic_provenance("1.0"),
         }),
         KnowledgeRecord::Conflict(ConflictRecord {
             id: "CONFLICT_TEST".to_string(),
@@ -53,7 +53,7 @@ fn synthetic_store_with_conflict() -> KnowledgeStore {
             values: vec!["Common".to_string(), "Rare".to_string()],
             source_ids: vec!["SRC-SYNTHETIC".to_string()],
             resolution: ConflictResolution::Unresolved,
-            provenance: synthetic_provenance("1.0.3"),
+            provenance: synthetic_provenance("1.0"),
         }),
     ];
     KnowledgeStore::from_records(records).expect("synthetic fixture is valid")
@@ -66,7 +66,7 @@ fn audit_sources_returns_all_sources_with_fact_counts() {
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].id, "SRC-SYNTHETIC");
     assert!(summaries[0].fact_count >= 2);
-    assert_eq!(summaries[0].applicable_game_version, "1.0.3");
+    assert_eq!(summaries[0].applicable_game_version, "1.0");
     assert_eq!(summaries[0].review_status, "reviewed");
     assert_eq!(summaries[0].confidence, "reviewed_secondary");
 }
@@ -94,7 +94,7 @@ fn audit_stale_finds_mismatched_records() {
 #[test]
 fn audit_stale_returns_empty_when_all_match() {
     let store = synthetic_store_with_conflict();
-    let stale = KnowledgeAudit::audit_stale(&store, "1.0.3");
+    let stale = KnowledgeAudit::audit_stale(&store, "1.0");
     assert!(stale.is_empty());
 }
 
@@ -104,9 +104,7 @@ fn audit_sources_on_canonical_dataset() {
         .expect("canonical reviewed dataset is valid");
     let summaries = KnowledgeAudit::audit_sources(&store);
     assert!(summaries.len() >= 2);
-    assert!(summaries
-        .iter()
-        .any(|s| s.id == "SRC-PALDB-V1_0_3-20260831"));
+    assert!(summaries.iter().any(|s| s.id == "SRC-PALDB-V1_0-20260831"));
     assert!(summaries
         .iter()
         .any(|s| s.id == "SRC-LOCAL-BUILD-24575825-20260902"));
@@ -117,18 +115,14 @@ fn audit_conflicts_on_canonical_dataset() {
     let store = KnowledgeStore::load_directory(DATA_DIRECTORY)
         .expect("canonical reviewed dataset is valid");
     let summaries = KnowledgeAudit::audit_conflicts(&store);
-    assert!(summaries.len() >= 2);
-    assert!(summaries
-        .iter()
-        .any(|c| c.id == "CONFLICT_ITEM_WOODEN_CLUB_PRODUCT_IDENTITY"));
-    assert!(summaries.iter().all(|c| c.resolution == "resolved"));
+    assert!(summaries.is_empty());
 }
 
 #[test]
 fn validate_batch_accepts_valid_records() {
     let lines = vec![
-        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0.3","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
-        r#"{"record_type":"item","id":"ITEM_TEST","names":{"en":"Test","zh_hans":null},"description":null,"rarity":"Common","acquisition_leads":[],"provenance":{"source_id":"SRC-TEST","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#,
+        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
+        r#"{"record_type":"item","id":"ITEM_TEST","names":{"en":"Test","zh_hans":null},"description":null,"rarity":"Common","acquisition_leads":[],"provenance":{"source_id":"SRC-TEST","applicable_game_version":"1.0","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#,
     ];
     let validation = KnowledgeAudit::validate_batch(&lines);
     assert!(validation.valid);
@@ -139,8 +133,8 @@ fn validate_batch_accepts_valid_records() {
 #[test]
 fn validate_batch_rejects_invalid_records() {
     let lines = vec![
-        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0.3","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
-        r#"{"record_type":"item","id":"ITEM_BAD","names":{"en":"","zh_hans":null},"description":null,"rarity":"Common","acquisition_leads":[],"provenance":{"source_id":"SRC-TEST","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#,
+        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
+        r#"{"record_type":"item","id":"ITEM_BAD","names":{"en":"","zh_hans":null},"description":null,"rarity":"Common","acquisition_leads":[],"provenance":{"source_id":"SRC-TEST","applicable_game_version":"1.0","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#,
     ];
     let validation = KnowledgeAudit::validate_batch(&lines);
     assert!(!validation.valid);
@@ -160,7 +154,7 @@ fn validate_batch_skips_empty_lines() {
     let lines = vec![
         "",
         "  ",
-        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0.3","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
+        r#"{"record_type":"source","id":"SRC-TEST","title":"Test","supplier":"test","retrieved_on":"2026-08-31","evidence_urls":["https://example.com"],"applicable_game_version":"1.0","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary","notes":null}"#,
     ];
     let validation = KnowledgeAudit::validate_batch(&lines);
     assert_eq!(validation.total_records, 1);

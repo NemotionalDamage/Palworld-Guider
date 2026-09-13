@@ -83,7 +83,7 @@ pub struct GuideAgent {
     config: AgentConfig,
 }
 
-const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer in the same language as the player's question. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Every number must come from FACT_SHEET or GROUNDING. Prefer natural sentences and write numbers directly only when they already appear in FACT_SHEET or GROUNDING. For calculator results, prefer slot references from FACT_SHEET.\n3. If you use slot references, only reference IDs listed in FACT_SHEET. Never invent, combine, or calculate values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question. When localized names are provided, use the exact name matching the player's language; never translate a name yourself.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
+const SYSTEM_PROMPT: &str = "You are the Palworld Guider brain. Answer in the same language as the player's question. Answer the player from the supplied GROUNDING and whitelisted deterministic tools. For calculations, shortages, breeding, coordinates, or runtime observations, call the relevant tool. For factual questions already supported by GROUNDING, do not call another lookup; submit a short natural-language answer with submit_answer.\n\nAbsolute rules:\n1. Every game fact must come from GROUNDING or a tool result. Never guess.\n2. Every number must come from FACT_SHEET, GROUNDING, or the player's own question. Prefer natural sentences and write numbers directly only when they already appear in one of those. For calculator results, prefer slot references from FACT_SHEET.\n3. If you use slot references, only reference IDs listed in FACT_SHEET. Never invent, combine, or calculate values.\n4. Keep sentences short and chat-friendly (1-3 sentences, or up to 5 short steps).\n5. If available evidence does not support an answer, use status \"unknown\" and say you don't know.\n6. Do not echo the player's question. Do not use markdown. Step numbering is added automatically.\n7. Entity names may appear as plain words only when they come from GROUNDING, tool results, or the player's question. When localized names are provided, use the exact name matching the player's language; never translate a name yourself.\n8. Report missing, conflicting, or version-stale information in the uncertainty field.\n9. If the question is small talk or asks for an opinion, do not call tools; answer in one short sentence that you can only help with guide questions about items, Pals, recipes, materials, breeding, and progression, and do not name any specific Pal or item.\n10. Prefer the fewest tool calls that can answer the question; never repeat the same or a similar lookup.";
 
 impl GuideAgent {
     pub fn new(
@@ -214,6 +214,39 @@ impl GuideAgent {
                         &mut version,
                     );
                 }
+            } else if has_player_proximity_intent(question) {
+                let arguments = serde_json::json!({
+                    "kind": "fast_travel",
+                    "limit": 5,
+                });
+                let envelope = self.registry.dispatch(
+                    "find_nearby_map_points",
+                    &arguments,
+                    &mut grounding_budget,
+                );
+                self.push_grounding_envelope(
+                    "find_nearby_map_points",
+                    &arguments,
+                    envelope,
+                    &mut records,
+                    &mut provenance,
+                    &mut uncertainty,
+                    &mut version,
+                );
+            } else if has_base_camp_route_intent(question) {
+                let arguments = serde_json::json!({"to_query": "据点"});
+                let envelope =
+                    self.registry
+                        .dispatch("plan_travel_route", &arguments, &mut grounding_budget);
+                self.push_grounding_envelope(
+                    "plan_travel_route",
+                    &arguments,
+                    envelope,
+                    &mut records,
+                    &mut provenance,
+                    &mut uncertainty,
+                    &mut version,
+                );
             }
         }
 
@@ -407,6 +440,7 @@ impl GuideAgent {
             };
             if response.tool_requests.is_empty() {
                 return self.model_fallback(
+                    question,
                     response.content,
                     records,
                     provenance,
@@ -422,6 +456,7 @@ impl GuideAgent {
             {
                 match self.try_submit_answer(
                     tool_request,
+                    question,
                     records.clone(),
                     provenance.clone(),
                     uncertainty.clone(),
@@ -497,6 +532,7 @@ impl GuideAgent {
 
         uncertainty.push("tool call budget exhausted before a final answer".to_string());
         self.model_fallback(
+            question,
             String::new(),
             records,
             provenance,
@@ -678,6 +714,7 @@ impl GuideAgent {
     fn try_submit_answer(
         &self,
         tool_request: &ToolRequest,
+        question: &str,
         records: Vec<ToolCallRecord>,
         provenance: BTreeSet<ProvenanceSummary>,
         uncertainty: Vec<String>,
@@ -692,7 +729,8 @@ impl GuideAgent {
             entity_names_by_id.clone(),
             entity_name_variants_by_id,
             &version,
-        );
+        )
+        .with_player_question(question);
         let draft = match serde_json::from_value::<AnswerDraft>(tool_request.arguments.clone()) {
             Ok(draft) => draft,
             Err(error) => {
@@ -729,8 +767,10 @@ impl GuideAgent {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn model_fallback(
         &self,
+        question: &str,
         content: String,
         records: Vec<ToolCallRecord>,
         provenance: BTreeSet<ProvenanceSummary>,
@@ -746,7 +786,8 @@ impl GuideAgent {
             entity_names_by_id,
             entity_name_variants_by_id,
             &version,
-        );
+        )
+        .with_player_question(question);
         let trimmed = content.trim();
         if !trimmed.is_empty() {
             let status = match answer_status(&records) {
@@ -1228,6 +1269,34 @@ fn has_map_intent(question: &str) -> bool {
     ]
     .iter()
     .any(|keyword| question.contains(keyword))
+}
+
+fn has_player_proximity_intent(question: &str) -> bool {
+    [
+        "离我最近",
+        "最近的传送",
+        "nearest fast travel",
+        "nearest teleport",
+        "nearest waypoint",
+    ]
+    .iter()
+    .any(|keyword| question.to_ascii_lowercase().contains(keyword))
+}
+
+fn has_base_camp_route_intent(question: &str) -> bool {
+    question.contains("据点")
+        && [
+            "去",
+            "回",
+            "返回",
+            "最快",
+            "路线",
+            "go to",
+            "return to",
+            "fastest",
+        ]
+        .iter()
+        .any(|keyword| question.to_ascii_lowercase().contains(keyword))
 }
 
 fn map_grounding_arguments(question: &str) -> Option<Value> {

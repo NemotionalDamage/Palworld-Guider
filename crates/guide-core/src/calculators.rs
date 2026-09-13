@@ -148,10 +148,9 @@ impl GuideEngine {
             match self.resolve_with_rarity(item_query, Some(crate::EntityKind::Item), rarity) {
                 crate::resolver::Resolution::Unique(resolved) => resolved,
                 crate::resolver::Resolution::Ambiguous(candidates) => {
-                    let ids = candidate_ids(&candidates);
                     return self
                         .context()
-                        .ambiguous(format!("ambiguous item name; candidates: {ids}"));
+                        .ambiguous(self.ambiguous_message("item", &candidates));
                 }
                 crate::resolver::Resolution::Unknown => {
                     return self
@@ -767,14 +766,6 @@ impl GuideEngine {
             uncertainty,
         })
     }
-}
-
-fn candidate_ids(candidates: &[crate::ResolvedEntity]) -> String {
-    candidates
-        .iter()
-        .map(|candidate| candidate.id.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn batches_for(required_quantity: u32, output_quantity: u32) -> Result<u32, CalculationError> {

@@ -67,6 +67,7 @@ fn test_store() -> KnowledgeStore {
         );
     }
     lines.extend(referenced_habitat_support_lines(&lines));
+    lines.extend(wooden_club_fixture_lines());
     let records = lines
         .iter()
         .filter(|line| !line.contains("\"record_type\":\"conflict\""))
@@ -87,6 +88,7 @@ fn test_store_with_extra_lines(extra_lines: &[&str]) -> KnowledgeStore {
         );
     }
     lines.extend(referenced_habitat_support_lines(&lines));
+    lines.extend(wooden_club_fixture_lines());
     lines.extend(extra_lines.iter().map(|line| line.to_string()));
     let records = lines
         .iter()
@@ -95,6 +97,28 @@ fn test_store_with_extra_lines(extra_lines: &[&str]) -> KnowledgeStore {
         .collect::<Result<Vec<_>, _>>()
         .expect("test fixtures parse");
     KnowledgeStore::from_records(records).expect("test store with extra lines validates")
+}
+
+/// The fixture above only reads `sources.jsonl` and `facts.jsonl`, while the
+/// reviewed dataset names the local-build Bat row "Wooden Club" (Wood x5). Tests
+/// that exercise that item pull the shipped records instead of restating them.
+fn wooden_club_fixture_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (file_name, record_id) in [
+        ("items.jsonl", "ITEM_BAT"),
+        ("recipes.jsonl", "RECIPE_BAT"),
+        ("technologies.jsonl", "TECH_BATTLE_MELEEWEAPON_BAT"),
+    ] {
+        let needle = format!("\"id\":\"{record_id}\"");
+        let text = fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+            .expect("shipped dataset reads");
+        let line = text
+            .lines()
+            .find(|line| line.contains(needle.as_str()))
+            .unwrap_or_else(|| panic!("shipped record {record_id} exists"));
+        lines.push(line.to_string());
+    }
+    lines
 }
 
 fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
@@ -194,17 +218,35 @@ struct ScriptedRuntimeTools {
 
 impl RuntimeToolSource for ScriptedRuntimeTools {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        ["get_player_status", "get_active_pal_status"]
-            .into_iter()
-            .map(|name| ToolDefinition {
-                name: name.to_string(),
-                description: "observed player and active Pal status".to_string(),
-                parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
-            })
-            .collect()
+        [
+            "get_player_status",
+            "get_active_pal_status",
+            "get_base_camps",
+        ]
+        .into_iter()
+        .map(|name| ToolDefinition {
+            name: name.to_string(),
+            description: "observed player and active Pal status".to_string(),
+            parameters_schema: json!({"type": "object", "properties": {}, "required": []}),
+        })
+        .collect()
     }
 
     fn dispatch(&self, _name: &str, _arguments: &serde_json::Value) -> RuntimeToolResult {
+        if _name == "get_base_camps" {
+            return RuntimeToolResult {
+                status: ToolStatus::Ok,
+                data: Some(json!({
+                    "base_camps": [{
+                        "id": "BASE_CAMP_TEST",
+                        "name": "Player Base Camp",
+                        "location": {"x": -358517.0, "y": 269782.0, "z": 0.0}
+                    }]
+                })),
+                uncertainty: Vec::new(),
+                errors: Vec::new(),
+            };
+        }
         RuntimeToolResult {
             status: ToolStatus::Ok,
             data: Some(self.data.clone()),
@@ -212,6 +254,44 @@ impl RuntimeToolSource for ScriptedRuntimeTools {
             errors: Vec::new(),
         }
     }
+}
+
+#[test]
+fn nearest_player_travel_point_is_grounded_before_model_tool_selection() {
+    let (agent, provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -358517.0, "y": 269782.0, "z": 0.0}}),
+        vec![submit_ok(&["最近的传送点是玩家据点。"], &[])],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("离我最近的传送点是哪个？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(provider.calls().len(), 1);
+    let message = &provider.calls()[0].messages[0].content;
+    assert!(message.contains("[find_nearby_map_points]"));
+    assert!(message.contains("BASE_CAMP_TEST"));
+    assert!(message.contains("map-coordinate distance"));
+}
+
+#[test]
+fn base_camp_route_questions_are_grounded_before_model_tool_selection() {
+    let (agent, provider) = scripted_agent_with_runtime(
+        json!({"position": {"x": -358517.0, "y": 269782.0, "z": 0.0}}),
+        vec![submit_ok(&["直接返回玩家据点最快。"], &[])],
+        4,
+        1200,
+    );
+
+    let answer = agent.ask("怎么去据点最快？");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(provider.calls().len(), 1);
+    let message = &provider.calls()[0].messages[0].content;
+    assert!(message.contains("[plan_travel_route]"));
+    assert!(message.contains("BASE_CAMP_TEST"));
+    assert!(message.contains("recommended travel map-coordinate distance"));
 }
 
 fn scripted_agent_with_runtime(
@@ -245,8 +325,8 @@ fn submit_ok(sentences: &[&str], _legacy_slots: &[&str]) -> ChatResponse {
 
 #[test]
 fn map_pixel_questions_are_grounded_before_model_tool_selection() {
-    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-391978.125,"y":-16978.125,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
-    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-391978.125,"y":-16978.125,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let store = test_store_with_extra_lines(&[near, snowfield]);
     let (agent, provider) = scripted_agent_with_store(
         store,
@@ -282,8 +362,8 @@ fn map_pixel_questions_are_grounded_before_model_tool_selection() {
 
 #[test]
 fn unlabeled_map_display_units_are_converted_before_nearest_lookup() {
-    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
-    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let snowfield = r#"{"record_type":"map_point","id":"MAP_POINT_SNOWFIELD","map_id":"MAP_MAIN","native_id":"Snowfield","kind":"fast_travel","names":{"en":"Pristine Snow Field","zh_hans":"纯白雪原"},"location":{"x":0.0,"y":0.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let store = test_store_with_extra_lines(&[near, snowfield]);
     let (agent, provider) = scripted_agent_with_store(
         store,
@@ -311,7 +391,7 @@ fn unlabeled_map_display_units_are_converted_before_nearest_lookup() {
 
 #[test]
 fn route_questions_expose_plan_travel_route_tool() {
-    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let store = test_store_with_extra_lines(&[near]);
     let (agent, provider) = scripted_agent_with_store(
         store,
@@ -344,12 +424,15 @@ fn route_questions_expose_plan_travel_route_tool() {
     assert!(calls[1].messages.iter().any(|message| message
         .content
         .contains("TOOL_RESULT call_1 plan_travel_route")));
+    assert!(calls[1].messages.iter().any(|message| message
+        .content
+        .contains("[q1] quantity value=0 entity=\"recommended travel map-coordinate distance\"")));
 }
 
 #[test]
 fn plan_travel_route_stays_available_after_map_grounding() {
-    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
-    let dry_dunes = r#"{"record_type":"map_point","id":"MAP_POINT_DRY_DUNES","map_id":"MAP_MAIN","native_id":"DryDunes","kind":"fast_travel","names":{"en":"Dry Dunes","zh_hans":"干燥沙丘"},"location":{"x":-415272.22,"y":-162408.61,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0.3","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let near = r#"{"record_type":"map_point","id":"MAP_POINT_NEAR","map_id":"MAP_MAIN","native_id":"Near","kind":"fast_travel","names":{"en":"Ancient Civilization Ruins","zh_hans":"古代文明遗址"},"location":{"x":-358517.0,"y":269782.0,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
+    let dry_dunes = r#"{"record_type":"map_point","id":"MAP_POINT_DRY_DUNES","map_id":"MAP_MAIN","native_id":"DryDunes","kind":"fast_travel","names":{"en":"Dry Dunes","zh_hans":"干燥沙丘"},"location":{"x":-415272.22,"y":-162408.61,"z":0.0},"local_evidence":{"source_table":"test","localization_status":"resolved","unresolved_fields":[],"transformation_notes":"test"},"provenance":{"source_id":"SRC-LOCAL-BUILD-MAP-24575825-20260906","applicable_game_version":"1.0","retrieved_on":"2026-09-06","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target","change_risk":null}}"#;
     let store = test_store_with_extra_lines(&[near, dry_dunes]);
     let (agent, provider) = scripted_agent_with_store(
         store,
@@ -391,7 +474,7 @@ fn agent_never_receives_raw_snapshot_state() {
         "source": {
             "kind": "user_entered",
             "captured_at": "2020-01-01T00:00:00Z",
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 1,
             "consent": {
                 "id": "operator-local-session",
@@ -456,7 +539,7 @@ fn agent_can_attach_a_snapshot_after_construction() {
         "source": {
             "kind": "user_entered",
             "captured_at": chrono::Utc::now() - chrono::Duration::seconds(1),
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 60,
             "consent": {
                 "id": "operator-local-session",
@@ -512,8 +595,8 @@ fn executes_tool_request_and_returns_slot_answer() {
     assert!(answer
         .provenance
         .iter()
-        .any(|provenance| provenance.source_id == "SRC-PALDB-V1_0_3-20260831"));
-    assert_eq!(answer.version.knowledge_version, "1.0.3");
+        .any(|provenance| provenance.source_id == "SRC-PALDB-V1_0-20260831"));
+    assert_eq!(answer.version.knowledge_version, "1.0");
 }
 
 #[test]
@@ -665,7 +748,7 @@ fn grounded_lookup_tools_are_not_reoffered_to_the_model() {
 
 #[test]
 fn pal_skill_questions_keep_skill_unlock_lookup_available() {
-    let pal_line = r#"{"record_type":"pal","id":"PAL_ANUBIS","names":{"en":"Anubis","zh_hans":"阿努比斯"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"earth","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let pal_line = r#"{"record_type":"pal","id":"PAL_ANUBIS","names":{"en":"Anubis","zh_hans":"阿努比斯"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"earth","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
     let store = test_store_with_extra_lines(&[pal_line]);
     let (agent, provider) = scripted_agent_with_store(
         store,
@@ -962,6 +1045,30 @@ fn invalid_submit_answer_gets_one_correction_round() {
 }
 
 #[test]
+fn player_supplied_quantity_may_be_restated_in_a_draft() {
+    let (agent, _provider) = scripted_agent(
+        None,
+        vec![
+            ChatResponse::tool(
+                "call_1",
+                "calculate_materials",
+                json!({"query": "Wooden Club", "quantity": 3}),
+            ),
+            submit_ok(&["You need {q1} Wood for 3 Wooden Clubs."], &["q1"]),
+        ],
+        4,
+        1200,
+    );
+    let answer = agent.ask("Materials for 3 Wooden Clubs?");
+
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert_eq!(
+        answer.answer.as_deref(),
+        Some("You need 15 Wood for 3 Wooden Clubs.")
+    );
+}
+
+#[test]
 fn invalid_provider_tool_json_gets_one_retry() {
     let provider = InvalidThenValidProvider {
         calls: std::sync::Mutex::new(Vec::new()),
@@ -1150,8 +1257,8 @@ fn model_returns_free_text_without_submit_answer() {
 
 #[test]
 fn grounded_pal_habitat_question_answers_without_exact_tool_call() {
-    let pal_line = r#"{"record_type":"pal","id":"PAL_CHICKENPAL","names":{"en":"Chikipi","zh_hans":"皮皮鸡"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"normal","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
-    let alias_line = r#"{"record_type":"alias","id":"ALIAS_PAL_CHICKENPAL_ZH_HANS","alias":"皮皮鸡","target_id":"PAL_CHICKENPAL","locale":"zh_hans","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0.3","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let pal_line = r#"{"record_type":"pal","id":"PAL_CHICKENPAL","names":{"en":"Chikipi","zh_hans":"皮皮鸡"},"work_suitability":[],"drops":[],"habitat_ids":[],"element_type1":"normal","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
+    let alias_line = r#"{"record_type":"alias","id":"ALIAS_PAL_CHICKENPAL_ZH_HANS","alias":"皮皮鸡","target_id":"PAL_CHICKENPAL","locale":"zh_hans","provenance":{"source_id":"SRC-LOCAL-BUILD-24575825-20260902","applicable_game_version":"1.0","retrieved_on":"2026-09-02","reviewer":"Codex","review_status":"reviewed","confidence":"verified_target"}}"#;
     let store = test_store_with_extra_lines(&[pal_line, alias_line]);
     let (agent, _provider) = scripted_agent_with_store(
         store,
@@ -1408,7 +1515,7 @@ fn version_slots_are_rust_rendered() {
     let answer = agent.ask("What version is the data?");
 
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert_eq!(answer.answer.as_deref(), Some("Guide data version: 1.0.3."));
+    assert_eq!(answer.answer.as_deref(), Some("Guide data version: 1.0."));
 }
 
 #[test]
@@ -1439,9 +1546,8 @@ fn quantities_route_through_deterministic_calculator() {
 
 #[test]
 fn direct_material_questions_skip_the_provider_and_render_in_chinese() {
-    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
-    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
-    let store = test_store_with_extra_lines(&[club_alias, wood_alias]);
+    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0-20260831","applicable_game_version":"1.0","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let store = test_store_with_extra_lines(&[wood_alias]);
     let (agent, provider) = scripted_agent_with_store(store, None, Vec::new(), 4, 1200);
 
     let answer = agent.ask("制造3个木棒需要什么材料？");
@@ -1481,8 +1587,7 @@ fn direct_material_questions_skip_the_provider_and_render_in_chinese() {
 
 #[test]
 fn direct_material_routing_requires_a_material_question() {
-    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
-    let store = test_store_with_extra_lines(&[club_alias]);
+    let store = test_store();
     let (agent, provider) = scripted_agent_with_store(
         store,
         None,
@@ -1502,9 +1607,8 @@ fn direct_material_routing_requires_a_material_question() {
 
 #[test]
 fn direct_material_questions_accept_item_before_quantity() {
-    let club_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOODEN_CLUB_ZH_HANS","alias":"木棒","target_id":"ITEM_WOODEN_CLUB","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
-    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0_3-20260831","applicable_game_version":"1.0.3","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
-    let store = test_store_with_extra_lines(&[club_alias, wood_alias]);
+    let wood_alias = r#"{"record_type":"alias","id":"ALIAS_ITEM_WOOD_ZH_HANS","alias":"木材","target_id":"ITEM_WOOD","locale":"zh_hans","provenance":{"source_id":"SRC-PALDB-V1_0-20260831","applicable_game_version":"1.0","retrieved_on":"2026-08-31","reviewer":"Codex","review_status":"reviewed","confidence":"reviewed_secondary"}}"#;
+    let store = test_store_with_extra_lines(&[wood_alias]);
     let (agent, provider) = scripted_agent_with_store(store, None, Vec::new(), 4, 1200);
 
     let answer = agent.ask("制造木棒三个需要什么材料？");

@@ -8,7 +8,8 @@
 
 ## 主要特性
 
-- **确定性知识引擎** —— 每条游戏事实都来自经过审核、版本化、可溯源并纳入 Git 管理的 JSONL 数据，绝不来自 LLM 记忆。知识库从本地帕鲁 Steam 版提取，覆盖 1,520 个物品、299 只帕鲁与 1,805 条双语别名。
+- **确定性知识引擎** —— 每条游戏事实都来自经过审核、版本化、可溯源并纳入 Git 管理的 JSONL 数据，绝不来自 LLM 记忆。知识库从本地帕鲁 Steam 版提取，覆盖 1,883 个物品、298 只帕鲁、1,286 条配方、1,789 条双语别名、123 个地图区域（其中 120 个带已审核触发体边界）与 67,952 个帕鲁栖息地刷怪点。
+- **配种靠公式而非全表** —— 数万种亲代组合被压缩为游戏自身的规则：每只帕鲁的 combi rank，加一张很小的已审核例外表（特殊组合与自繁专属帕鲁），既能保证配种结果精确，又不必塞进一份组合爆炸式数据。
 - **Rust 混合检索 + 确定性工具调用** —— 代理循环在有界 LLM 调用之外，组合精确标识符解析、结构化查询、Tantivy 词法检索与类型化 Rust 计算器；模型负责组织语言，但无法杜撰游戏事实或编造数量。
 - **答案必须可溯源** —— 草稿中的数字、繁殖结果与实体断言会通过结构相邻性检查与工具证据比对；不合格草稿回退为基于证据的确定性回答，而非编造内容。
 - **状态感知规划** —— 可选录入玩家状态快照，支持背包缺口分析、队伍工作缺口检测、当前可制作检查，以及带理由、需求与不确定性说明的 3–5 条优先级建议。
@@ -41,7 +42,7 @@
                           │
                           ▼
                    data/reviewed/*.jsonl
-             (1,520 items, 299 Pals, 1,805 aliases)
+             (1,883 items, 298 Pals, 1,286 recipes)
 ```
 
 ### 工作区 Crates（Rust 工作区成员）
@@ -60,7 +61,7 @@
 | `game-gateway` | 面向 UE4SS 适配器的认证 schema-2 回环 WebSocket 网关 |
 | `guide-adapter` | 游戏内聊天桥与适配器运行时（负责工具组合） |
 | `guide-maintenance` | 版本检查、知识审计与批量校验 CLI |
-| `guide-regression` | 42 个端到端回归测试（查询、计算、检索、落地与版本告警） |
+| `guide-regression` | 50 个端到端回归测试（查询、计算、检索、落地与版本告警） |
 
 ## 快速开始
 
@@ -207,10 +208,10 @@ cargo run -p guide-agent -- ask "Materials for 3 Wooden Clubs?" --provider opena
 ### 知识库维护
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- audit-sources --data data/reviewed
 cargo run -p guide-maintenance -- audit-conflicts --data data/reviewed
-cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 ```
 
@@ -253,15 +254,18 @@ crates/                     # 13 个 Rust 工作区 crate
   game-gateway/             # 认证回环 WebSocket 网关
   guide-adapter/            # 游戏内聊天桥
   guide-maintenance/        # 版本检查与审计 CLI
-  guide-regression/         # 回答回归测试集（42 个测试）
+  guide-regression/         # 回答回归测试集（50 个测试）
 
 data/
   reviewed/                 # 规范化的已审核 JSONL 知识库
-    sources.jsonl           #   3 个已登记来源
-    items.jsonl             #   1,520 个物品
-    pals.jsonl              #   299 只帕鲁
-    aliases.jsonl           #   1,805 条双语别名
-    facts.jsonl             #   38 条种子事实与进度边
+    sources.jsonl           #   15 个已登记来源
+    items.jsonl             #   1,883 个物品
+    pals.jsonl              #   298 只帕鲁
+    recipes.jsonl           #   1,286 条配方
+    breeding_rules.jsonl    #   248 条特殊配种组合
+    map_regions.jsonl       #   123 个地图区域（120 个有边界）
+    aliases.jsonl           #   1,789 条双语别名
+    facts.jsonl             #   32 条种子事实与进度边
 
 docs/                       # 完整项目文档
   mod-rollout-plan.md
@@ -276,6 +280,7 @@ docs/                       # 完整项目文档
   schemas/
 
 scripts/                  # UE4SS 预检、构建、备份、安装、安装向导、启动、卸载
+  build-breeding-data.mjs #  重新生成已审核的配种公式与规则
   Test-InGameGuide.ps1
   Build-Ue4ssAdapter.ps1
   Backup-PalworldSave.ps1
@@ -315,7 +320,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-工作区共 13 个 crate、327 个测试，包括：
+工作区共 13 个 crate、432 个测试，包括：
 
 - schema、引用完整性、版本、别名与冲突测试
 - 配方树、短缺、可制作数量、繁殖与循环检测等计算器测试
@@ -326,8 +331,8 @@ cargo test
 ## 安全与只读边界
 
 - Web 服务器与适配器网关**只**绑定 `127.0.0.1`，`--host` 参数被显式拒绝。
-- 适配器只读取玩家位置与当前出战帕鲁（Otomo）的标识/位置；不读取背包、队伍、生命、耐力、存档或附近单位。
-- 模型可见的工具白名单在编译期固定：`get_player_status` 与 `get_active_pal_status`；`send_chat_message` 为内部工具，模型永远无法调用。
+- 适配器只读取玩家位置、当前出战帕鲁（Otomo）的标识/位置以及玩家据点位置；不读取背包、队伍、生命、耐力、存档或附近单位。
+- 模型可见的工具白名单在编译期固定：`get_player_status`、`get_active_pal_status` 与 `get_base_camps`；`send_chat_message` 为内部工具，模型永远无法调用。
 - API 暴露的状态快照会裁剪为 schema 版本、来源类型、游戏版本、新鲜度与缺失字段；原始快照永不进入模型提示词。
 - 不存在任何修改路径：没有移动、战斗、采集、建造、物品变更或世界写入。
 

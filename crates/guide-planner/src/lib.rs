@@ -170,7 +170,13 @@ impl GuidePlanner {
         };
         let mut inventory_goals = Vec::new();
         let mut readiness_goals = Vec::new();
-        let unlocked = unlocked_technology_ids(snapshot, &self.engine);
+        // Player technology unlocks cannot be read from the game yet: the UE4SS adapter
+        // exposes no technology tool, and a snapshot only carries caller-declared names,
+        // which are not treated as evidence here. Every technology is therefore assumed
+        // locked, so gated goals keep reporting their unlock requirement instead of
+        // claiming the player already owns it. Once unlocks can be observed, replace this
+        // with a snapshot-driven set (see `unlocked_technology_ids` in git history).
+        let unlocked = BTreeSet::<String>::new();
 
         if let Some(goals) = &snapshot.goals {
             for goal in goals {
@@ -745,27 +751,6 @@ fn snapshot_inventory(snapshot: &PlayerStateSnapshot) -> Vec<InventoryEntry> {
             inventory
                 .iter()
                 .map(|entry| InventoryEntry::new(entry.item.clone(), entry.quantity))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn unlocked_technology_ids(
-    snapshot: &PlayerStateSnapshot,
-    engine: &GuideEngine,
-) -> BTreeSet<String> {
-    snapshot
-        .unlocked_technologies
-        .as_ref()
-        .map(|technologies| {
-            technologies
-                .iter()
-                .filter_map(|entry| {
-                    match engine.resolve(&entry.technology, Some(EntityKind::Technology)) {
-                        Resolution::Unique(entity) => Some(entity.id),
-                        _ => None,
-                    }
-                })
                 .collect()
         })
         .unwrap_or_default()

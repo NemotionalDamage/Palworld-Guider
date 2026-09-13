@@ -515,7 +515,7 @@ fn start_refuses_a_running_game_and_launches_palworld_through_steam() {
         "start must derive the game-version argument from the support manifest"
     );
     assert!(
-        !content.contains("'1.0.3'"),
+        !content.contains("'1.0'"),
         "start must not hardcode the game version"
     );
 }

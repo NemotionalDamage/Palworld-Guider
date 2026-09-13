@@ -100,7 +100,7 @@ fn snapshot_value() -> Value {
         "source": {
             "kind": "user_entered",
             "captured_at": now,
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 60,
             "consent": {
                 "id": "operator-local-session",

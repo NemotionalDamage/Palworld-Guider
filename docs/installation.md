@@ -67,11 +67,13 @@ Reviewed knowledge is stored as versioned, diffable JSONL under `data/reviewed/`
 | `technologies.jsonl` | Technology unlock records with requirements |
 | `recipes.jsonl` | Recipe records with ingredients, outputs, and by-products |
 | `habitats.jsonl` | Pal habitat records with spawn locations and conditions |
-| `breeding_rules.jsonl` | Breeding rule records mapping parent pairs to offspring |
+| `breeding_rules.jsonl` | Explicit breeding exceptions (parent pair to offspring); the general case is computed from each Pal's combi rank |
 | `progression_relationships.jsonl` | Progression graph edges between entities |
 | `conflicts.jsonl` | Conflict records for contradictory sources |
 
 Missing optional files are skipped silently. A missing or invalid `sources.jsonl` causes a load error.
+
+`breeding_rules.jsonl` stores explicit exceptions only. The general pairing result is computed from `PalRecord::breeding_combi_rank`, so the dataset never contains the full parent-pair cross product. See `docs/schemas/knowledge-v1.md` for the resolution order.
 
 ## First Run: guide-core CLI
 
@@ -148,7 +150,7 @@ The maintenance CLI checks version compatibility and audits the knowledge base.
 Report version compatibility across knowledge, index, and game dimensions:
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 ```
 
 Exit code `0` means no warnings; `1` means version drift or stale records were found.
@@ -158,7 +160,7 @@ Exit code `0` means no warnings; `1` means version drift or stale records were f
 ```powershell
 cargo run -p guide-maintenance -- audit-sources --data data/reviewed
 cargo run -p guide-maintenance -- audit-conflicts --data data/reviewed
-cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- validate-batch path/to/batch.jsonl
 ```
 

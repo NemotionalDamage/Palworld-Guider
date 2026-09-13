@@ -20,6 +20,7 @@ fn test_registry(configured: Option<&str>) -> ToolRegistry {
         );
     }
     lines.extend(referenced_habitat_support_lines(&lines));
+    lines.extend(wooden_club_fixture_lines());
     let records = lines
         .iter()
         .filter(|line| !line.contains("\"record_type\":\"conflict\""))
@@ -31,6 +32,29 @@ fn test_registry(configured: Option<&str>) -> ToolRegistry {
     let index = KnowledgeIndex::from_store(&store, configured.clone()).expect("index builds");
     let engine = GuideEngine::new(store, configured);
     ToolRegistry::new(engine, index)
+}
+
+/// The fixture above only reads `sources.jsonl` and `facts.jsonl`, while the
+/// reviewed dataset names the local-build `Bat` row (Wood x5) "Wooden Club" and
+/// carries its recipe and technology. Tests that exercise that item pull the
+/// shipped records instead of restating them here.
+fn wooden_club_fixture_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (file_name, record_id) in [
+        ("items.jsonl", "ITEM_BAT"),
+        ("recipes.jsonl", "RECIPE_BAT"),
+        ("technologies.jsonl", "TECH_BATTLE_MELEEWEAPON_BAT"),
+    ] {
+        let needle = format!("\"id\":\"{record_id}\"");
+        let text = fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+            .expect("shipped dataset reads");
+        let line = text
+            .lines()
+            .find(|line| line.contains(needle.as_str()))
+            .unwrap_or_else(|| panic!("shipped record {record_id} exists"));
+        lines.push(line.to_string());
+    }
+    lines
 }
 
 fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
@@ -178,7 +202,7 @@ fn state_tools_use_attached_snapshot_without_exposing_raw_state() {
     let inventory = registry.dispatch("analyze_inventory", &json!({}), &mut budget);
     assert_eq!(inventory.status, ToolStatus::Ok);
     let inventory_data = inventory.data.expect("inventory analysis exists");
-    assert_eq!(inventory_data["goals"][0]["target_id"], "ITEM_WOODEN_CLUB");
+    assert_eq!(inventory_data["goals"][0]["target_id"], "ITEM_BAT");
     assert_eq!(
         inventory_data["goals"][0]["shortage"]["shortages"][0]["missing_quantity"],
         3
@@ -249,7 +273,7 @@ fn snapshot_value() -> serde_json::Value {
         "source": {
             "kind": "user_entered",
             "captured_at": captured_at.to_rfc3339(),
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 900,
             "consent": {
                 "id": "operator-local-session",
@@ -290,11 +314,11 @@ fn dispatches_item_lookup_with_provenance() {
     assert_eq!(envelope.status, ToolStatus::Ok);
     let data = envelope.data.expect("item data is present");
     assert_eq!(data["id"], "ITEM_WOOD");
-    assert_eq!(
-        envelope.provenance[0].source_id,
-        "SRC-PALDB-V1_0_3-20260831"
-    );
-    assert_eq!(envelope.version.knowledge_version, "1.0.3");
+    assert!(envelope
+        .provenance
+        .iter()
+        .any(|summary| summary.source_id == "SRC-PALDB-MATERIALS-V1_0-20260912"));
+    assert_eq!(envelope.version.knowledge_version, "1.0");
     assert!(envelope.version.matches);
     assert!(envelope.errors.is_empty());
 }
@@ -435,12 +459,27 @@ fn missing_conflicts_return_unknown() {
 }
 
 #[test]
-fn missing_breeding_rule_returns_unknown() {
+fn resolves_breeding_formula_for_ranked_pals() {
     let registry = test_registry(None);
     let mut budget = fresh_budget(4);
     let envelope = registry.dispatch(
         "calculate_breeding_result",
         &json!({"parent_a": "Lamball", "parent_b": "Lamball"}),
+        &mut budget,
+    );
+    assert_eq!(envelope.status, ToolStatus::Ok);
+    let data = envelope.data.expect("breeding result data exists");
+    assert_eq!(data["child_id"], "PAL_LAMBALL");
+    assert_eq!(data["rule_id"], "BREEDING_FORMULA");
+}
+
+#[test]
+fn unknown_breeding_parent_returns_unknown() {
+    let registry = test_registry(None);
+    let mut budget = fresh_budget(4);
+    let envelope = registry.dispatch(
+        "calculate_breeding_result",
+        &json!({"parent_a": "Lamball", "parent_b": "does-not-exist"}),
         &mut budget,
     );
     assert_eq!(envelope.status, ToolStatus::Unknown);

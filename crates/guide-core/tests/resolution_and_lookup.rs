@@ -2,7 +2,7 @@ use game_knowledge::{
     Confidence, ConflictRecord, ConflictResolution, KnowledgeRecord, KnowledgeStore, LocaleNames,
     Provenance, RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord,
 };
-use guide_core::{AnswerStatus, GuideEngine};
+use guide_core::{AnswerStatus, GuideEngine, WorldCoordinate};
 
 fn source() -> SourceRecord {
     SourceRecord {
@@ -68,6 +68,10 @@ fn names(english: &str) -> LocaleNames {
 }
 
 fn test_store(with_duplicate_name: bool) -> KnowledgeStore {
+    test_store_with_duplicate_rarity(with_duplicate_name.then_some("Rare"))
+}
+
+fn test_store_with_duplicate_rarity(duplicate_rarity: Option<&str>) -> KnowledgeStore {
     let records = vec![
         KnowledgeRecord::Source(source()),
         KnowledgeRecord::Item(game_knowledge::ItemRecord {
@@ -89,12 +93,12 @@ fn test_store(with_duplicate_name: bool) -> KnowledgeStore {
         }),
     ];
     let mut records = records;
-    if with_duplicate_name {
+    if let Some(rarity) = duplicate_rarity {
         records.push(KnowledgeRecord::Item(game_knowledge::ItemRecord {
             id: "ITEM_ALPHA_ALT".to_string(),
             names: names("alpha  stone"),
             description: None,
-            rarity: "Rare".to_string(),
+            rarity: rarity.to_string(),
             acquisition_leads: vec![],
             native_row_id: None,
             local_evidence: None,
@@ -199,7 +203,7 @@ fn item_lookup_names_and_quantifies_recipe_relations() {
             }],
             crafting_stations: vec!["Pal Sphere Workbench".to_string()],
             technology_id: None,
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: Vec::new(),
             native_row_id: None,
             local_evidence: None,
@@ -223,8 +227,19 @@ fn item_lookup_names_and_quantifies_recipe_relations() {
 }
 
 #[test]
-fn reports_ambiguous_and_unknown_names_without_guessing() {
+fn bare_duplicate_name_answers_the_lowest_tier() {
     let engine = GuideEngine::new(test_store(true), None);
+
+    let answer = engine.lookup_item("alpha stone");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer.data.expect("the lowest tier answers a bare name");
+    assert_eq!(item.id, "ITEM_ALPHA");
+    assert_eq!(item.rarity, "Common");
+}
+
+#[test]
+fn reports_ambiguous_and_unknown_names_without_guessing() {
+    let engine = GuideEngine::new(test_store_with_duplicate_rarity(Some("Common")), None);
 
     let answer = engine.lookup_item("alpha stone");
     assert_eq!(answer.status, AnswerStatus::Ambiguous);
@@ -241,6 +256,310 @@ fn reports_ambiguous_and_unknown_names_without_guessing() {
         .uncertainty
         .iter()
         .any(|message| message.contains("unknown")));
+}
+
+#[test]
+fn explains_schematics_for_rank_variant_items_and_recipes() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_ARMOR".to_string(),
+            names: names("Test Armor"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("TestArmor".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_ARMOR_5".to_string(),
+            names: names("Test Armor"),
+            description: None,
+            rarity: "Legendary".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("TestArmor_5".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_BLUEPRINT_TESTARMOR_5".to_string(),
+            names: names("Test Armor Schematic 4"),
+            description: None,
+            rarity: "Legendary".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("Blueprint_TestArmor_5".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_INGOT".to_string(),
+            names: names("Test Ingot"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("TestIngot".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_TESTARMOR".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_ARMOR".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_INGOT".to_string(),
+                quantity: 10,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            unlock_item_id: None,
+            byproducts: Vec::new(),
+            native_row_id: Some("TestArmor".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Recipe(game_knowledge::RecipeRecord {
+            id: "RECIPE_TESTARMOR_5".to_string(),
+            output: game_knowledge::RecipeItem {
+                item_id: "ITEM_ARMOR_5".to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![game_knowledge::RecipeIngredient {
+                item_id: "ITEM_INGOT".to_string(),
+                quantity: 60,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            unlock_item_id: Some("ITEM_BLUEPRINT_TESTARMOR_5".to_string()),
+            byproducts: Vec::new(),
+            native_row_id: Some("TestArmor_5".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("rank variant records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("Test Armor");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer.data.expect("a bare name answers the base tier");
+    assert_eq!(item.id, "ITEM_ARMOR");
+    let lead = item
+        .acquisition_leads
+        .iter()
+        .find(|lead| lead.action.contains("Higher tiers"))
+        .expect("the base tier points at the schematic-only tiers");
+    assert!(lead
+        .notes
+        .as_deref()
+        .unwrap_or_default()
+        .contains("legendary"));
+
+    let answer = engine.lookup_recipe("Test Armor");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let lookup = answer.data.expect("a bare name answers the base recipe");
+    assert_eq!(lookup.recipe.id, "RECIPE_TESTARMOR");
+    assert!(lookup
+        .schematic_leads
+        .iter()
+        .any(|lead| lead.action.contains("Higher tiers")));
+
+    let answer = engine.lookup_recipe_filtered("Test Armor", Some("legendary"));
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let lookup = answer.data.expect("the requested tier resolves");
+    assert_eq!(lookup.recipe.id, "RECIPE_TESTARMOR_5");
+    assert_eq!(lookup.recipe.ingredients[0].quantity, 60);
+    let lead = lookup
+        .schematic_leads
+        .iter()
+        .find(|lead| lead.action.contains("Requires a schematic"))
+        .expect("the higher tier requires its matching schematic");
+    let notes = lead.notes.as_deref().unwrap_or_default();
+    assert!(notes.contains("Test Armor Schematic 4"));
+    assert!(notes.contains("legendary"));
+
+    let answer = engine.lookup_recipe("Legendary Test Armor");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let lookup = answer
+        .data
+        .expect("a leading tier word selects the higher tier");
+    assert_eq!(lookup.recipe.id, "RECIPE_TESTARMOR_5");
+}
+
+#[test]
+fn treats_a_recipe_without_an_unlock_item_as_craftable() {
+    let item = |id: &str, name: &str, rarity: &str, row: &str| {
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: id.to_string(),
+            names: names(name),
+            description: None,
+            rarity: rarity.to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some(row.to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        })
+    };
+    let recipe = |id: &str, output: &str, unlock_item_id: Option<&str>| {
+        KnowledgeRecord::Recipe(RecipeRecord {
+            id: id.to_string(),
+            output: RecipeItem {
+                item_id: output.to_string(),
+                quantity: 1,
+            },
+            ingredients: vec![RecipeIngredient {
+                item_id: "ITEM_INGOT".to_string(),
+                quantity: 1,
+            }],
+            crafting_stations: vec!["Test Bench".to_string()],
+            technology_id: None,
+            unlock_item_id: unlock_item_id.map(str::to_string),
+            byproducts: Vec::new(),
+            native_row_id: Some(id.trim_start_matches("RECIPE_").to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        })
+    };
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        item("ITEM_ARMOR", "Test Armor", "Common", "TestArmor"),
+        item("ITEM_ARMOR_5", "Test Armor", "Legendary", "TestArmor_5"),
+        item(
+            "ITEM_BLUEPRINT_TESTARMOR_5",
+            "Test Armor Schematic 4",
+            "Legendary",
+            "Blueprint_TestArmor_5",
+        ),
+        item("ITEM_INGOT", "Test Ingot", "Common", "TestIngot"),
+        recipe("RECIPE_TESTARMOR", "ITEM_ARMOR", None),
+        recipe("RECIPE_TESTARMOR_5", "ITEM_ARMOR_5", None),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("tier records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("Test Armor");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let armor = answer.data.expect("the base tier answers a bare name");
+    assert!(armor
+        .acquisition_leads
+        .iter()
+        .all(|lead| !lead.action.contains("schematic")));
+
+    let answer = engine.lookup_recipe_filtered("Test Armor", Some("legendary"));
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let lookup = answer.data.expect("the higher tier resolves");
+    assert!(lookup.schematic_leads.is_empty());
+}
+
+#[test]
+fn keeps_an_exact_name_that_starts_with_a_rarity_word() {
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_SPHERE".to_string(),
+            names: names("Sphere"),
+            description: None,
+            rarity: "Common".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("Sphere".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: "ITEM_LEGENDARYSPHERE".to_string(),
+            names: names("Legendary Sphere"),
+            description: None,
+            rarity: "Legendary".to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some("LegendarySphere".to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        }),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("sphere records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("Legendary Sphere");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let item = answer
+        .data
+        .expect("the exact name wins over the tier split");
+    assert_eq!(item.id, "ITEM_LEGENDARYSPHERE");
+}
+
+#[test]
+fn keeps_schematic_advice_out_of_families_without_schematic_rows() {
+    let tier = |id: &str, rarity: &str, row: &str| {
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: id.to_string(),
+            names: names("Test Egg"),
+            description: None,
+            rarity: rarity.to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some(row.to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        })
+    };
+    let item = |id: &str, name: &str, rarity: &str, row: &str| {
+        KnowledgeRecord::Item(game_knowledge::ItemRecord {
+            id: id.to_string(),
+            names: names(name),
+            description: None,
+            rarity: rarity.to_string(),
+            acquisition_leads: vec![],
+            native_row_id: Some(row.to_string()),
+            local_evidence: None,
+            provenance: provenance(),
+        })
+    };
+    let records = vec![
+        KnowledgeRecord::Source(source()),
+        tier("ITEM_EGG_01", "Common", "TestEgg_01"),
+        tier("ITEM_EGG_02", "Uncommon", "TestEgg_02"),
+        item("ITEM_RELIC", "Test Relic", "Common", "TestRelic"),
+        item("ITEM_RELIC_5", "Test Relic", "Legendary", "TestRelic_5"),
+        item(
+            "ITEM_BLUEPRINT_TESTRELIC",
+            "Test Relic Schematic 1",
+            "Uncommon",
+            "Blueprint_TestRelic",
+        ),
+        item(
+            "ITEM_BLUEPRINT_TESTRELIC_5",
+            "Test Relic Schematic 4",
+            "Legendary",
+            "Blueprint_TestRelic_5",
+        ),
+    ];
+    let store = KnowledgeStore::from_records(records).expect("tier records validate");
+    let engine = GuideEngine::new(store, None);
+
+    let answer = engine.lookup_item("Test Egg");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let egg = answer.data.expect("the base tier answers a bare name");
+    assert_eq!(egg.id, "ITEM_EGG_01");
+    assert!(egg
+        .acquisition_leads
+        .iter()
+        .all(|lead| !lead.action.contains("schematic")));
+
+    let answer = engine.lookup_item("Test Relic");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let relic = answer.data.expect("the base tier answers a bare name");
+    assert_eq!(relic.id, "ITEM_RELIC");
+    let lead = relic
+        .acquisition_leads
+        .iter()
+        .find(|lead| lead.action.contains("Requires a schematic"))
+        .expect("a schematic-locked base tier says so");
+    assert!(lead
+        .notes
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Test Relic Schematic 1"));
 }
 
 #[test]
@@ -316,7 +635,7 @@ fn propagates_conflicts_from_item_relations() {
             }],
             crafting_stations: vec!["Test Bench".to_string()],
             technology_id: None,
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: vec![],
             native_row_id: None,
             local_evidence: None,
@@ -333,8 +652,14 @@ fn propagates_conflicts_from_item_relations() {
                 probability_percent: 100.0,
             }],
             habitat_ids: vec![],
+            habitat_leads: vec![],
+            wild_spawn_review: None,
             element_type1: None,
             element_type2: None,
+            breeding_combi_rank: None,
+            breeding_combi_priority: None,
+            breeding_ignore_combi: false,
+            breeding_self_only: false,
             native_row_id: None,
             local_evidence: None,
             provenance: provenance(),
@@ -388,7 +713,7 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
         .iter()
         .any(|lead| lead.action == "Mine rocks"));
     assert!(item.provenance.source_id.contains("PALDB"));
-    assert_eq!(answer.version.knowledge_version, "1.0.3");
+    assert_eq!(answer.version.knowledge_version, "1.0");
 
     let answer = engine.lookup_pal("Lamball");
     assert_eq!(answer.status, AnswerStatus::Ok);
@@ -400,7 +725,7 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
     let answer = engine.lookup_recipe("Roast Reindrix");
     assert_eq!(answer.status, AnswerStatus::Ok);
     let recipe = answer.data.expect("recipe resolves");
-    assert_eq!(recipe.output.item_id, "ITEM_BAKEDMEAT_ICEDEER");
+    assert_eq!(recipe.recipe.output.item_id, "ITEM_BAKEDMEAT_ICEDEER");
 
     let answer = engine.lookup_technology("Technology Level 2");
     assert_eq!(answer.status, AnswerStatus::Ok);
@@ -409,6 +734,83 @@ fn exact_canonical_lookups_include_facts_and_provenance() {
     assert_eq!(
         technology.unlocked_recipe_ids,
         vec!["RECIPE_PAL_SPHERE".to_string()]
+    );
+}
+
+#[test]
+fn pal_lookup_shares_habitat_leads_without_the_internal_wild_spawn_verdict() {
+    let engine = GuideEngine::load_directory("../../data/reviewed", None)
+        .expect("canonical dataset must load");
+
+    let answer = engine.lookup_pal("Pengullet Lux");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let fishing_only = answer.data.expect("fishing-only Pal resolves");
+    assert_eq!(fishing_only.id, "PAL_PENGUIN_ELECTRIC");
+    assert!(fishing_only.habitat_ids.is_empty());
+    assert!(fishing_only
+        .habitat_leads
+        .iter()
+        .any(|lead| lead.action == "Fishing spots"));
+    assert!(!serde_json::to_string(&fishing_only)
+        .expect("Pal lookup serializes")
+        .contains("wild_spawn_review"));
+
+    let answer = engine.lookup_pal("Bellanoir");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let raid_only = answer.data.expect("raid-only Pal resolves");
+    assert_eq!(raid_only.id, "PAL_NIGHTLADY");
+    assert!(raid_only.habitat_leads.is_empty());
+    assert!(!serde_json::to_string(&raid_only)
+        .expect("Pal lookup serializes")
+        .contains("wild_spawn_review"));
+
+    let answer = engine.lookup_pal("Panthalus");
+    assert_eq!(answer.status, AnswerStatus::Ok);
+    let boss_only = answer.data.expect("boss-only Pal resolves");
+    assert_eq!(boss_only.id, "PAL_KINGWHALE");
+    assert!(boss_only.work_suitability.is_empty());
+    assert!(boss_only
+        .habitat_leads
+        .iter()
+        .any(|lead| lead.action == "Boss encounter"));
+    assert!(!serde_json::to_string(&boss_only)
+        .expect("Pal lookup serializes")
+        .contains("wild_spawn_review"));
+}
+
+#[test]
+fn pal_spawn_zone_lookup_offers_habitat_leads_when_no_field_zone_exists() {
+    let engine = GuideEngine::load_directory("../../data/reviewed", None)
+        .expect("canonical dataset must load");
+
+    let fishing_only = engine.find_pal_spawn_zones(
+        "Pengullet Lux",
+        WorldCoordinate {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        5,
+    );
+    assert_eq!(fishing_only.status, AnswerStatus::Unknown);
+    assert!(fishing_only
+        .uncertainty
+        .iter()
+        .any(|message| message.contains("habitat leads: Fishing spots")));
+
+    let raid_only = engine.find_pal_spawn_zones(
+        "Bellanoir",
+        WorldCoordinate {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
+        5,
+    );
+    assert_eq!(raid_only.status, AnswerStatus::Unknown);
+    assert_eq!(
+        raid_only.uncertainty,
+        vec!["this Pal has no reviewed target-build habitat coverage".to_string()]
     );
 }
 
@@ -495,7 +897,7 @@ fn propagates_byproduct_provenance_and_conflicts_into_materials() {
             }],
             crafting_stations: vec!["Test Bench".to_string()],
             technology_id: None,
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: vec![game_knowledge::RecipeItem {
                 item_id: "ITEM_BONUS".to_string(),
                 quantity: 2,
@@ -576,7 +978,7 @@ fn lists_byproduct_acquisition_in_item_lookup() {
             }],
             crafting_stations: vec!["Test Bench".to_string()],
             technology_id: None,
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: vec![game_knowledge::RecipeItem {
                 item_id: "ITEM_BONUS".to_string(),
                 quantity: 2,
@@ -633,8 +1035,14 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
                 probability_percent: 100.0,
             }],
             habitat_ids: vec![],
+            habitat_leads: vec![],
+            wild_spawn_review: None,
             element_type1: None,
             element_type2: None,
+            breeding_combi_rank: None,
+            breeding_combi_priority: None,
+            breeding_ignore_combi: false,
+            breeding_self_only: false,
             native_row_id: None,
             local_evidence: None,
             provenance: provenance(),
@@ -659,7 +1067,7 @@ fn propagates_related_conflicts_for_pal_technology_and_recipe_lookups() {
             }],
             crafting_stations: vec!["Test Bench".to_string()],
             technology_id: Some("TECH_ONE".to_string()),
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: vec![],
             native_row_id: None,
             local_evidence: None,

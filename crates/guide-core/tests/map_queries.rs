@@ -1,7 +1,7 @@
 use game_knowledge::{
     Confidence, KnowledgeRecord, KnowledgeStore, LocaleNames, MapBounds, MapDefinitionRecord,
-    MapPointKind, MapPointRecord, PalHabitatZoneRecord, PalRecord, PalSpawnPlacementKind,
-    Provenance, ReviewStatus, SourceRecord, WorldCoordinate,
+    MapPointKind, MapPointRecord, MapRegionRecord, MapShape, PalHabitatZoneRecord, PalRecord,
+    PalSpawnPlacementKind, Provenance, ReviewStatus, SourceRecord, WorldCoordinate,
 };
 use guide_core::{
     map_display_to_world, world_to_map_display, AnswerStatus, GuideEngine, MapDisplayCoordinate,
@@ -156,8 +156,14 @@ fn records() -> Vec<KnowledgeRecord> {
         work_suitability: Vec::new(),
         drops: Vec::new(),
         habitat_ids: vec!["ZONE_NEAR".to_string(), "ZONE_FAR".to_string()],
+        habitat_leads: vec![],
+        wild_spawn_review: None,
         element_type1: None,
         element_type2: None,
+        breeding_combi_rank: None,
+        breeding_combi_priority: None,
+        breeding_ignore_combi: false,
+        breeding_self_only: false,
         native_row_id: Some("TestPal".to_string()),
         local_evidence: None,
         provenance: provenance(),
@@ -206,15 +212,51 @@ fn records() -> Vec<KnowledgeRecord> {
     let far = map_point("POINT_FAR", "Far Point", 100_000.0, 0.0);
     let zone_near = habitat_zone("ZONE_NEAR", 10_000.0);
     let zone_far = habitat_zone("ZONE_FAR", 520_000.0);
+    let big_region = map_region("REGION_BIG", "Big Region", 100_000.0, 100_000.0, 50_000.0);
+    let small_region = map_region("REGION_SMALL", "Small Region", 1_000.0, 1_000.0, 1_000.0);
     vec![
         KnowledgeRecord::Pal(pal),
         KnowledgeRecord::MapDefinition(map),
         KnowledgeRecord::MapDefinition(tree),
+        KnowledgeRecord::MapRegion(big_region),
+        KnowledgeRecord::MapRegion(small_region),
         KnowledgeRecord::MapPoint(near),
         KnowledgeRecord::MapPoint(far),
         KnowledgeRecord::PalHabitatZone(zone_near),
         KnowledgeRecord::PalHabitatZone(zone_far),
     ]
+}
+
+fn map_region(
+    id: &str,
+    name: &str,
+    extent_x: f64,
+    extent_y: f64,
+    extent_z: f64,
+) -> MapRegionRecord {
+    MapRegionRecord {
+        id: id.to_string(),
+        map_id: "MAP_MAIN".to_string(),
+        native_row_id: id.to_string(),
+        message_id: id.to_string(),
+        names: LocaleNames {
+            en: name.to_string(),
+            zh_hans: None,
+        },
+        geometry: Some(MapShape::Box {
+            center: WorldCoordinate {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            extent_x,
+            extent_y,
+            extent_z,
+            yaw_degrees: 0.0,
+        }),
+        boundary_is_reviewed: true,
+        provenance: provenance(),
+    }
 }
 
 fn map_point(id: &str, name: &str, x: f64, y: f64) -> MapPointRecord {
@@ -232,6 +274,7 @@ fn map_point(id: &str, name: &str, x: f64, y: f64) -> MapPointRecord {
             source_table: "test".to_string(),
             localization_status: game_knowledge::LocalizationStatus::Resolved,
             unresolved_fields: Vec::new(),
+            reviewed_empty_fields: Vec::new(),
             transformation_notes: "test".to_string(),
         },
         provenance: provenance(),
@@ -262,6 +305,7 @@ fn habitat_zone(id: &str, x: f64) -> PalHabitatZoneRecord {
             source_table: "test".to_string(),
             localization_status: game_knowledge::LocalizationStatus::Resolved,
             unresolved_fields: Vec::new(),
+            reviewed_empty_fields: Vec::new(),
             transformation_notes: "test".to_string(),
         },
         provenance: provenance(),
@@ -271,7 +315,7 @@ fn habitat_zone(id: &str, x: f64) -> PalHabitatZoneRecord {
 fn provenance() -> Provenance {
     Provenance {
         source_id: "SRC_TEST".to_string(),
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         retrieved_on: "2026-09-06".to_string(),
         reviewer: "test".to_string(),
         review_status: ReviewStatus::Reviewed,
@@ -288,7 +332,7 @@ fn engine(records: Vec<KnowledgeRecord>) -> GuideEngine {
         supplier: "test".to_string(),
         retrieved_on: "2026-09-06".to_string(),
         evidence_urls: vec!["local://test".to_string()],
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         reviewer: "test".to_string(),
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::VerifiedTarget,
@@ -297,5 +341,53 @@ fn engine(records: Vec<KnowledgeRecord>) -> GuideEngine {
     let mut all_records = vec![KnowledgeRecord::Source(source)];
     all_records.extend(records);
     let store = KnowledgeStore::from_records(all_records).expect("records validate");
-    GuideEngine::new(store, Some("1.0.3".to_string()))
+    GuideEngine::new(store, Some("1.0".to_string()))
+}
+
+#[test]
+fn locate_coordinate_reports_the_smallest_reviewed_region_boundary() {
+    let engine = engine(records());
+    let origin = engine.locate_coordinate(WorldCoordinate {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    });
+    let inside_both = origin.data.expect("main map location exists");
+    assert_eq!(
+        inside_both.approximate_region.as_deref(),
+        Some("Small Region")
+    );
+    assert!(origin
+        .uncertainty
+        .iter()
+        .any(|item| item.contains("also falls inside Big Region")));
+
+    let inside_big_only = engine.locate_coordinate(WorldCoordinate {
+        x: 50_000.0,
+        y: 0.0,
+        z: 0.0,
+    });
+    let location = inside_big_only.data.expect("main map location exists");
+    assert_eq!(location.approximate_region.as_deref(), Some("Big Region"));
+    assert!(inside_big_only
+        .uncertainty
+        .iter()
+        .all(|item| !item.contains("also falls inside")));
+
+    let between_regions = engine.locate_coordinate(WorldCoordinate {
+        x: -200_000.0,
+        y: 200_000.0,
+        z: 0.0,
+    });
+    assert_eq!(
+        between_regions
+            .data
+            .expect("main map location exists")
+            .approximate_region,
+        None
+    );
+    assert!(between_regions
+        .uncertainty
+        .iter()
+        .any(|item| item.contains("no reviewed region boundary")));
 }

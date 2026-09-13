@@ -13,7 +13,7 @@ fn canonical_store() -> KnowledgeStore {
 fn synthetic_provenance() -> Provenance {
     Provenance {
         source_id: "SRC-SYNTHETIC".to_string(),
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         retrieved_on: "2026-08-31".to_string(),
         reviewer: "Codex".to_string(),
         review_status: ReviewStatus::Reviewed,
@@ -31,7 +31,7 @@ fn synthetic_alias_store() -> KnowledgeStore {
             supplier: "test".to_string(),
             retrieved_on: "2026-08-31".to_string(),
             evidence_urls: vec!["https://example.com/fixture".to_string()],
-            applicable_game_version: "1.0.3".to_string(),
+            applicable_game_version: "1.0".to_string(),
             reviewer: "Codex".to_string(),
             review_status: ReviewStatus::Reviewed,
             confidence: Confidence::ReviewedSecondary,
@@ -78,8 +78,11 @@ fn search_wood_returns_reviewed_items_with_provenance() {
         .iter()
         .find(|result| result.record_id == "ITEM_WOOD")
         .expect("Wood result exists");
-    assert_eq!(wood.provenance.source_id, "SRC-PALDB-V1_0_3-20260831");
-    assert_eq!(wood.provenance.applicable_game_version, "1.0.3");
+    assert_eq!(
+        wood.provenance.source_id,
+        "SRC-PALDB-MATERIALS-V1_0-20260912"
+    );
+    assert_eq!(wood.provenance.applicable_game_version, "1.0");
     assert_eq!(wood.provenance.review_status, "reviewed");
     assert_eq!(wood.provenance.confidence, "reviewed_secondary");
     assert!(wood.summary.contains("Chop trees"));
@@ -147,7 +150,7 @@ fn configured_version_mismatch_adds_stale_warning() {
     let index = KnowledgeIndex::from_store(&store, Some("0.9".to_string())).expect("index builds");
     let answer = index.search("wood", 5);
     assert_eq!(answer.status, IndexStatus::Ok);
-    assert_eq!(answer.version.knowledge_version, "1.0.3");
+    assert_eq!(answer.version.knowledge_version, "1.0");
     assert_eq!(
         answer.version.configured_game_version.as_deref(),
         Some("0.9")

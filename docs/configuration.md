@@ -171,7 +171,7 @@ $env:GUIDE_DISABLE_REASONING = "1"
 
 - The Web server and adapter gateway bind **only** `127.0.0.1`. The `--host` flag is rejected; no public binding is possible.
 - Provider credentials are read from environment variables only and are never printed, logged, or committed.
-- The adapter exposes only the compile-time model-visible tool allowlist (`get_player_status`, `get_active_pal_status`). `send_chat_message` is internal and never callable by the model.
+- The adapter exposes only the compile-time model-visible tool allowlist (`get_player_status`, `get_active_pal_status`, `get_base_camps`). `send_chat_message` is internal and never callable by the model.
 - Snapshot responses contain only schema version, source kind, game version, freshness, and missing fields. Raw snapshots, save files, and consent data never reach provider prompts.
 - **No mutation path exists**: no movement, combat, gathering, construction, inventory mutation, world mutation, save writer, arbitrary shell command, or game mutation.
 - Read-only capabilities fail clearly when unavailable; failures never fabricate facts.

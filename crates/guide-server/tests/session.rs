@@ -31,7 +31,7 @@ fn snapshot() -> PlayerStateSnapshot {
         "source": {
             "kind": "user_entered",
             "captured_at": chrono::Utc::now() - chrono::Duration::seconds(1),
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 60,
             "consent": {
                 "id": "operator-local-session",
@@ -247,7 +247,7 @@ fn snapshot_metadata_is_safe_and_complete() {
 
     assert_eq!(metadata.schema_version, "state_snapshot_v1");
     assert_eq!(metadata.source_kind, "user_entered");
-    assert_eq!(metadata.game_version, "1.0.3");
+    assert_eq!(metadata.game_version, "1.0");
     assert_eq!(metadata.freshness, state_snapshot::SnapshotFreshness::Fresh);
     assert_eq!(
         metadata.missing_fields,
@@ -266,7 +266,7 @@ fn snapshot_metadata_is_safe_and_complete() {
         json!({
             "schema_version": "state_snapshot_v1",
             "source_kind": "user_entered",
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "freshness": "fresh",
             "missing_fields": [
                 "captured_pals", "goals", "party", "player_level", "preferences", "unlocked_technologies"

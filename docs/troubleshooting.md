@@ -122,16 +122,16 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8070/api/sessions"
 
 ## 9. Version Mismatch Warning
 
-**Symptom:** Answers include an uncertainty note such as `knowledge version 1.0.3 does not match configured game version X`.
+**Symptom:** Answers include an uncertainty note such as `knowledge version 1.0 does not match configured game version X`.
 
 **Cause:** The configured `--game-version` differs from the knowledge base's recorded `applicable_game_version`.
 
 **Fix:**
 
-- Set `--game-version` to match the knowledge base (currently `1.0.3`):
+- Set `--game-version` to match the knowledge base (currently `1.0`):
 
 ```powershell
-cargo run -p guide-server -- --data data/reviewed --port 8070 --game-version 1.0.3
+cargo run -p guide-server -- --data data/reviewed --port 8070 --game-version 1.0
 ```
 
 - Or update the knowledge base to the new game version through the data-update workflow (see `data-updates.md`).

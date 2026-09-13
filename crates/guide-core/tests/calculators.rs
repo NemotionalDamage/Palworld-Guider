@@ -69,7 +69,7 @@ fn recipe(
             .collect(),
         crafting_stations: vec!["Test Bench".to_string()],
         technology_id: None,
-        crafting_seconds: None,
+        unlock_item_id: None,
         byproducts: byproducts
             .iter()
             .map(|(item_id, quantity)| RecipeItem {
@@ -152,7 +152,7 @@ fn early_axe_and_club_use_distinct_reviewed_recipes() {
         .calculate_materials("木棒", 1)
         .data
         .expect("Wooden Club calculation exists");
-    assert_eq!(club.target_id, "ITEM_WOODEN_CLUB");
+    assert_eq!(club.target_id, "ITEM_BAT");
     assert_eq!(
         club.totals
             .iter()

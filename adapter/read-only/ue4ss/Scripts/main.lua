@@ -18,7 +18,7 @@ local PalTransport = require("pal_transport")
 
 -- Build-time capability switch. CMake replaces the @...@ placeholder with
 -- exactly one of: noop (heartbeat and ping only), chat (plus chat hook and
--- send_chat_message), or full (all four approved tools). There is no runtime
+-- send_chat_message), or full (all five approved tools). There is no runtime
 -- user input for this value.
 local LUA_CAPABILITY = "@GUIDER_LUA_CAPABILITY@"
 local READ_CAPABILITY_ENABLED = LUA_CAPABILITY == "full"
@@ -71,14 +71,7 @@ local function chat_trace(stage, chars, prefix)
         .. " prefix=" .. tostring(prefix))
 end
 
-local function position_object(actor)
-    local location
-    local ok = pcall(function()
-        location = actor:K2_GetActorLocation()
-    end)
-    if not ok or location == nil then
-        return nil
-    end
+local function location_table(location)
     local x, y, z
     pcall(function()
         x = tonumber(location.X)
@@ -89,6 +82,17 @@ local function position_object(actor)
         return nil
     end
     return {x = x, y = y, z = z}
+end
+
+local function position_object(actor)
+    local location
+    local ok = pcall(function()
+        location = actor:K2_GetActorLocation()
+    end)
+    if not ok or location == nil then
+        return nil
+    end
+    return location_table(location)
 end
 
 local function send_chat(world, message)
@@ -143,6 +147,7 @@ local function capability_tools(capability)
             {name = "ping", mutation = false, evidence = "A", status = "enabled"},
             {name = "get_player_status", mutation = false, evidence = "A", status = "enabled"},
             {name = "get_active_pal_status", mutation = false, evidence = "A", status = "enabled"},
+            {name = "get_base_camps", mutation = false, evidence = "A", status = "enabled"},
             {name = "send_chat_message", mutation = true, evidence = "A", status = "enabled"},
         }
     end
@@ -286,6 +291,141 @@ local function handle_active_pal_status(call_id)
     write_response(response_frame(call_id, "ok", status, nil))
 end
 
+local BASE_CAMP_CLASS_CANDIDATES = {
+    "PalLocationPointBaseCamp",
+    "PalMapObjectBaseCampPoint",
+    "PalBaseCampPoint",
+}
+
+local function object_location(object)
+    local location
+    local ok = pcall(function()
+        location = object:K2_GetActorLocation()
+    end)
+    if ok and location ~= nil then
+        return location
+    end
+
+    ok = pcall(function()
+        location = object:GetActorLocation()
+    end)
+    if ok and location ~= nil then
+        return location
+    end
+
+    local transform
+    ok = pcall(function()
+        transform = object:GetTransform()
+    end)
+    if ok and transform ~= nil and transform.Translation ~= nil then
+        return transform.Translation
+    end
+
+    ok = pcall(function()
+        transform = object.Transform
+    end)
+    if ok and transform ~= nil then
+        if transform.Translation ~= nil then
+            return transform.Translation
+        end
+        if transform.X ~= nil then
+            return transform
+        end
+    end
+
+    ok = pcall(function()
+        transform = object.BaseCampPointTransform
+    end)
+    if ok and transform ~= nil then
+        if transform.Translation ~= nil then
+            return transform.Translation
+        end
+        if transform.X ~= nil then
+            return transform
+        end
+    end
+
+    local component
+    ok = pcall(function()
+        component = object.RootComponent
+        location = component:K2_GetComponentLocation()
+    end)
+    if ok and location ~= nil then
+        return location
+    end
+
+    ok = pcall(function()
+        location = object.Location
+    end)
+    if ok and location ~= nil then
+        return location
+    end
+
+    return nil
+end
+
+local function base_camp_objects()
+    local all_objects = {}
+    for _, class_name in ipairs(BASE_CAMP_CLASS_CANDIDATES) do
+        local objects
+        local ok = pcall(function()
+            objects = FindAllOf(class_name)
+        end)
+        if ok and type(objects) == "table" then
+            local valid_objects = {}
+            for _, object in pairs(objects) do
+                if valid_object(object) then
+                    valid_objects[#valid_objects + 1] = object
+                end
+            end
+            for _, object in ipairs(valid_objects) do
+                all_objects[#all_objects + 1] = object
+            end
+        end
+    end
+    return #all_objects > 0 and all_objects or nil
+end
+
+local function handle_base_camps(call_id)
+    local objects = base_camp_objects()
+    if objects == nil then
+        write_response(response_frame(call_id, "unavailable", nil, "base camp objects unavailable"))
+        return
+    end
+
+    local camps = {}
+    local seen_names = {}
+    for index, object in ipairs(objects) do
+        local position = location_table(object_location(object))
+        if position ~= nil then
+            local object_name
+            local name_ok = pcall(function()
+                object_name = object:GetName()
+            end)
+            if not name_ok or type(object_name) ~= "string" or object_name == "" then
+                object_name = "Base Camp " .. tostring(index)
+            end
+            if not seen_names[object_name] then
+                seen_names[object_name] = true
+                camps[#camps + 1] = {
+                    id = object_name,
+                    name = object_name,
+                    location = position,
+                }
+            end
+        end
+    end
+
+    if #camps == 0 then
+        write_response(response_frame(call_id, "unavailable", nil, "base camp positions unavailable"))
+        return
+    end
+
+    write_response(response_frame(call_id, "ok", {
+        base_camps = camps,
+    }, nil))
+end
+
 local function handle_send_chat(call_id, args)
     local message = type(args) == "table" and args.message
     if type(message) ~= "string"
@@ -327,6 +467,8 @@ local function handle_request(frame)
         handle_player_status(call_id)
     elseif READ_CAPABILITY_ENABLED and frame.tool == "get_active_pal_status" then
         handle_active_pal_status(call_id)
+    elseif READ_CAPABILITY_ENABLED and frame.tool == "get_base_camps" then
+        handle_base_camps(call_id)
     else
         write_response(response_frame(call_id, "unsupported", nil, "tool is not whitelisted"))
     end

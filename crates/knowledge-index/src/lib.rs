@@ -428,6 +428,20 @@ fn pal_summary(record: &PalRecord, store: &KnowledgeStore) -> IndexedSummary {
         summary.push_str(&habitats);
         summary.push('.');
     }
+    if !record.habitat_leads.is_empty() {
+        let leads = record
+            .habitat_leads
+            .iter()
+            .map(|lead| match lead.notes.as_deref() {
+                Some(notes) => format!("{} ({notes})", lead.action),
+                None => lead.action.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        summary.push_str(" Habitat leads: ");
+        summary.push_str(&leads);
+        summary.push('.');
+    }
     IndexedSummary {
         record_id: record.id.clone(),
         record_type: "pal".to_string(),

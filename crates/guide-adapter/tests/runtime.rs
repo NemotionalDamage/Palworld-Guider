@@ -55,6 +55,7 @@ fn manifest_is_intersected_with_the_compile_time_allowlist() {
             &[
                 "get_player_status",
                 "get_active_pal_status",
+                "get_base_camps",
                 "send_chat_message",
                 "move_to",
                 "inventory_read",
@@ -66,6 +67,7 @@ fn manifest_is_intersected_with_the_compile_time_allowlist() {
         &[
             "get_player_status",
             "get_active_pal_status",
+            "get_base_camps",
             "send_chat_message",
             "move_to",
             "inventory_read",
@@ -76,14 +78,16 @@ fn manifest_is_intersected_with_the_compile_time_allowlist() {
         runtime.model_capabilities(),
         vec![
             "get_player_status".to_string(),
-            "get_active_pal_status".to_string()
+            "get_active_pal_status".to_string(),
+            "get_base_camps".to_string(),
         ]
     );
 
     let definitions = runtime.definitions();
-    assert_eq!(definitions.len(), 2);
+    assert_eq!(definitions.len(), 3);
     assert_eq!(definitions[0].name, "get_player_status");
     assert_eq!(definitions[1].name, "get_active_pal_status");
+    assert_eq!(definitions[2].name, "get_base_camps");
     for definition in &definitions {
         assert_eq!(
             definition.parameters_schema,
@@ -98,6 +102,12 @@ fn manifest_is_intersected_with_the_compile_time_allowlist() {
     assert!(!definitions
         .iter()
         .any(|definition| definition.name == "send_chat_message"));
+    assert!(definitions
+        .iter()
+        .find(|definition| definition.name == "get_player_status")
+        .expect("player status definition")
+        .description
+        .contains("Unreal world units"));
 }
 
 #[test]

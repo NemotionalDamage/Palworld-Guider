@@ -41,6 +41,7 @@ pub struct NearbyMapPoint {
     pub kind: MapPointKind,
     pub location: WorldCoordinate,
     pub map_display: MapDisplayCoordinate,
+    pub distance_map_display: f64,
     pub distance_meters: f64,
     pub bearing_degrees: f64,
 }
@@ -84,11 +85,14 @@ pub struct TravelRoute {
     pub to: WorldCoordinate,
     pub to_map_display: MapDisplayCoordinate,
     pub direct_distance_meters: f64,
+    pub direct_distance_map_display: f64,
     pub from_nearest_fast_travel: TravelAnchor,
     pub to_nearest_fast_travel: TravelAnchor,
     pub fast_travel_distance_meters: f64,
+    pub fast_travel_distance_map_display: f64,
     pub recommended_mode: String,
     pub recommended_distance_meters: f64,
+    pub recommended_distance_map_display: f64,
 }
 
 impl GuideEngine {
@@ -118,6 +122,31 @@ impl GuideEngine {
             pixel_y: ((location.y - map.bounds.min_y) / height * f64::from(map.logical_size))
                 .round() as i64,
         };
+        let regions = self
+            .store()
+            .map_regions()
+            .filter(|region| region.map_id == map.id)
+            .collect::<Vec<_>>();
+        let reviewed = regions
+            .iter()
+            .filter(|region| region.boundary_is_reviewed)
+            .count();
+        let containing = regions
+            .iter()
+            .filter_map(|region| region.geometry.map(|geometry| (*region, geometry)))
+            .filter(|(_, geometry)| geometry.contains(&location))
+            .collect::<Vec<_>>();
+        let chosen = containing
+            .iter()
+            .min_by(|left, right| {
+                left.1
+                    .volume()
+                    .total_cmp(&right.1.volume())
+                    .then_with(|| left.0.id.cmp(&right.0.id))
+            })
+            .copied();
+        let mut provenances = vec![&map.provenance];
+        provenances.extend(chosen.map(|(region, _)| &region.provenance));
         let mut answer = self.context().answer(
             AnswerStatus::Ok,
             Some(CoordinateLocation {
@@ -126,14 +155,37 @@ impl GuideEngine {
                 location,
                 normalized,
                 map_display: world_to_map_display(location),
-                approximate_region: None,
+                approximate_region: chosen.map(|(region, _)| region.names.en.clone()),
             }),
-            vec![&map.provenance],
+            provenances,
             Vec::new(),
         );
-        answer
-            .uncertainty
-            .push("region is unknown because reviewed boundary geometry is unavailable".into());
+        match chosen {
+            Some((region, _)) => {
+                let nested = containing
+                    .iter()
+                    .filter(|(other, _)| other.id != region.id)
+                    .map(|(other, _)| other.names.en.clone())
+                    .collect::<Vec<_>>();
+                if !nested.is_empty() {
+                    answer.uncertainty.push(format!(
+                        "this coordinate also falls inside {}; the smallest reviewed region boundary was reported",
+                        nested.join(", ")
+                    ));
+                }
+            }
+            None if reviewed == 0 => answer
+                .uncertainty
+                .push("region is unknown because reviewed boundary geometry is unavailable".into()),
+            None if reviewed == regions.len() => answer
+                .uncertainty
+                .push("no reviewed region boundary contains this coordinate".into()),
+            None => answer.uncertainty.push(format!(
+                "no reviewed region boundary contains this coordinate; {} of {} regions on this map have no reviewed boundary",
+                regions.len() - reviewed,
+                regions.len()
+            )),
+        }
         answer
     }
 
@@ -154,6 +206,7 @@ impl GuideEngine {
                 kind: point.kind,
                 location: point.location,
                 map_display: world_to_map_display(point.location),
+                distance_map_display: distance_map_display(&location, &point.location),
                 distance_meters: distance_meters(&location, &point.location),
                 bearing_degrees: bearing(&location, &point.location),
             })
@@ -190,7 +243,7 @@ impl GuideEngine {
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
                     .context()
-                    .ambiguous(crate::lookup::ambiguous_message("Pal", &candidates))
+                    .ambiguous(self.ambiguous_message("Pal", &candidates))
             }
             crate::resolver::Resolution::Unknown => {
                 return self
@@ -204,9 +257,13 @@ impl GuideEngine {
                 .unknown("resolved Pal is absent from the store");
         };
         if pal.habitat_ids.is_empty() {
-            return self
-                .context()
-                .unknown("this Pal has no reviewed target-build habitat coverage");
+            let leads = crate::describe_acquisition_leads(&pal.habitat_leads);
+            let message = if leads.is_empty() {
+                "this Pal has no reviewed target-build habitat coverage".to_string()
+            } else {
+                format!("this Pal has no fixed field habitat; habitat leads: {leads}")
+            };
+            return self.context().unknown(message);
         }
         let mut zones = pal
             .habitat_ids
@@ -302,14 +359,19 @@ impl GuideEngine {
         let from_anchor = nearest_to(&from);
         let to_anchor = nearest_to(&to);
         let direct_distance_meters = distance_meters(&from, &to);
+        let direct_distance_map_display = distance_map_display(&from, &to);
         let fast_travel_distance_meters = distance_meters(&from, &from_anchor.location)
             + distance_meters(&to, &to_anchor.location);
+        let fast_travel_distance_map_display = distance_map_display(&from, &from_anchor.location)
+            + distance_map_display(&to, &to_anchor.location);
         let recommended_mode = if fast_travel_distance_meters > direct_distance_meters {
             "direct"
         } else {
             "fast_travel"
         };
         let recommended_distance_meters = direct_distance_meters.min(fast_travel_distance_meters);
+        let recommended_distance_map_display =
+            direct_distance_map_display.min(fast_travel_distance_map_display);
         let route = TravelRoute {
             destination_name,
             from,
@@ -317,23 +379,29 @@ impl GuideEngine {
             to,
             to_map_display: world_to_map_display(to),
             direct_distance_meters,
+            direct_distance_map_display,
             from_nearest_fast_travel: from_anchor,
             to_nearest_fast_travel: to_anchor,
             fast_travel_distance_meters,
+            fast_travel_distance_map_display,
             recommended_mode: recommended_mode.to_string(),
             recommended_distance_meters,
+            recommended_distance_map_display,
         };
-        let provenances = [&route.from_nearest_fast_travel.id, &route.to_nearest_fast_travel.id]
-            .into_iter()
-            .filter_map(|id| self.store().map_point(id))
-            .map(|point| &point.provenance)
-            .collect::<Vec<_>>();
+        let provenances = [
+            &route.from_nearest_fast_travel.id,
+            &route.to_nearest_fast_travel.id,
+        ]
+        .into_iter()
+        .filter_map(|id| self.store().map_point(id))
+        .map(|point| &point.provenance)
+        .collect::<Vec<_>>();
         let mut answer =
             self.context()
                 .answer(AnswerStatus::Ok, Some(route), provenances, Vec::new());
-        answer.uncertainty.push(
-            "distances are straight-line values, not terrain-verified travel paths".into(),
-        );
+        answer
+            .uncertainty
+            .push("distances are straight-line values, not terrain-verified travel paths".into());
         if extra_anchors.is_empty() {
             answer.uncertainty.push(
                 "route considered reviewed fast-travel points only; player base camps were not included"
@@ -357,6 +425,12 @@ fn distance(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
 
 fn distance_meters(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
     distance(origin, target) / 100.0
+}
+
+fn distance_map_display(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
+    let origin_display = world_to_map_display(*origin);
+    let target_display = world_to_map_display(*target);
+    (target_display.x - origin_display.x).hypot(target_display.y - origin_display.y)
 }
 
 pub fn map_display_to_world(display: MapDisplayCoordinate) -> WorldCoordinate {

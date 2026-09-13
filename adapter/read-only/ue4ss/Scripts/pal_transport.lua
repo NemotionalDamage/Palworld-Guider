@@ -94,6 +94,7 @@ function GuiderTransport.capability_manifest_frame(sequence)
                 {name = "ping", mutation = false, evidence = "A", status = "enabled"},
                 {name = "get_player_status", mutation = false, evidence = "A", status = "enabled"},
                 {name = "get_active_pal_status", mutation = false, evidence = "A", status = "enabled"},
+                {name = "get_base_camps", mutation = false, evidence = "A", status = "enabled"},
                 {name = "send_chat_message", mutation = true, evidence = "A", status = "enabled"},
             },
         },

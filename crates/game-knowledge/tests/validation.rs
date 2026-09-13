@@ -1,9 +1,9 @@
 use game_knowledge::{
     AcquisitionLead, AliasRecord, BreedingRuleRecord, Confidence, ConflictRecord,
     ConflictResolution, DropSource, HabitatRecord, ItemRecord, KnowledgeRecord, KnowledgeStore,
-    LocaleNames, PalRecord, ProgressionRelationKind, ProgressionRelationshipRecord, Provenance,
-    RecipeIngredient, RecipeItem, RecipeRecord, ReviewStatus, SourceRecord, TechnologyRecord,
-    WorkKind, WorkSuitability,
+    LocalEvidenceMetadata, LocaleNames, LocalizationStatus, PalRecord, ProgressionRelationKind,
+    ProgressionRelationshipRecord, Provenance, RecipeIngredient, RecipeItem, RecipeRecord,
+    ReviewStatus, SourceRecord, TechnologyRecord, WildSpawnReview, WorkKind, WorkSuitability,
 };
 use std::fs;
 
@@ -41,7 +41,7 @@ fn source() -> SourceRecord {
         supplier: "project owner".to_string(),
         retrieved_on: "2026-08-31".to_string(),
         evidence_urls: vec!["https://paldb.cc/Wood".to_string()],
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         reviewer: "Codex".to_string(),
         review_status: ReviewStatus::Reviewed,
         confidence: Confidence::ReviewedSecondary,
@@ -60,7 +60,7 @@ fn local_identity_preserves_legacy_records_and_rejects_duplicates() {
         "acquisition_leads": [],
         "provenance": {
             "source_id": "SRC-PALDB-20260831",
-            "applicable_game_version": "1.0.3",
+            "applicable_game_version": "1.0",
             "retrieved_on": "2026-08-31",
             "reviewer": "Codex",
             "review_status": "reviewed",
@@ -107,7 +107,7 @@ fn item_record(id: &str, native_row_id: Option<&str>) -> KnowledgeRecord {
 fn provenance() -> Provenance {
     Provenance {
         source_id: SOURCE_ID.to_string(),
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         retrieved_on: "2026-08-31".to_string(),
         reviewer: "Codex".to_string(),
         review_status: ReviewStatus::Reviewed,
@@ -170,7 +170,7 @@ fn valid_records() -> Vec<KnowledgeRecord> {
             }],
             crafting_stations: vec!["Primitive Workbench".to_string()],
             technology_id: Some("TECH_LEVEL_1".to_string()),
-            crafting_seconds: None,
+            unlock_item_id: None,
             byproducts: Vec::new(),
             native_row_id: None,
             local_evidence: None,
@@ -276,8 +276,14 @@ fn rejects_invalid_ranges_and_broken_references() {
             probability_percent: 101.0,
         }],
         habitat_ids: vec![],
+        habitat_leads: vec![],
+        wild_spawn_review: None,
         element_type1: None,
         element_type2: None,
+        breeding_combi_rank: None,
+        breeding_combi_priority: None,
+        breeding_ignore_combi: false,
+        breeding_self_only: false,
         native_row_id: None,
         local_evidence: None,
         provenance: provenance(),
@@ -295,6 +301,85 @@ fn rejects_invalid_ranges_and_broken_references() {
         .iter()
         .any(|error| error.field == "drops.probability_percent"));
     assert!(errors.iter().any(|error| error.field == "drops.item_id"));
+}
+
+#[test]
+fn rejects_wild_spawn_verdicts_that_contradict_habitat_data() {
+    let mut records = valid_records();
+    records.push(KnowledgeRecord::Habitat(HabitatRecord {
+        id: "HAB_GRASSLANDS".to_string(),
+        names: names("Grasslands"),
+        pal_ids: vec!["PAL_LAMBALL".to_string()],
+        provenance: provenance(),
+    }));
+    records.push(KnowledgeRecord::Pal(PalRecord {
+        id: "PAL_LAMBALL".to_string(),
+        names: names("Lamball"),
+        work_suitability: vec![],
+        drops: vec![],
+        habitat_ids: vec!["HAB_GRASSLANDS".to_string()],
+        habitat_leads: vec![],
+        wild_spawn_review: Some(WildSpawnReview::ReviewedAbsent),
+        element_type1: None,
+        element_type2: None,
+        breeding_combi_rank: None,
+        breeding_combi_priority: None,
+        breeding_ignore_combi: false,
+        breeding_self_only: false,
+        native_row_id: None,
+        local_evidence: Some(LocalEvidenceMetadata {
+            source_table: "DT_PalMonsterParameter".to_string(),
+            localization_status: LocalizationStatus::Resolved,
+            unresolved_fields: vec!["habitat_ids".to_string()],
+            reviewed_empty_fields: Vec::new(),
+            transformation_notes: "fixture".to_string(),
+        }),
+        provenance: provenance(),
+    }));
+
+    let errors = KnowledgeStore::from_records(records).expect_err("contradictory Pal must fail");
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error.field == "wild_spawn_review")
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn rejects_fields_reviewed_as_empty_that_stay_unresolved() {
+    let mut records = valid_records();
+    records.push(KnowledgeRecord::Pal(PalRecord {
+        id: "PAL_NOWORK".to_string(),
+        names: names("Nowork"),
+        work_suitability: vec![],
+        drops: vec![],
+        habitat_ids: vec![],
+        habitat_leads: vec![],
+        wild_spawn_review: None,
+        element_type1: None,
+        element_type2: None,
+        breeding_combi_rank: None,
+        breeding_combi_priority: None,
+        breeding_ignore_combi: false,
+        breeding_self_only: false,
+        native_row_id: None,
+        local_evidence: Some(LocalEvidenceMetadata {
+            source_table: "DT_PalMonsterParameter".to_string(),
+            localization_status: LocalizationStatus::Resolved,
+            unresolved_fields: vec!["work_suitability".to_string()],
+            reviewed_empty_fields: vec!["work_suitability".to_string()],
+            transformation_notes: "fixture".to_string(),
+        }),
+        provenance: provenance(),
+    }));
+
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("a field cannot be reviewed as empty and stay unresolved");
+    assert!(errors
+        .iter()
+        .any(|error| error.field == "local_evidence.reviewed_empty_fields"));
 }
 
 #[test]
@@ -344,8 +429,14 @@ fn validates_all_related_fact_schemas_and_keeps_conflicts_visible() {
         work_suitability: vec![],
         drops: vec![],
         habitat_ids: vec![],
+        habitat_leads: vec![],
+        wild_spawn_review: None,
         element_type1: None,
         element_type2: None,
+        breeding_combi_rank: None,
+        breeding_combi_priority: None,
+        breeding_ignore_combi: false,
+        breeding_self_only: false,
         native_row_id: None,
         local_evidence: None,
         provenance: provenance(),
@@ -399,7 +490,6 @@ fn rejects_recipe_reference_and_shape_violations() {
         .expect("valid records contain recipe");
     recipe.ingredients.clear();
     recipe.crafting_stations.clear();
-    recipe.crafting_seconds = Some(-1.0);
 
     let errors = KnowledgeStore::from_records(records)
         .expect_err("incomplete and invalid recipe values must fail");
@@ -407,7 +497,31 @@ fn rejects_recipe_reference_and_shape_violations() {
     assert!(errors
         .iter()
         .any(|error| error.field == "crafting_stations"));
-    assert!(errors.iter().any(|error| error.field == "crafting_seconds"));
+
+    let mut records = valid_records();
+    let recipe = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Recipe(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain recipe");
+    recipe.unlock_item_id = Some("ITEM_MISSING".to_string());
+
+    let errors = KnowledgeStore::from_records(records)
+        .expect_err("a schematic reference must resolve to a known item");
+    assert!(errors.iter().any(|error| error.field == "unlock_item_id"));
+
+    let mut records = valid_records();
+    let recipe = records
+        .iter_mut()
+        .find_map(|record| match record {
+            KnowledgeRecord::Recipe(record) => Some(record),
+            _ => None,
+        })
+        .expect("valid records contain recipe");
+    recipe.unlock_item_id = Some("ITEM_WOOD".to_string());
+    KnowledgeStore::from_records(records).expect("a known schematic item must load");
 }
 
 #[test]

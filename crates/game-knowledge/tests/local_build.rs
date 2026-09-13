@@ -348,10 +348,10 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
         .expect("implant description exists");
     assert!(implant_description.contains("select the corresponding passive skill"));
 
-    assert_eq!(report.summary.total_records, 6260);
-    assert_eq!(report.summary.total_audited_facts, 25599);
+    assert_eq!(report.summary.total_records, 6258);
+    assert_eq!(report.summary.total_audited_facts, 25619);
     assert_eq!(report.summary.unclassified_facts, 0);
-    assert_eq!(report.summary.missing_localization, 371);
+    assert_eq!(report.summary.missing_localization, 372);
     assert!(report.facts.iter().any(|fact| {
         fact.canonical_record_id == "ALIAS_PAL_ALPACA_ZH_HANS"
             && fact.canonical_field == "alias"
@@ -366,7 +366,7 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
             fact.canonical_field == "description" && fact.classification == "conflicting"
         })
         .count();
-    assert_eq!(whitespace_description_conflicts, 371);
+    assert_eq!(whitespace_description_conflicts, 372);
     assert!(report
         .summary
         .classification_counts
@@ -388,16 +388,10 @@ fn audits_every_canonical_fact_when_real_exports_are_present() {
         .classification_counts
         .contains_key("unresolved_mapping"));
     assert!(report.facts.iter().any(|fact| {
-        fact.canonical_record_id == "ITEM_WOODEN_CLUB"
+        fact.canonical_record_id == "ITEM_AXE_TIER_00"
             && fact.canonical_field == "names.en"
-            && fact.classification == "conflicting"
-            && fact.current_value.contains("Wooden Club")
-            && fact.local_value.contains("Stone Axe")
-    }));
-    assert!(report.facts.iter().any(|fact| {
-        fact.canonical_record_id == "RECIPE_WOODEN_CLUB"
-            && fact.canonical_field == "ingredients"
-            && fact.classification == "conflicting"
+            && fact.classification == "corroborated_exact"
+            && fact.local_native_row_id == "Axe_Tier_00"
     }));
     assert!(report.facts.iter().any(|fact| {
         fact.canonical_record_id == "ITEM_BAKED_BERRIES"

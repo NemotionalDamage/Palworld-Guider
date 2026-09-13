@@ -8,9 +8,10 @@ WinHTTP WebSocket carriage.
 
 ## Boundaries
 
-- The adapter reads only the player position and the active-Otomo
-  identity/position. It never reads inventory, party lists, health,
-  stamina, nearby actors, resources, or saves.
+- The adapter reads only the player position, the active-Otomo
+  identity/position, and player base-camp positions. It never reads
+  inventory, party lists, health, stamina, nearby actors, resources, or
+  saves.
 - The adapter never mutates the game: no `AddItem`, `move_to`,
   `follow_player`, `attack`, `spawn`, `teleport`, movement, combat,
   gathering, construction, or body-lease APIs.
@@ -50,17 +51,19 @@ The capability manifest is selected at build time by the
 input. The allowed values are exactly `noop`, `chat`, and `full`:
 
 - `noop` — transport heartbeat and `ping` only; no chat hook or tool.
-- `chat` — `ping` and `send_chat_message`; player and active-Otomo reads
-  are disabled in both the manifest and dispatch.
-- `full` — all four tools below, matching current behavior.
+- `chat` — `ping` and `send_chat_message`; player, active-Otomo, and
+  base-camp reads are disabled in both the manifest and dispatch.
+- `full` — all five tools below, matching current behavior.
 
-With the default `full` manifest, the adapter advertises exactly four
+With the default `full` manifest, the adapter advertises exactly five
 tools:
 
 - `ping` — connectivity check.
 - `get_player_status` — finite player position or `unavailable`.
 - `get_active_pal_status` — guarded Otomo identity and finite position
   or `unavailable`.
+- `get_base_camps` — player base-camp names and finite positions, or
+  `unavailable`.
 - `send_chat_message` — one non-empty message, maximum 500 characters.
 
 Any other tool name returns `unsupported` with

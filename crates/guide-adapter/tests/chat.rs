@@ -451,7 +451,11 @@ fn retry_reruns_the_last_question_with_clean_context() {
     assert!(outcome.delivered);
     assert_eq!(delivered, "contaminated first answer");
 
-    let worker = process_in_worker(&bridge, Arc::clone(&agent), chat_event("event-2", "!guide retry"));
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-2", "!guide retry"),
+    );
     let delivered = adapter.respond_ok();
     let outcome = worker.join().unwrap();
     assert!(outcome.delivered);
@@ -536,7 +540,11 @@ fn new_clears_history_without_a_provider_run() {
     assert!(outcome.delivered);
     assert_eq!(delivered, "old answer");
 
-    let worker = process_in_worker(&bridge, Arc::clone(&agent), chat_event("event-2", "!guide new"));
+    let worker = process_in_worker(
+        &bridge,
+        Arc::clone(&agent),
+        chat_event("event-2", "!guide new"),
+    );
     let delivered = adapter.respond_ok();
     let outcome = worker.join().unwrap();
     assert!(outcome.delivered);

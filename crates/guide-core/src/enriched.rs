@@ -129,7 +129,7 @@ impl GuideEngine {
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
                     .context()
-                    .ambiguous(crate::lookup::ambiguous_message("Pal", &candidates))
+                    .ambiguous(self.ambiguous_message("Pal", &candidates))
             }
             crate::resolver::Resolution::Unknown => {
                 return self

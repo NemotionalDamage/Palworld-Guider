@@ -192,7 +192,13 @@ impl InGameChatBridge {
             uncertainty: Vec::new(),
             errors: Vec::new(),
         };
-        self.deliver(event, answer, SESSION_CLEARED_REPLY.to_string(), "new", "new")
+        self.deliver(
+            event,
+            answer,
+            SESSION_CLEARED_REPLY.to_string(),
+            "new",
+            "new",
+        )
     }
 
     fn reply_for(&self, answer: &AgentAnswer) -> String {

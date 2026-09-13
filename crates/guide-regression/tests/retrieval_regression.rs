@@ -5,7 +5,7 @@ const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/re
 
 fn index() -> KnowledgeIndex {
     let store = KnowledgeStore::load_directory(DATA_DIRECTORY).expect("dataset loads");
-    KnowledgeIndex::from_store(&store, Some("1.0.3".to_string())).expect("index builds")
+    KnowledgeIndex::from_store(&store, Some("1.0".to_string())).expect("index builds")
 }
 
 #[test]
@@ -67,6 +67,6 @@ fn search_returns_provenance() {
 fn search_returns_version_info() {
     let index = index();
     let answer = index.search("wood", 10);
-    assert_eq!(answer.version.knowledge_version, "1.0.3");
+    assert_eq!(answer.version.knowledge_version, "1.0");
     assert!(answer.version.matches);
 }

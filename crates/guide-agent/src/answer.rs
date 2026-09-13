@@ -94,6 +94,7 @@ pub struct FactSheet {
     slots: Vec<FactSlot>,
     entity_evidence: BTreeSet<String>,
     known_entity_names: BTreeSet<String>,
+    player_numbers: Vec<f64>,
 }
 
 impl FactSheet {
@@ -134,9 +135,18 @@ impl FactSheet {
                 }
             }
         }
-        quantities.dedup_by(|left, right| {
-            left.value == right.value && left.entity == right.entity && left.unit == right.unit
-        });
+        let mut deduped_quantities: Vec<QuantityCandidate> = Vec::with_capacity(quantities.len());
+        for quantity in quantities {
+            let already_seen = deduped_quantities.iter().any(|existing| {
+                existing.value == quantity.value
+                    && existing.entity == quantity.entity
+                    && existing.unit == quantity.unit
+            });
+            if !already_seen {
+                deduped_quantities.push(quantity);
+            }
+        }
+        let mut quantities = deduped_quantities;
         quantities.sort_by_key(|quantity| calculator_slot_priority(&quantity.source_tool));
 
         let mut slots = Vec::new();
@@ -188,7 +198,17 @@ impl FactSheet {
             slots,
             entity_evidence,
             known_entity_names,
+            player_numbers: Vec::new(),
         }
+    }
+
+    /// Numbers the player wrote in the question may be restated without inventing a fact.
+    pub fn with_player_question(mut self, question: &str) -> Self {
+        self.player_numbers = arabic_numbers(question)
+            .into_iter()
+            .chain(chinese_numbers(question))
+            .collect();
+        self
     }
 
     pub fn summary(&self) -> String {
@@ -292,7 +312,7 @@ impl std::fmt::Display for RenderError {
 pub fn submit_answer_tool() -> ToolSpec {
     ToolSpec {
         name: "submit_answer".to_string(),
-        description: "Submit the final answer as short natural sentences. Numbers may be written directly only when they appear in FACT_SHEET or GROUNDING; exact calculator quantities may use slot references from FACT_SHEET."
+        description: "Submit the final answer as short natural sentences. Numbers may be written directly only when they appear in FACT_SHEET, GROUNDING, or the player's own question; exact calculator quantities may use slot references from FACT_SHEET."
             .to_string(),
         parameters_schema: submit_answer_parameters(),
     }
@@ -320,9 +340,17 @@ pub fn render(
     }
 
     let allowed_slots = all_slot_ids(fact_sheet);
-    for text in &texts {
-        let rendered = replace_slots(text, fact_sheet, &allowed_slots)?;
-        validate_grounded_numbers(&rendered.replaced, fact_sheet)?;
+    let rendered_texts = texts
+        .iter()
+        .map(|text| replace_slots(text, fact_sheet, &allowed_slots))
+        .collect::<Result<Vec<_>, _>>()?;
+    let rendered_answer = rendered_texts
+        .iter()
+        .map(|rendered| rendered.replaced.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    validate_grounded_numbers(&rendered_answer, fact_sheet)?;
+    for rendered in &rendered_texts {
         reject_unsupported_entities(
             &rendered.replaced,
             &fact_sheet.entity_evidence,
@@ -330,25 +358,17 @@ pub fn render(
         )?;
     }
 
-    let mut output = draft
-        .sentences
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    if let Some(steps) = &draft.steps {
-        output.extend(steps.iter().map(String::as_str));
-    }
-    let answer = output
+    let answer = rendered_texts
         .iter()
         .enumerate()
-        .map(|(index, text)| {
+        .map(|(index, rendered)| {
             if index < draft.sentences.len() {
-                render_text(text, fact_sheet)
+                rendered.replaced.clone()
             } else {
                 format!(
                     "{}. {}",
                     index - draft.sentences.len() + 1,
-                    render_text(text, fact_sheet)
+                    rendered.replaced
                 )
             }
         })
@@ -411,7 +431,7 @@ pub fn fallback_render(
                     } else if entity == "conflict record count" {
                         lines.push(format!("共有 {} 条已审核冲突记录。", format_number(*value)));
                     } else {
-                        lines.push(format!("{entity}是{}。", format_number(*value)));
+                        lines.push(format!("{entity}: {}.", format_number(*value)));
                     }
                 }
             }
@@ -489,12 +509,6 @@ fn is_internal_uncertainty(message: &str) -> bool {
 
 struct ReplacedText {
     replaced: String,
-}
-
-fn render_text(text: &str, fact_sheet: &FactSheet) -> String {
-    replace_slots(text, fact_sheet, &all_slot_ids(fact_sheet))
-        .map(|result| result.replaced)
-        .unwrap_or_else(|_| text.to_string())
 }
 
 fn contains_bracket_slot_reference(text: &str) -> bool {
@@ -587,20 +601,19 @@ fn validate_grounded_numbers(text: &str, fact_sheet: &FactSheet) -> Result<(), R
         })
         .collect::<Vec<_>>();
 
-    let rendered_values = arabic_numbers(text)
-        .into_iter()
-        .chain(chinese_numbers(text));
-    if !calculator_values.is_empty() {
-        let rendered_values = rendered_values.collect::<Vec<_>>();
-        for required in calculator_values {
-            if !contains_number(&rendered_values, required) {
-                return Err(RenderError::NumericLiteral);
-            }
+    let rendered_arabic = arabic_numbers(text);
+    let rendered_numbers = rendered_arabic
+        .iter()
+        .copied()
+        .chain(chinese_numbers(text))
+        .collect::<Vec<_>>();
+    for required in calculator_values {
+        if !contains_number(&rendered_numbers, required) {
+            return Err(RenderError::NumericLiteral);
         }
-        return Ok(());
     }
 
-    let informational_values = fact_sheet
+    let mut allowed_values = fact_sheet
         .slots
         .iter()
         .filter_map(|slot| match slot {
@@ -608,8 +621,25 @@ fn validate_grounded_numbers(text: &str, fact_sheet: &FactSheet) -> Result<(), R
             _ => None,
         })
         .collect::<Vec<_>>();
+    allowed_values.extend(fact_sheet.player_numbers.iter().copied());
+
+    // A version label may be quoted as an arabic literal, but it must never whitelist the same
+    // quantity written as a word: knowledge version 1.0 must not let a draft say "one".
+    let mut allowed_literals = allowed_values.clone();
+    for slot in &fact_sheet.slots {
+        if let FactSlot::Version { text, .. } = slot {
+            allowed_literals.extend(arabic_numbers(text));
+        }
+    }
+
+    for value in rendered_arabic {
+        if !contains_number(&allowed_literals, value) && !contains_number(&allowed_literals, -value)
+        {
+            return Err(RenderError::NumericLiteral);
+        }
+    }
     for value in english_number_values(text) {
-        if !contains_number(&informational_values, value) {
+        if !contains_number(&allowed_values, value) {
             return Err(RenderError::NumericWord);
         }
     }
@@ -1010,12 +1040,20 @@ fn collect_tool_quantities(
                     .and_then(Value::as_str)
                     .unwrap_or("map point");
                 push_metric(
-                    point.get("distance"),
-                    format!("{name} distance"),
+                    point.get("distance_map_display"),
+                    format!("{name} map-coordinate distance"),
                     &record.name,
                     quantities,
                 );
             }
+        }
+        "plan_travel_route" => {
+            push_metric(
+                data.get("recommended_distance_map_display"),
+                "recommended travel map-coordinate distance".to_string(),
+                &record.name,
+                quantities,
+            );
         }
         _ => {}
     }
@@ -1178,7 +1216,47 @@ pub(crate) fn truncate_characters(text: &str, max_characters: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_entity_phrase, is_internal_uncertainty};
+    use super::{
+        contains_entity_phrase, is_internal_uncertainty, validate_grounded_numbers, FactSheet,
+        FactSlot, QuantitySemantic, RenderError,
+    };
+
+    fn sheet_with_slots(slots: Vec<FactSlot>) -> FactSheet {
+        FactSheet {
+            slots,
+            entity_evidence: Default::default(),
+            known_entity_names: Default::default(),
+            player_numbers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn version_label_does_not_whitelist_the_same_quantity_as_a_word() {
+        let sheet = sheet_with_slots(vec![FactSlot::Version {
+            id: "v1".to_string(),
+            text: "1.0".to_string(),
+        }]);
+
+        assert!(validate_grounded_numbers("Knowledge version 1.0.", &sheet).is_ok());
+        assert_eq!(
+            validate_grounded_numbers("Knowledge version one.", &sheet),
+            Err(RenderError::NumericWord)
+        );
+    }
+
+    #[test]
+    fn observed_quantity_still_whitelists_its_english_word() {
+        let sheet = sheet_with_slots(vec![FactSlot::Quantity {
+            id: "q1".to_string(),
+            value: 1.0,
+            entity: "Wooden Club".to_string(),
+            unit: None,
+            source_tool: "lookup_recipe".to_string(),
+            semantic: QuantitySemantic::Material,
+        }]);
+
+        assert!(validate_grounded_numbers("Wooden Club needs one of them.", &sheet).is_ok());
+    }
 
     #[test]
     fn chinese_phrase_scan_never_slices_inside_a_code_point() {

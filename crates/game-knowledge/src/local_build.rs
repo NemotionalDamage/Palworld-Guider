@@ -1225,7 +1225,6 @@ fn stable_hash(value: &str) -> u64 {
 
 fn community_item_id(native_row_id: &str) -> Option<&'static str> {
     match native_row_id {
-        "Axe_Tier_00" => Some("ITEM_WOODEN_CLUB"),
         "Berries" => Some("ITEM_RED_BERRIES"),
         "Meat_SheepBall" => Some("ITEM_LAMBALL_MUTTON"),
         "Money" => Some("ITEM_GOLD_COIN"),
@@ -1238,7 +1237,7 @@ fn community_item_id(native_row_id: &str) -> Option<&'static str> {
 fn local_candidate_provenance() -> Provenance {
     Provenance {
         source_id: "SRC-LOCAL-BUILD-24575825-20260902".to_string(),
-        applicable_game_version: "1.0.3".to_string(),
+        applicable_game_version: "1.0".to_string(),
         retrieved_on: "2026-09-02".to_string(),
         reviewer: "Codex".to_string(),
         review_status: ReviewStatus::Candidate,
@@ -1549,6 +1548,7 @@ pub fn generate_candidates(
                     source_table: "DT_ItemDataTable".to_string(),
                     localization_status: localization_status.clone(),
                     unresolved_fields,
+                    reviewed_empty_fields: Vec::new(),
                     transformation_notes:
                         "Direct typed field extraction; unresolved semantics remain explicit."
                             .to_string(),
@@ -1660,7 +1660,10 @@ pub fn generate_candidates(
                 ingredients,
                 crafting_stations: vec!["unresolved".to_string()],
                 technology_id: None,
-                crafting_seconds: None,
+                unlock_item_id: row
+                    .unlock_item_id
+                    .as_ref()
+                    .and_then(|native_id| item_ids.get(native_id).cloned()),
                 byproducts: Vec::new(),
                 native_row_id: Some(row.native_row_id.clone()),
                 local_evidence: Some(LocalEvidenceMetadata {
@@ -1671,6 +1674,7 @@ pub fn generate_candidates(
                         "work_amount_unit".to_string(),
                         "workable_attribute_semantics".to_string(),
                     ],
+                    reviewed_empty_fields: Vec::new(),
                     transformation_notes: "Direct product and material extraction; station and work units are unresolved."
                         .to_string(),
                 }),
@@ -1815,13 +1819,20 @@ pub fn generate_candidates(
                 work_suitability,
                 drops,
                 habitat_ids: Vec::new(),
+                habitat_leads: Vec::new(),
+                wild_spawn_review: None,
                 element_type1,
                 element_type2,
+                breeding_combi_rank: None,
+                breeding_combi_priority: None,
+                breeding_ignore_combi: false,
+                breeding_self_only: false,
                 native_row_id: Some(row.native_row_id.clone()),
                 local_evidence: Some(LocalEvidenceMetadata {
                     source_table: "DT_PalMonsterParameter".to_string(),
                     localization_status: LocalizationStatus::Resolved,
                     unresolved_fields: vec!["habitat_ids".to_string()],
+                    reviewed_empty_fields: Vec::new(),
                     transformation_notes: "Direct legal Pal, name, element type, confirmed work-kind, and drop extraction; habitats remain unresolved."
                         .to_string(),
                 }),

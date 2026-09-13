@@ -7,7 +7,7 @@ fn complete_snapshot() -> serde_json::Value {
         "source": {
             "kind": "user_entered",
             "captured_at": "2026-09-01T00:00:00Z",
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 900,
             "consent": {
                 "id": "operator-local-session",

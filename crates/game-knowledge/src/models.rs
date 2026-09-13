@@ -47,6 +47,9 @@ pub struct LocalEvidenceMetadata {
     pub localization_status: LocalizationStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unresolved_fields: Vec<String>,
+    /// Fields that were reviewed and are legitimately empty for this record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_empty_fields: Vec<String>,
     pub transformation_notes: String,
 }
 
@@ -121,7 +124,10 @@ pub struct RecipeRecord {
     pub ingredients: Vec<RecipeIngredient>,
     pub crafting_stations: Vec<String>,
     pub technology_id: Option<String>,
-    pub crafting_seconds: Option<f32>,
+    /// Item that must be in inventory before this recipe can be used. The target build records it as
+    /// the recipe's `UnlockItemID`, which for gear tiers is that tier's schematic item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unlock_item_id: Option<String>,
     #[serde(default)]
     pub byproducts: Vec<RecipeItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +200,23 @@ pub struct DropSource {
     pub probability_percent: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WildSpawnReview {
+    /// No reviewed spawner places this Pal; it is reachable only from raids or scripted encounters.
+    ReviewedAbsent,
+    /// Fishing spots are the only reviewed spawners that place this Pal.
+    ReviewedFishingOnly,
+    /// Tribe stronghold spawners are the only reviewed spawners that place this Pal.
+    ReviewedTribeOnly,
+    /// Only a boss encounter places this Pal; no field or volume spawner does.
+    ReviewedBossOnly,
+    /// Only a random world event places this Pal; no field or volume spawner does.
+    ReviewedEventOnly,
+    /// No reviewed spawner places this Pal and it cannot be captured at all.
+    ReviewedUncapturable,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PalRecord {
     pub id: String,
@@ -201,10 +224,23 @@ pub struct PalRecord {
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub habitat_leads: Vec<AcquisitionLead>,
+    /// Bookkeeping only: never rendered into player-facing answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wild_spawn_review: Option<WildSpawnReview>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub element_type1: Option<ElementType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub element_type2: Option<ElementType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breeding_combi_rank: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breeding_combi_priority: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub breeding_ignore_combi: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub breeding_self_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_row_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -434,11 +470,61 @@ pub enum MapShape {
         extent_x: f64,
         extent_y: f64,
         extent_z: f64,
+        /// Yaw of the box around the world Z axis in degrees. Reviewed region
+        /// boundaries are axis-aligned only when this is zero, so the field is
+        /// always serialized instead of being hidden behind a default.
+        yaw_degrees: f64,
     },
     Sphere {
         center: WorldCoordinate,
         radius: f64,
     },
+}
+
+impl MapShape {
+    /// Whether a world coordinate falls inside this volume.
+    pub fn contains(&self, point: &WorldCoordinate) -> bool {
+        match self {
+            Self::Box {
+                center,
+                extent_x,
+                extent_y,
+                extent_z,
+                yaw_degrees,
+            } => {
+                let (sin, cos) = yaw_degrees.to_radians().sin_cos();
+                let delta_x = point.x - center.x;
+                let delta_y = point.y - center.y;
+                let local_x = delta_x * cos + delta_y * sin;
+                let local_y = -delta_x * sin + delta_y * cos;
+                local_x.abs() <= *extent_x
+                    && local_y.abs() <= *extent_y
+                    && (point.z - center.z).abs() <= *extent_z
+            }
+            Self::Sphere { center, radius } => {
+                let delta_x = point.x - center.x;
+                let delta_y = point.y - center.y;
+                let delta_z = point.z - center.z;
+                delta_x * delta_x + delta_y * delta_y + delta_z * delta_z <= radius * radius
+            }
+        }
+    }
+
+    /// Cube-equivalent size, used to prefer the most specific reviewed volume
+    /// when several reviewed boundaries contain the same coordinate.
+    pub fn volume(&self) -> f64 {
+        match self {
+            Self::Box {
+                extent_x,
+                extent_y,
+                extent_z,
+                ..
+            } => extent_x * extent_y * extent_z,
+            Self::Sphere { radius, .. } => {
+                4.0 / 3.0 * std::f64::consts::PI * radius * radius * radius
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

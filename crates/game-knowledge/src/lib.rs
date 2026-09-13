@@ -27,7 +27,7 @@ pub use models::{
     PalHabitatZoneRecord, PalRecord, PalSpawnPlacementKind, PalWazaUnlock, ProgressionRelationKind,
     ProgressionRelationshipRecord, Provenance, RecipeIngredient, RecipeItem, RecipeRecord,
     ReviewStatus, SourceRecord, TechnologyRecord, TypeEffectivenessRecord, WazaCategory,
-    WazaRecord, WazaStrength, WorkKind, WorkKindDescriptionRecord, WorkSuitability,
-    WorldCoordinate,
+    WazaRecord, WazaStrength, WildSpawnReview, WorkKind, WorkKindDescriptionRecord,
+    WorkSuitability, WorldCoordinate,
 };
 pub use store::KnowledgeStore;

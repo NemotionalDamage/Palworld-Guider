@@ -2,7 +2,7 @@
 //!
 //! These tests read the adapter sources on disk and enforce the approved
 //! transport-only interface contract: exact environment names, a bounded
-//! four-tool manifest, the compile-time capability switch that overrides the
+//! five-tool manifest, the compile-time capability switch that overrides the
 //! manifest from main.lua, guarded chat handling, the validated active-Otomo
 //! chain, finite-position guards, and the absence of file IPC, mutation
 //! tools, chat-body logging, and token logging.
@@ -114,6 +114,7 @@ fn capability_manifest_matches_each_mode() {
     for disabled_tool in [
         "get_player_status",
         "get_active_pal_status",
+        "get_base_camps",
         "send_chat_message",
     ] {
         assert_not_contains(noop_branch, disabled_tool, "noop capability manifest");
@@ -126,7 +127,11 @@ fn capability_manifest_matches_each_mode() {
         .expect("full branch");
     let chat_branch = &main[chat_start..chat_end];
     assert_contains(chat_branch, "send_chat_message", "chat capability manifest");
-    for disabled_tool in ["get_player_status", "get_active_pal_status"] {
+    for disabled_tool in [
+        "get_player_status",
+        "get_active_pal_status",
+        "get_base_camps",
+    ] {
         assert_not_contains(chat_branch, disabled_tool, "chat capability manifest");
     }
     assert_contains(
@@ -193,6 +198,11 @@ fn dispatch_and_chat_hook_match_each_capability_mode() {
         &main,
         "READ_CAPABILITY_ENABLED and frame.tool == \"get_active_pal_status\"",
         "Otomo read dispatch gate",
+    );
+    assert_contains(
+        &main,
+        "READ_CAPABILITY_ENABLED and frame.tool == \"get_base_camps\"",
+        "base-camp read dispatch gate",
     );
     assert_contains(
         &main,
@@ -309,6 +319,7 @@ fn transport_manifest_remains_full_default_and_is_overridden_by_main() {
         "ping",
         "get_player_status",
         "get_active_pal_status",
+        "get_base_camps",
         "send_chat_message",
     ] {
         assert_contains(
@@ -335,15 +346,30 @@ fn transport_manifest_remains_full_default_and_is_overridden_by_main() {
     );
 }
 #[test]
-fn request_dispatch_covers_exactly_the_four_tools() {
+fn request_dispatch_covers_exactly_the_five_tools() {
     let main = main_lua();
     for tool in [
         "\"ping\"",
         "\"get_player_status\"",
         "\"get_active_pal_status\"",
+        "\"get_base_camps\"",
         "\"send_chat_message\"",
     ] {
         assert_contains(&main, &format!("frame.tool == {tool}"), "request dispatch");
+    }
+}
+
+#[test]
+fn base_camp_lookup_reads_transform_properties() {
+    let main = main_lua();
+    for expression in [
+        "transform.Translation",
+        "object.Transform",
+        "object.BaseCampPointTransform",
+        "component = object.RootComponent",
+        "component:K2_GetComponentLocation",
+    ] {
+        assert_contains(&main, expression, "base-camp transform candidate");
     }
 }
 

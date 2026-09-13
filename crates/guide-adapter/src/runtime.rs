@@ -142,13 +142,13 @@ impl RuntimeToolSource for GameAdapterRuntime {
 fn runtime_tool_description(name: &str) -> String {
     match name {
         "get_player_status" => {
-            "Return the observed player status (level, position, health) from the authenticated in-game adapter session. The answer is empty or Unknown when no observed state is available.".to_string()
+            "Return the observed player status (level, position, health) from the authenticated in-game adapter session. Position axes are Unreal world units, not in-game map display coordinates. The answer is empty or Unknown when no observed state is available.".to_string()
         }
         "get_active_pal_status" => {
             "Return the observed active Pal status from the authenticated in-game adapter session. The answer is empty or Unknown when no observed state is available.".to_string()
         }
         "get_base_camps" => {
-            "Return the observed player base-camp anchor coordinates from the authenticated in-game adapter session. The answer is empty or Unknown when base camps cannot be read.".to_string()
+            "Return the observed player base-camp anchor coordinates in Unreal world units from the authenticated in-game adapter session. The answer is empty or Unknown when base camps cannot be read.".to_string()
         }
         _ => format!("Read-only adapter capability \"{name}\"."),
     }

@@ -17,6 +17,7 @@ fn engine() -> GuideEngine {
                 .map(str::to_string),
         );
     }
+    lines.extend(progression_fixture_lines());
     lines.extend(referenced_habitat_support_lines(&lines));
     let records = lines
         .iter()
@@ -25,7 +26,34 @@ fn engine() -> GuideEngine {
         .collect::<Result<Vec<_>, _>>()
         .expect("conflict-free fixtures parse");
     let store = KnowledgeStore::from_records(records).expect("test store validates");
-    GuideEngine::new(store, Some("1.0.3".to_string()))
+    GuideEngine::new(store, Some("1.0".to_string()))
+}
+
+/// The fixture above only reads `sources.jsonl` and `facts.jsonl`, which carry a
+/// single reviewed progression relationship. Progression tests pull the shipped
+/// Bat technology and its unlock relationship instead of restating them here.
+fn progression_fixture_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (file_name, record_id) in [
+        ("items.jsonl", "ITEM_BAT"),
+        ("recipes.jsonl", "RECIPE_BAT"),
+        ("recipes.jsonl", "RECIPE_PAL_CRYSTAL_S_1"),
+        ("technologies.jsonl", "TECH_BATTLE_MELEEWEAPON_BAT"),
+        (
+            "progression_relationships.jsonl",
+            "REL_Battle_MeleeWeapon_Bat_Bat",
+        ),
+    ] {
+        let needle = format!("\"id\":\"{record_id}\"");
+        let text = fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+            .expect("shipped dataset reads");
+        let line = text
+            .lines()
+            .find(|line| line.contains(needle.as_str()))
+            .unwrap_or_else(|| panic!("shipped record {record_id} exists"));
+        lines.push(line.to_string());
+    }
+    lines
 }
 
 fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
@@ -77,7 +105,7 @@ fn snapshot() -> state_snapshot::PlayerStateSnapshot {
         "source": {
             "kind": "user_entered",
             "captured_at": "2026-09-01T00:00:00Z",
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 900,
             "consent": {
                 "id": "operator-local-session",
@@ -153,7 +181,7 @@ fn analyzes_inventory_party_craftable_and_goal_readiness() {
     assert_eq!(craftable.maximum_additional_count, 1);
     assert_eq!(
         craftable.recipe_id.as_deref(),
-        Some("RECIPE_PALDIUM_FRAGMENT")
+        Some("RECIPE_PAL_CRYSTAL_S_1")
     );
 
     let readiness = analysis
@@ -197,12 +225,17 @@ fn recommendations_are_deterministic_bounded_and_explained() {
 
 #[test]
 fn analyzes_progression_goals_through_reviewed_relationships() {
+    // The snapshot declares the Bat technology as unlocked, but unlock state cannot be
+    // read from the game yet, so the planner keeps assuming every technology is locked.
     let mut value = snapshot_json();
     value["inventory"] = json!([
         {"item": "Wood", "quantity": 20, "evidence": "user_entered"}
     ]);
+    value["unlocked_technologies"] = json!([
+        {"technology": "Bat", "evidence": "user_entered"}
+    ]);
     value["goals"] = json!([
-        {"kind": "progression", "target": "Technology Level 1", "quantity": 1, "priority": 2}
+        {"kind": "progression", "target": "Bat", "quantity": 1, "priority": 2}
     ]);
     let snapshot =
         state_snapshot::PlayerStateSnapshot::from_json(&value).expect("snapshot is valid");
@@ -216,9 +249,49 @@ fn analyzes_progression_goals_through_reviewed_relationships() {
         .goals
         .first()
         .expect("progression goal is analyzed");
-    assert_eq!(readiness.target_id, "TECHNOLOGY_LEVEL_1");
-    assert!(readiness.ready);
-    assert!(readiness.missing_requirements.is_empty());
+    assert_eq!(readiness.target_id, "TECH_BATTLE_MELEEWEAPON_BAT");
+    assert!(!readiness.ready);
+    assert_eq!(
+        readiness.missing_requirements,
+        vec!["Unlock the reviewed Bat".to_string()]
+    );
+    // The reviewed Bat relationship is still found, so nothing is left uncertain.
+    assert!(readiness.uncertainties.is_empty());
+}
+
+#[test]
+fn craft_goals_keep_the_technology_gate_while_unlocks_are_unreadable() {
+    // The snapshot declares `Technology Level 2` as unlocked and the recipe only needs a
+    // single Paldium Fragment, but unlock state cannot be read from the game yet, so the
+    // technology requirement stays in place.
+    let mut value = snapshot_json();
+    value["inventory"] = json!([
+        {"item": "Paldium Fragment", "quantity": 1, "evidence": "user_entered"}
+    ]);
+    value["unlocked_technologies"] = json!([
+        {"technology": "Technology Level 2", "evidence": "user_entered"}
+    ]);
+    value["goals"] = json!([
+        {"kind": "craft", "target": "Pal Sphere", "quantity": 1, "priority": 2}
+    ]);
+    let snapshot =
+        state_snapshot::PlayerStateSnapshot::from_json(&value).expect("snapshot is valid");
+    let analysis = GuidePlanner::new(engine())
+        .analyze(&snapshot, now())
+        .data
+        .expect("craft state analyzes");
+
+    let readiness = analysis
+        .goal_readiness
+        .goals
+        .first()
+        .expect("craft goal is analyzed");
+    assert_eq!(readiness.target_id, "ITEM_PAL_SPHERE");
+    assert!(!readiness.ready);
+    assert_eq!(
+        readiness.missing_requirements,
+        vec!["Unlock Technology Level 2 at level 2".to_string()]
+    );
 }
 
 #[test]
@@ -310,7 +383,7 @@ fn stale_knowledge_remains_visible_in_planner_answers() {
 
     assert_eq!(answer.status, PlannerStatus::Unknown);
     assert!(answer.uncertainty.iter().any(|message| message
-        .contains("knowledge version 1.0.3 does not match configured game version 1.0.4")));
+        .contains("knowledge version 1.0 does not match configured game version 1.0.4")));
 }
 
 #[test]
@@ -337,7 +410,7 @@ fn snapshot_json() -> serde_json::Value {
         "source": {
             "kind": "user_entered",
             "captured_at": "2026-09-01T00:00:00Z",
-            "game_version": "1.0.3",
+            "game_version": "1.0",
             "time_to_live_seconds": 900,
             "consent": {
                 "id": "operator-local-session",

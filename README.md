@@ -8,7 +8,8 @@ The public Web guide, offline CLI tools, and a read-only in-game MOD are impleme
 
 ## Key Features
 
-- **Deterministic knowledge engine** — every game fact comes from reviewed, versioned, source-tracked JSONL data, never from LLM memory. The knowledge base covers 1,520 items, 299 Pals, and 1,805 bilingual aliases extracted from the local Palworld Steam build.
+- **Deterministic knowledge engine** — every game fact comes from reviewed, versioned, source-tracked JSONL data, never from LLM memory. The knowledge base covers 1,883 items, 298 Pals, 1,286 recipes, 1,789 bilingual aliases, 123 world-map regions (120 of them with reviewed trigger-volume boundaries), and 67,952 Pal habitat zones extracted from the local Palworld Steam build.
+- **Breeding by formula, not by table** — the tens of thousands of possible parent pairs are compressed into the game's own rule, a per-Pal combi rank plus a small reviewed exception table for special combinations and self-only Pals, so breeding answers stay exact without a combinatorial data dump.
 - **Hybrid Rust RAG + deterministic tool use** — the agent loop combines exact identifier resolution, structured lookup, Tantivy lexical retrieval, and typed Rust calculators behind a bounded LLM provider loop. The model phrases answers but can never invent game facts or fabricate quantities.
 - **Grounded answer enforcement** — numeric quantities, breeding results, and entity claims in model drafts are validated against tool evidence through structural adjacency checks. Invalid drafts receive deterministic fallback answers instead of fabricated content.
 - **State-aware planning** — optional user-entered player-state snapshots enable inventory-gap analysis, party-work-gap detection, craftable-now checks, and prioritized next-step recommendations (3–5 ranked steps with reasons, requirements, and uncertainty).
@@ -41,7 +42,7 @@ The public Web guide, offline CLI tools, and a read-only in-game MOD are impleme
                           │
                           ▼
                    data/reviewed/*.jsonl
-             (1,520 items, 299 Pals, 1,805 aliases)
+             (1,883 items, 298 Pals, 1,286 recipes)
 ```
 
 ### Workspace Crates
@@ -60,7 +61,7 @@ The public Web guide, offline CLI tools, and a read-only in-game MOD are impleme
 | `game-gateway` | Authenticated schema-2 loopback WebSocket gateway for the UE4SS adapter |
 | `guide-adapter` | In-game chat bridge and adapter runtime with tool composition |
 | `guide-maintenance` | Version-check, knowledge audit, and batch-validation CLI |
-| `guide-regression` | 42 end-to-end regression tests covering lookup, calculation, retrieval, grounding, and version warnings |
+| `guide-regression` | 50 end-to-end regression tests covering lookup, calculation, retrieval, grounding, and version warnings |
 
 ## Quick Start
 
@@ -252,10 +253,10 @@ cargo run -p guide-agent -- ask "Materials for 3 Wooden Clubs?" --provider opena
 ### Knowledge Maintenance
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- audit-sources --data data/reviewed
 cargo run -p guide-maintenance -- audit-conflicts --data data/reviewed
-cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 ```
 
@@ -298,15 +299,18 @@ crates/                     # 13 Rust workspace crates
   game-gateway/             # Authenticated loopback WebSocket gateway
   guide-adapter/            # In-game chat bridge
   guide-maintenance/        # Version-check & audit CLI
-  guide-regression/         # Answer regression suites (42 tests)
+  guide-regression/         # Answer regression suites (50 tests)
 
 data/
   reviewed/                 # Canonical reviewed JSONL knowledge base
-    sources.jsonl           #   3 registered sources
-    items.jsonl              #   1,520 items
-    pals.jsonl               #   299 Pals
-    aliases.jsonl            #   1,805 bilingual aliases
-    facts.jsonl              #   38 seed facts & progression edges
+    sources.jsonl           #   15 registered sources
+    items.jsonl             #   1,883 items
+    pals.jsonl              #   298 Pals
+    recipes.jsonl           #   1,286 recipes
+    breeding_rules.jsonl    #   248 special breeding combinations
+    map_regions.jsonl       #   123 world-map regions (120 with boundaries)
+    aliases.jsonl           #   1,789 bilingual aliases
+    facts.jsonl             #   32 seed facts & progression edges
 
 docs/                       # Full project documentation
   mod-rollout-plan.md
@@ -321,6 +325,7 @@ docs/                       # Full project documentation
   schemas/
 
 scripts/                  # UE4SS preflight, build, backup, install, setup, start, uninstall
+  build-breeding-data.mjs #  Regenerate the reviewed breeding formula and rules
   Test-InGameGuide.ps1
   Build-Ue4ssAdapter.ps1
   Backup-PalworldSave.ps1
@@ -360,7 +365,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-The workspace has 327 tests across 13 crates, including:
+The workspace has 432 tests across 13 crates, including:
 
 - Schema, reference-integrity, version, alias, and conflict tests
 - Calculator tests for recipe trees, shortages, craftable counts, breeding, and cycle detection
@@ -371,8 +376,8 @@ The workspace has 327 tests across 13 crates, including:
 ## Safety and Read-Only Boundary
 
 - The Web server and adapter gateway bind **only** `127.0.0.1`. The `--host` flag is explicitly rejected.
-- The adapter reads only player position and active-Otomo identity/position. No inventory, party, health, stamina, save, or nearby-actor reads.
-- The model-visible tool allowlist is fixed at compile time: `get_player_status` and `get_active_pal_status`. `send_chat_message` is internal and never callable by the model.
+- The adapter reads only player position, active-Otomo identity/position, and player base-camp positions. No inventory, party, health, stamina, save, or nearby-actor reads.
+- The model-visible tool allowlist is fixed at compile time: `get_player_status`, `get_active_pal_status`, and `get_base_camps`. `send_chat_message` is internal and never callable by the model.
 - Snapshot data exposed to the API is redacted to schema version, source kind, game version, freshness, and missing fields. Raw snapshots never reach provider prompts.
 - No mutation path exists: no movement, combat, gathering, construction, inventory mutation, or world writes.
 

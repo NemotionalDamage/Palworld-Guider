@@ -156,6 +156,27 @@ impl KnowledgeStore {
                             ));
                         }
                     }
+                    if record.wild_spawn_review.is_some() {
+                        if !record.habitat_ids.is_empty() {
+                            errors.push(ValidationError::new(
+                                Some(record.id.clone()),
+                                "wild_spawn_review",
+                                "a Pal with reviewed habitat zones cannot also carry a wild-spawn verdict",
+                            ));
+                        }
+                        if record.local_evidence.as_ref().is_some_and(|evidence| {
+                            evidence
+                                .unresolved_fields
+                                .iter()
+                                .any(|field| field == "habitat_ids")
+                        }) {
+                            errors.push(ValidationError::new(
+                                Some(record.id.clone()),
+                                "wild_spawn_review",
+                                "a wild-spawn verdict resolves habitats, so habitat_ids cannot stay unresolved",
+                            ));
+                        }
+                    }
                     push_optional_error(
                         validate_provenance(&record.provenance, &record.id),
                         &mut errors,
@@ -219,15 +240,6 @@ impl KnowledgeStore {
                             "crafting_stations",
                             "at least one crafting station is required",
                         ));
-                    }
-                    if let Some(seconds) = record.crafting_seconds {
-                        if !seconds.is_finite() || seconds <= 0.0 {
-                            errors.push(ValidationError::new(
-                                Some(record.id.clone()),
-                                "crafting_seconds",
-                                "crafting seconds must be a finite positive number",
-                            ));
-                        }
                     }
                     for byproduct in &record.byproducts {
                         if byproduct.quantity == 0 {
@@ -483,6 +495,9 @@ impl KnowledgeStore {
                 }
                 KnowledgeRecord::MapRegion(record) => {
                     validate_id(&record.id, "map_region.id", &record.id, &mut errors);
+                    if let Some(geometry) = &record.geometry {
+                        validate_map_geometry(&record.id, geometry, &mut errors);
+                    }
                     if let Some(error) = validate_locale_names(&record.id, &record.names) {
                         errors.push(error);
                     }
@@ -788,6 +803,15 @@ impl KnowledgeStore {
                     errors,
                 );
             }
+            if let Some(unlock_item_id) = &record.unlock_item_id {
+                require_reference(
+                    &record.id,
+                    "unlock_item_id",
+                    unlock_item_id,
+                    self.items.keys(),
+                    errors,
+                );
+            }
             for byproduct in &record.byproducts {
                 require_reference(
                     &record.id,
@@ -1018,6 +1042,19 @@ where
                 "local_evidence.transformation_notes",
                 "transformation notes are required",
             ));
+        }
+        for field in &evidence.reviewed_empty_fields {
+            if evidence
+                .unresolved_fields
+                .iter()
+                .any(|unresolved| unresolved == field)
+            {
+                errors.push(ValidationError::new(
+                    Some(record.record_id().to_string()),
+                    "local_evidence.reviewed_empty_fields",
+                    "a field that was reviewed as empty cannot also stay unresolved",
+                ));
+            }
         }
     }
 }
@@ -1304,6 +1341,54 @@ fn validate_coordinate(
             "location",
             "world coordinates must be finite",
         ));
+    }
+}
+
+fn validate_map_geometry(
+    record_id: &str,
+    geometry: &crate::models::MapShape,
+    errors: &mut Vec<ValidationError>,
+) {
+    match geometry {
+        crate::models::MapShape::Box {
+            center,
+            extent_x,
+            extent_y,
+            extent_z,
+            yaw_degrees,
+        } => {
+            validate_coordinate(record_id, center, errors);
+            for (field, value) in [
+                ("extent_x", *extent_x),
+                ("extent_y", *extent_y),
+                ("extent_z", *extent_z),
+            ] {
+                if !value.is_finite() || value <= 0.0 {
+                    errors.push(ValidationError::new(
+                        Some(record_id.to_string()),
+                        field,
+                        "map region extents must be finite and positive",
+                    ));
+                }
+            }
+            if !yaw_degrees.is_finite() {
+                errors.push(ValidationError::new(
+                    Some(record_id.to_string()),
+                    "yaw_degrees",
+                    "map region yaw must be finite",
+                ));
+            }
+        }
+        crate::models::MapShape::Sphere { center, radius } => {
+            validate_coordinate(record_id, center, errors);
+            if !radius.is_finite() || *radius <= 0.0 {
+                errors.push(ValidationError::new(
+                    Some(record_id.to_string()),
+                    "radius",
+                    "map region radius must be finite and positive",
+                ));
+            }
+        }
     }
 }
 

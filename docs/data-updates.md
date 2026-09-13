@@ -49,6 +49,22 @@ cargo run -p game-knowledge --bin promote-map-intake -- `
 
 The promoter also backfills resolved `PalRecord.habitat_ids` values. It must not be run twice against the same candidate without undoing the prior promotion.
 
+Region boundaries come from the level's `BP_PalRegionTriggerBox` actors. They live both in the level export and in the world partition cell exports under `Pal/Content/Pal/Maps/MainWorld_5/PL_MainWorld5/_Generated_`, so the raw root must contain the level file, the cell exports, `Pal/Content/Pal/DataTable`, and `Pal/Content/L10N`. FModel writes the level and the cells into separate export runs, so assemble both into one raw root before running the intake. The intake byte-scans the cells and only parses the files that carry a trigger.
+
+A trigger box that never overrides `BoxExtent` inherits the value from its blueprint template, which is not part of the level export. Export `Pal/Content/Pal/Blueprint/RegionAndBiome/BP_PalRegionTriggerBox` into the same raw root so the intake can read that template, and it then multiplies the inherited extent by every scale on the way down from the actor to the box component. The blueprint serialises only the properties its box component overrides, so a component that carries no `BoxExtent` is evidence that the template keeps the engine's 32 cm half-extent default rather than a gap; those regions are reported as `region_boundary_from_blueprint_engine_default_extent`, and a template that does override the value is reported as `region_boundary_from_blueprint_box_extent`. Without the blueprint asset the intake leaves `boundary_is_reviewed` false for those regions and records `missing_region_trigger_box_extent` in the report, and it never guesses a boundary from screenshots, community maps, or spawner clusters.
+
+### Breeding intake
+
+Breeding data is compressed into a formula plus an exception table instead of roughly 45k parent-pair rows. Per-Pal `breeding_combi_rank`, `breeding_combi_priority`, and `breeding_ignore_combi` drive the computed case; `data/reviewed/breeding_rules.jsonl` holds only the explicit combinations that override the formula.
+
+Regenerate the breeding fields, rules, and source record from the cached Palworld.gg data modules:
+
+```powershell
+node scripts/build-breeding-data.mjs --root .
+```
+
+The script reads `.local/palworldgg-pals-en.js` and `.local/palworldgg-pals-zh.js` (gitignored downloads from `https://palworld.gg/_nuxt/`), matches Pals by `native_row_id`, and rewrites `pals.jsonl`, `facts.jsonl`, `breeding_rules.jsonl`, and `sources.jsonl`. It never creates Pal records: only Pals already in the canonical roster are annotated, and combinations that reference a Pal outside the roster are skipped and reported. Re-running it is idempotent. A Pal whose `combiRank` is `0` or `9999` has no usable rank and never appears as a formula child. A raid Pal the target build leaves out of the combi table keeps no rank and declares `breeding_combi_rank` and `breeding_combi_priority` in `local_evidence.reviewed_empty_fields`; when the owner confirms it only breeds with its own species, its self combination is added to `breeding_rules.jsonl` by hand.
+
 ### Step 4: Review the generated candidates
 
 Open the candidate JSONL under `.local/research/local-build/candidates/` and the accompanying `.report.json`. Review each candidate's fields, unresolved markers, and localization status. A candidate may carry `review_status: candidate` and explicit `unresolved` values, but neither may enter canonical data until its field semantics are reviewed.
@@ -80,7 +96,7 @@ Compare existing canonical values field by field: exact matches add corroboratio
 After promotion, confirm the canonical store is consistent:
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 ```
 
 Also run the full workspace gates before committing:
@@ -162,7 +178,7 @@ If the canonical store contains records with different `applicable_game_version`
 ### Version Compatibility Check
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 ```
 
 The report covers:
@@ -191,10 +207,10 @@ The `guide-maintenance` binary provides auditing and validation. All commands ac
 ### Examples
 
 ```powershell
-cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- version-check --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- audit-sources --data data/reviewed
 cargo run -p guide-maintenance -- audit-conflicts --data data/reviewed
-cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0.3
+cargo run -p guide-maintenance -- audit-stale --data data/reviewed --game-version 1.0
 cargo run -p guide-maintenance -- validate-batch path/to/candidates.jsonl
 ```
 

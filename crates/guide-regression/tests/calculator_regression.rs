@@ -3,7 +3,7 @@ use guide_core::{AnswerStatus, GuideEngine, InventoryEntry};
 const DATA_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/reviewed");
 
 fn engine() -> GuideEngine {
-    GuideEngine::load_directory(DATA_DIRECTORY, Some("1.0.3".to_string()))
+    GuideEngine::load_directory(DATA_DIRECTORY, Some("1.0".to_string()))
         .expect("canonical dataset loads")
 }
 
@@ -125,7 +125,7 @@ fn materials_for_unknown_item_returns_unknown() {
 fn calculation_has_version_info() {
     let engine = engine();
     let answer = engine.calculate_materials("wood", 1);
-    assert_eq!(answer.version.knowledge_version, "1.0.3");
+    assert_eq!(answer.version.knowledge_version, "1.0");
     assert!(answer.version.matches);
 }
 

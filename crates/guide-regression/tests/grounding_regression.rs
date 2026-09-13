@@ -33,6 +33,7 @@ fn test_store() -> KnowledgeStore {
         );
     }
     lines.extend(referenced_habitat_support_lines(&lines));
+    lines.extend(wooden_club_fixture_lines());
     let records = lines
         .iter()
         .filter(|line| !line.contains("\"record_type\":\"conflict\""))
@@ -40,6 +41,29 @@ fn test_store() -> KnowledgeStore {
         .collect::<Result<Vec<_>, _>>()
         .expect("conflict-free test fixtures parse");
     KnowledgeStore::from_records(records).expect("conflict-free test store validates")
+}
+
+/// The fixture above only reads `sources.jsonl` and `facts.jsonl`, while the
+/// reviewed dataset names the local-build `Bat` row (Wood x5) "Wooden Club" and
+/// carries its recipe and technology. Tests that exercise that item pull the
+/// shipped records instead of restating them here.
+fn wooden_club_fixture_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (file_name, record_id) in [
+        ("items.jsonl", "ITEM_BAT"),
+        ("recipes.jsonl", "RECIPE_BAT"),
+        ("technologies.jsonl", "TECH_BATTLE_MELEEWEAPON_BAT"),
+    ] {
+        let needle = format!("\"id\":\"{record_id}\"");
+        let text = fs::read_to_string(format!("{DATA_DIRECTORY}/{file_name}"))
+            .expect("shipped dataset reads");
+        let line = text
+            .lines()
+            .find(|line| line.contains(needle.as_str()))
+            .unwrap_or_else(|| panic!("shipped record {record_id} exists"));
+        lines.push(line.to_string());
+    }
+    lines
 }
 
 fn referenced_habitat_support_lines(base_lines: &[String]) -> Vec<String> {
@@ -117,14 +141,13 @@ fn scripted_agent(
     )
 }
 
-fn submit_ok(sentences: &[&str], slots: &[&str]) -> ChatResponse {
+fn submit_ok(sentences: &[&str], _legacy_slots: &[&str]) -> ChatResponse {
     ChatResponse::tool(
         "submit_answer",
         "submit_answer",
         json!({
             "status": "ok",
             "sentences": sentences,
-            "slots": slots
         }),
     )
 }
@@ -140,13 +163,17 @@ fn numeric_literal_in_draft_triggers_fallback() {
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
             submit_ok(&["You need 12 Wood."], &[]),
+            submit_ok(&["You need 12 Wood."], &[]),
         ],
         4,
         1200,
     );
     let answer = agent.ask("Materials for 3 Wooden Clubs?");
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
+    assert!(answer
+        .answer
+        .as_deref()
+        .is_some_and(|text| text.contains("还需要 15 个")));
     assert!(answer
         .uncertainty
         .iter()
@@ -155,22 +182,20 @@ fn numeric_literal_in_draft_triggers_fallback() {
 
 #[test]
 fn number_word_in_draft_triggers_fallback() {
-    let agent = scripted_agent(
-        None,
-        vec![ChatResponse::tool(
+    let draft = || {
+        ChatResponse::tool(
             "submit_answer",
             "submit_answer",
             json!({
                 "status": "unknown",
                 "sentences": ["This is one of the most common options."],
-                "slots": []
             }),
-        )],
-        4,
-        1200,
-    );
+        )
+    };
+    let agent = scripted_agent(None, vec![draft(), draft()], 4, 1200);
     let answer = agent.ask("What is Wood?");
-    assert_eq!(answer.status, AgentStatus::Unknown);
+    assert_eq!(answer.status, AgentStatus::Ok);
+    assert!(answer.answer.is_some());
     assert!(answer
         .uncertainty
         .iter()
@@ -188,13 +213,17 @@ fn unknown_slot_triggers_fallback() {
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
             submit_ok(&["You need {q9} Wood."], &["q9"]),
+            submit_ok(&["You need {q9} Wood."], &["q9"]),
         ],
         4,
         1200,
     );
     let answer = agent.ask("Materials for 3 Wooden Clubs?");
     assert_eq!(answer.status, AgentStatus::Ok);
-    assert!(answer.answer.as_deref().unwrap().contains("Need 15 Wood."));
+    assert!(answer
+        .answer
+        .as_deref()
+        .is_some_and(|text| text.contains("还需要 15 个")));
     assert!(answer
         .uncertainty
         .iter()
@@ -212,12 +241,14 @@ fn fallback_produces_player_facing_text_without_internal_markers() {
                 json!({"query": "Wooden Club", "quantity": 3}),
             ),
             submit_ok(&["You need 12 Wood."], &[]),
+            submit_ok(&["You need 12 Wood."], &[]),
         ],
         4,
         1200,
     );
     let answer = agent.ask("Materials for 3 Wooden Clubs?");
     let text = answer.answer.as_deref().unwrap();
+    assert!(text.contains("还需要 15 个"), "fallback text: {text}");
     assert!(!text.contains("{v1}"));
     assert!(!text.contains("numeric literal"));
     assert!(!text.contains("RenderError"));
@@ -239,8 +270,15 @@ fn empty_draft_triggers_fallback() {
                 "submit_answer",
                 json!({
                     "status": "ok",
-                    "sentences": [""],
-                    "slots": []
+                    "sentences": [],
+                }),
+            ),
+            ChatResponse::tool(
+                "submit_answer",
+                "submit_answer",
+                json!({
+                    "status": "ok",
+                    "sentences": [],
                 }),
             ),
         ],
@@ -251,6 +289,7 @@ fn empty_draft_triggers_fallback() {
     assert!(answer.answer.is_some());
     let text = answer.answer.as_deref().unwrap();
     assert!(!text.is_empty());
+    assert!(answer.uncertainty.iter().any(|m| m.contains("empty draft")));
 }
 
 #[test]

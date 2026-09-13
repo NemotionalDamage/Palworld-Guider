@@ -1,8 +1,9 @@
 use crate::answers::AnswerContext;
+use crate::resolver::{normalize, rarity_rank};
 use crate::{AnswerStatus, GuideEngine};
 use game_knowledge::{
-    AcquisitionLead, ConflictResolution, DropSource, ElementType, LocaleNames, Provenance,
-    RecipeRecord, WorkSuitability,
+    AcquisitionLead, ConflictResolution, DropSource, ElementType, ItemRecord, LocaleNames,
+    Provenance, RecipeRecord, WorkSuitability,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -46,6 +47,8 @@ pub struct PalLookup {
     pub work_suitability: Vec<WorkSuitability>,
     pub drops: Vec<DropSource>,
     pub habitat_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub habitat_leads: Vec<AcquisitionLead>,
     pub element_type1: Option<ElementType>,
     pub element_type2: Option<ElementType>,
     pub provenance: Provenance,
@@ -60,18 +63,84 @@ pub struct TechnologyLookup {
     pub provenance: Provenance,
 }
 
-pub type RecipeLookup = RecipeRecord;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecipeLookup {
+    #[serde(flatten)]
+    pub recipe: RecipeRecord,
+    /// Player-facing advice that the output item's recipe is locked behind its matching schematic.
+    /// Empty when the item family is not schematic-driven (world-found items such as Pal eggs,
+    /// treasure maps, and technology-unlocked Grappling Gun tiers) or when the resolved tier is
+    /// crafted from the recipe itself and only its higher tiers need schematics. A
+    /// schematic-locked item that ships as a single tier still names its own schematic.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schematic_leads: Vec<AcquisitionLead>,
+    /// Every other reviewed recipe that produces the same output item. An item can have several
+    /// reviewed recipes, such as Carbon Fiber from Coal or from Charcoal, and the whole set is
+    /// answered instead of refusing the query. Empty when the item has a single reviewed recipe.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternative_recipes: Vec<RecipeRecord>,
+}
 
-pub(crate) fn ambiguous_message(entity: &str, candidates: &[crate::ResolvedEntity]) -> String {
-    let ids = candidates
+pub fn describe_acquisition_leads(leads: &[AcquisitionLead]) -> String {
+    leads
         .iter()
-        .map(|candidate| candidate.id.as_str())
+        .map(|lead| match lead.notes.as_deref() {
+            Some(notes) => format!("{} ({notes})", lead.action),
+            None => lead.action.clone(),
+        })
         .collect::<Vec<_>>()
-        .join(", ");
-    format!("ambiguous {entity} name; candidates: {ids}; no fact was selected")
+        .join("; ")
 }
 
 impl GuideEngine {
+    /// Rank variants of one item share a single localized name, so one name can
+    /// match several records. Each candidate is labelled with the detail that
+    /// tells it apart, and the caller is told how to narrow the next attempt.
+    pub(crate) fn ambiguous_message(
+        &self,
+        entity: &str,
+        candidates: &[crate::ResolvedEntity],
+    ) -> String {
+        let labels = candidates
+            .iter()
+            .map(|candidate| self.candidate_label(candidate))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let distinct_rarities = candidates
+            .iter()
+            .filter_map(|candidate| self.candidate_rarity(candidate))
+            .collect::<BTreeSet<_>>();
+        let rarity_hint = if distinct_rarities.len() > 1 {
+            "; retry with a rarity to choose one"
+        } else {
+            ""
+        };
+        format!("ambiguous {entity} name; candidates: {labels}{rarity_hint}; no fact was selected")
+    }
+
+    fn candidate_label(&self, candidate: &crate::ResolvedEntity) -> String {
+        let name = if candidate.matched_name.is_empty() {
+            candidate.id.as_str()
+        } else {
+            candidate.matched_name.as_str()
+        };
+        match self.candidate_rarity(candidate) {
+            Some(rarity) => format!("{name} ({})", rarity.to_ascii_lowercase()),
+            None => format!("{name} [{}]", candidate.id),
+        }
+    }
+
+    fn candidate_rarity(&self, candidate: &crate::ResolvedEntity) -> Option<&str> {
+        let item_id = match candidate.kind {
+            crate::EntityKind::Item => candidate.id.as_str(),
+            crate::EntityKind::Recipe => {
+                self.store().recipe(&candidate.id)?.output.item_id.as_str()
+            }
+            _ => return None,
+        };
+        self.store().item(item_id).map(|item| item.rarity.as_str())
+    }
+
     pub(crate) fn context(&self) -> AnswerContext<'_> {
         AnswerContext {
             configured_game_version: self.configured_game_version.as_deref(),
@@ -93,7 +162,7 @@ impl GuideEngine {
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
                     .context()
-                    .ambiguous(ambiguous_message("item", &candidates))
+                    .ambiguous(self.ambiguous_message("item", &candidates))
             }
             crate::resolver::Resolution::Unknown => {
                 return self
@@ -163,11 +232,12 @@ impl GuideEngine {
             }
         }
 
-        let acquisition_leads = if produced_by.is_empty() {
+        let mut acquisition_leads = if produced_by.is_empty() {
             item.acquisition_leads.clone()
         } else {
             self.recipe_acquisition_leads(&produced_by)
         };
+        acquisition_leads.extend(self.rank_variant_leads(item));
         let lookup = ItemLookup {
             id: item.id.clone(),
             names: item.names.clone(),
@@ -192,6 +262,98 @@ impl GuideEngine {
         };
         self.context()
             .answer(status, Some(lookup), provenances, conflicts)
+    }
+
+    /// Rank variants of one item share a localized name and differ only by rarity. Gear tiers are
+    /// unlocked by their matching schematic instead of the base recipe, which the recipes state as
+    /// their `unlock_item_id`; the lead is only emitted when the data names such a schematic item.
+    /// The schematic check comes first because a single-tier item can be schematic-locked on its
+    /// own, without any sibling tier to compare against.
+    fn rank_variant_leads(&self, item: &ItemRecord) -> Vec<AcquisitionLead> {
+        // The producing recipe names the schematic item that unlocks this tier.
+        if let Some(schematic) = self.schematic_for(item) {
+            return vec![AcquisitionLead {
+                action: "Requires a schematic".to_string(),
+                notes: Some(format!(
+                    "{} must be in inventory to unlock the {} recipe, so the item cannot be crafted without it",
+                    schematic.names.en,
+                    item.rarity.to_ascii_lowercase()
+                )),
+            }];
+        }
+        let family = self.rank_family(item);
+        if family.len() < 2 {
+            return Vec::new();
+        }
+        let Some(base_rank) = family
+            .iter()
+            .filter_map(|sibling| rarity_rank(&sibling.rarity))
+            .min()
+        else {
+            return Vec::new();
+        };
+        if rarity_rank(&item.rarity).is_none_or(|rank| rank > base_rank) {
+            return Vec::new();
+        }
+        let higher = family
+            .iter()
+            .filter(|sibling| rarity_rank(&sibling.rarity).is_some_and(|rank| rank > base_rank))
+            .collect::<Vec<_>>();
+        if higher.is_empty()
+            || higher
+                .iter()
+                .any(|sibling| self.schematic_for(sibling).is_none())
+        {
+            return Vec::new();
+        }
+        vec![AcquisitionLead {
+            action: "Higher tiers need schematics".to_string(),
+            notes: Some(format!(
+                "{} is also shipped as {} tiers, and each tier needs its own schematic",
+                item.names.en,
+                higher
+                    .iter()
+                    .map(|sibling| sibling.rarity.to_ascii_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }]
+    }
+
+    fn rank_family<'a>(&'a self, item: &ItemRecord) -> Vec<&'a ItemRecord> {
+        let normalized = normalize(&item.names.en);
+        self.store()
+            .items()
+            .filter(|sibling| normalize(&sibling.names.en) == normalized)
+            .collect()
+    }
+
+    fn schematic_for<'a>(&'a self, item: &ItemRecord) -> Option<&'a ItemRecord> {
+        let mut has_recipe = false;
+        for recipe in self.store().recipes() {
+            if recipe.output.item_id != item.id {
+                continue;
+            }
+            has_recipe = true;
+            if let Some(schematic) = recipe
+                .unlock_item_id
+                .as_deref()
+                .and_then(|unlock_item_id| self.store().item(unlock_item_id))
+            {
+                return Some(schematic);
+            }
+        }
+        // A recipe that produces the item without naming an unlock item means the recipe is usable on
+        // its own, so no schematic claim is made. The name-based lookup below only covers items whose
+        // recipe row is absent from the reviewed dataset.
+        if has_recipe {
+            return None;
+        }
+        let row = item.native_row_id.as_deref()?;
+        let blueprint_row = format!("Blueprint_{row}");
+        self.store()
+            .items()
+            .find(|candidate| candidate.native_row_id.as_deref() == Some(blueprint_row.as_str()))
     }
 
     fn recipe_acquisition_leads(&self, produced_by: &[RecipeSummary]) -> Vec<AcquisitionLead> {
@@ -234,7 +396,7 @@ impl GuideEngine {
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
                     .context()
-                    .ambiguous(ambiguous_message("Pal", &candidates))
+                    .ambiguous(self.ambiguous_message("Pal", &candidates))
             }
             crate::resolver::Resolution::Unknown => {
                 return self
@@ -249,6 +411,7 @@ impl GuideEngine {
             work_suitability: pal.work_suitability.clone(),
             drops: pal.drops.clone(),
             habitat_ids: pal.habitat_ids.clone(),
+            habitat_leads: pal.habitat_leads.clone(),
             element_type1: pal.element_type1,
             element_type2: pal.element_type2,
             provenance: pal.provenance.clone(),
@@ -300,7 +463,7 @@ impl GuideEngine {
             crate::resolver::Resolution::Ambiguous(candidates) => {
                 return self
                     .context()
-                    .ambiguous(ambiguous_message("technology", &candidates))
+                    .ambiguous(self.ambiguous_message("technology", &candidates))
             }
             crate::resolver::Resolution::Unknown => {
                 return self
@@ -344,6 +507,24 @@ impl GuideEngine {
         )
     }
 
+    /// Returns the first candidate when every candidate is a recipe for the same output item.
+    /// Several such matches are recipe variants rather than an ambiguous name, so the caller
+    /// answers with the whole set instead of asking the player to disambiguate.
+    fn shared_output_recipe(
+        &self,
+        candidates: &[crate::ResolvedEntity],
+    ) -> Option<crate::ResolvedEntity> {
+        let mut outputs = BTreeSet::new();
+        for candidate in candidates {
+            let recipe = self.store().recipe(&candidate.id)?;
+            outputs.insert(recipe.output.item_id.clone());
+        }
+        if outputs.len() != 1 {
+            return None;
+        }
+        candidates.first().cloned()
+    }
+
     pub fn lookup_recipe(&self, query: &str) -> crate::GuideAnswer<RecipeLookup> {
         self.lookup_recipe_filtered(query, None)
     }
@@ -357,9 +538,14 @@ impl GuideEngine {
             match self.resolve_with_rarity(query, Some(crate::EntityKind::Recipe), rarity) {
                 crate::resolver::Resolution::Unique(resolved) => resolved,
                 crate::resolver::Resolution::Ambiguous(candidates) => {
-                    return self
-                        .context()
-                        .ambiguous(ambiguous_message("recipe", &candidates))
+                    match self.shared_output_recipe(&candidates) {
+                        Some(resolved) => resolved,
+                        None => {
+                            return self
+                                .context()
+                                .ambiguous(self.ambiguous_message("recipe", &candidates))
+                        }
+                    }
                 }
                 crate::resolver::Resolution::Unknown => {
                     return self
@@ -394,11 +580,25 @@ impl GuideEngine {
         } else {
             AnswerStatus::Ambiguous
         };
-        self.context().answer(
-            status,
-            Some(recipe.clone()),
-            vec![&recipe.provenance],
-            conflicts,
-        )
+        let schematic_leads = self
+            .store()
+            .item(&recipe.output.item_id)
+            .map(|item| self.rank_variant_leads(item))
+            .unwrap_or_default();
+        let alternative_recipes = self
+            .store()
+            .recipes()
+            .filter(|candidate| {
+                candidate.id != recipe.id && candidate.output.item_id == recipe.output.item_id
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let lookup = RecipeLookup {
+            recipe: recipe.clone(),
+            schematic_leads,
+            alternative_recipes,
+        };
+        self.context()
+            .answer(status, Some(lookup), vec![&recipe.provenance], conflicts)
     }
 }

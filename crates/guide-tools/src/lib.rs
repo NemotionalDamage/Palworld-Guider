@@ -1,9 +1,10 @@
 //! Typed tool registry around the deterministic guide core.
 
+use game_knowledge::LocaleNames;
 use guide_core::{
-    map_display_to_world, AnswerStatus, EntityKind, GuideAnswer, GuideEngine, InventoryEntry,
-    MapDisplayCoordinate, MapPointKind, ProvenanceSummary, Resolution, TravelAnchorSeed,
-    VersionInfo, WorldCoordinate,
+    describe_acquisition_leads, map_display_to_world, world_to_map_display, AnswerStatus,
+    EntityKind, GuideAnswer, GuideEngine, InventoryEntry, MapDisplayCoordinate, MapPointKind,
+    NearbyMapPoint, ProvenanceSummary, Resolution, TravelAnchorSeed, VersionInfo, WorldCoordinate,
 };
 use guide_planner::{GuidePlanner, PlannerAnswer, PlannerStatus};
 use knowledge_index::{IndexSearchAnswer, IndexStatus, KnowledgeIndex, ProvenanceBrief};
@@ -736,13 +737,33 @@ impl ToolRegistry {
 
     fn nearby_map_points(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         let result: Result<_, String> = (|| {
-            let location = self.coordinate(arguments)?;
+            let location = self.coordinate_or_player(arguments)?;
             let limit = optional_bounded_integer(arguments, "limit", 1, 20)?.unwrap_or(5) as usize;
             Ok((location, optional_map_point_kind(arguments)?, limit))
         })();
         match result {
             Ok((location, kind, limit)) => {
-                ToolEnvelope::from_answer(self.engine.find_nearby_map_points(location, kind, limit))
+                let mut answer = self
+                    .engine
+                    .find_nearby_map_points(location, kind, 20.max(limit));
+                if answer.status == AnswerStatus::Ok {
+                    if let Some(points) = answer.data.as_mut() {
+                        if kind.is_none_or(|filter| filter == MapPointKind::FastTravel) {
+                            points.extend(
+                                self.available_base_camp_anchors()
+                                    .into_iter()
+                                    .map(|anchor| nearby_base_camp(&location, &anchor)),
+                            );
+                        }
+                        points.sort_by(|left, right| {
+                            left.distance_map_display
+                                .total_cmp(&right.distance_map_display)
+                                .then_with(|| left.id.cmp(&right.id))
+                        });
+                        points.truncate(limit);
+                    }
+                }
+                ToolEnvelope::from_answer(answer)
             }
             Err(message) => ToolEnvelope::error(message, version),
         }
@@ -765,7 +786,10 @@ impl ToolRegistry {
 
     fn plan_travel_route(&self, arguments: &Value, version: VersionInfo) -> ToolEnvelope {
         let result: Result<_, String> = (|| {
-            let from = self.coordinate(require_object(arguments, "from")?)?;
+            let from = match arguments.get("from") {
+                Some(from) => self.coordinate(from)?,
+                None => self.runtime_player_position()?,
+            };
             let (to, destination_name) = self.travel_destination(arguments, from)?;
             let extra_anchors = self.travel_extra_anchors(arguments)?;
             Ok((from, to, destination_name, extra_anchors))
@@ -790,8 +814,43 @@ impl ToolRegistry {
                 .map(|to| (to, None));
         }
         let query = require_string(arguments, "to_query")?;
+        if let Some(anchor) = self.resolve_base_camp_destination(&query, from) {
+            return Ok((anchor.location, Some(anchor.name)));
+        }
         self.resolve_travel_destination(&query, from)
             .map(|(to, name)| (to, Some(name)))
+    }
+
+    fn resolve_base_camp_destination(
+        &self,
+        query: &str,
+        from: WorldCoordinate,
+    ) -> Option<TravelAnchorSeed> {
+        let anchors = self.available_base_camp_anchors();
+        if anchors.is_empty() {
+            return None;
+        }
+        let normalize = |value: &str| {
+            value
+                .chars()
+                .filter(|character| character.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect::<String>()
+        };
+        let normalized_query = normalize(query);
+        if matches!(
+            normalized_query.as_str(),
+            "据点" | "玩家据点" | "我的据点" | "basecamp" | "playerbasecamp" | "mybasecamp"
+        ) {
+            return anchors.into_iter().min_by(|left, right| {
+                distance_map_display(&from, &left.location)
+                    .total_cmp(&distance_map_display(&from, &right.location))
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+        }
+        anchors.into_iter().find(|anchor| {
+            normalize(&anchor.id) == normalized_query || normalize(&anchor.name) == normalized_query
+        })
     }
 
     fn resolve_travel_destination(
@@ -856,7 +915,16 @@ impl ToolRegistry {
                     });
                 match zones {
                     Some(zone) => Ok((zone.location, resolved.matched_name)),
-                    None => Err(format!("Pal \"{query}\" has no reviewed habitat coverage")),
+                    None => {
+                        let leads = describe_acquisition_leads(&pal.habitat_leads);
+                        if leads.is_empty() {
+                            Err(format!("Pal \"{query}\" has no reviewed habitat coverage"))
+                        } else {
+                            Err(format!(
+                                "Pal \"{query}\" has no fixed field habitat; habitat leads: {leads}"
+                            ))
+                        }
+                    }
                 }
             }
             Resolution::Ambiguous(candidates) => {
@@ -884,27 +952,73 @@ impl ToolRegistry {
                 anchors.push(travel_anchor_seed(item)?);
             }
         }
-        if arguments
+        let include_base_camps = arguments
             .get("via_base_camps")
             .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            if let Some(runtime) = &self.runtime_tools {
-                if runtime
-                    .definitions()
-                    .iter()
-                    .any(|definition| definition.name == "get_base_camps")
-                {
-                    let result = runtime.dispatch("get_base_camps", &json!({}));
-                    if result.status == ToolStatus::Ok {
-                        if let Some(data) = result.data {
-                            anchors.extend(base_camp_anchors(&data)?);
-                        }
-                    }
-                }
-            }
+            .unwrap_or(true);
+        if include_base_camps {
+            anchors.extend(self.available_base_camp_anchors());
         }
         Ok(anchors)
+    }
+
+    fn coordinate_or_player(&self, arguments: &Value) -> Result<WorldCoordinate, String> {
+        if arguments.get("x").is_some() || arguments.get("y").is_some() {
+            return self.coordinate(arguments);
+        }
+        if arguments.get("coordinate_system").is_some() {
+            return Err(
+                "arguments \"x\" and \"y\" are required with coordinate_system".to_string(),
+            );
+        }
+        self.runtime_player_position()
+    }
+
+    fn runtime_player_position(&self) -> Result<WorldCoordinate, String> {
+        let runtime = self
+            .runtime_tools
+            .as_ref()
+            .filter(|runtime| {
+                runtime
+                    .definitions()
+                    .iter()
+                    .any(|definition| definition.name == "get_player_status")
+            })
+            .ok_or_else(|| "observed player position is unavailable".to_string())?;
+        let result = runtime.dispatch("get_player_status", &json!({}));
+        if result.status != ToolStatus::Ok {
+            return Err(result
+                .errors
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "observed player position is unavailable".to_string()));
+        }
+        let position = result
+            .data
+            .and_then(|data| data.get("position").cloned())
+            .ok_or_else(|| "get_player_status returned no position".to_string())?;
+        world_coordinate(&position)
+    }
+
+    fn available_base_camp_anchors(&self) -> Vec<TravelAnchorSeed> {
+        let Some(runtime) = self.runtime_tools.as_ref() else {
+            return Vec::new();
+        };
+        if !runtime
+            .definitions()
+            .iter()
+            .any(|definition| definition.name == "get_base_camps")
+        {
+            return Vec::new();
+        }
+        let result = runtime.dispatch("get_base_camps", &json!({}));
+        if result.status != ToolStatus::Ok {
+            return Vec::new();
+        }
+        result
+            .data
+            .and_then(|data| base_camp_anchors(&data).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -925,7 +1039,7 @@ fn build_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "get_item".to_string(),
-            description: "Look up an item with acquisition, crafting, and Pal-drop relationships."
+            description: "Look up an item with acquisition, crafting, and Pal-drop relationships. Pass rarity to choose one of several tiers that share a display name; a bare name answers the base tier, and acquisition_leads names any schematic the tier needs."
                 .to_string(),
             parameters_schema: json!({
                 "type": "object",
@@ -944,7 +1058,8 @@ fn build_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "get_recipe".to_string(),
-            description: "Look up a reviewed recipe by its output item.".to_string(),
+            description: "Look up a reviewed recipe by its output item. Pass rarity for a higher tier, and read schematic_leads for the schematic that must be in inventory before that tier can be crafted. When an item has several reviewed recipes, alternative_recipes lists the rest, and every route must be reported."
+                .to_string(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
@@ -998,12 +1113,12 @@ fn build_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "locate_coordinate".to_string(),
-            description: "Map a world, logical-map-pixel, normalized, or in-game map display coordinate to a reviewed logical map.".to_string(),
+            description: "Map a world, logical-map-pixel, normalized, or in-game map display coordinate to a reviewed logical map and, when the coordinate falls inside one, its reviewed region.".to_string(),
             parameters_schema: coordinate_schema(),
         },
         ToolDefinition {
             name: "find_nearby_map_points".to_string(),
-            description: "Find reviewed anchors near a world, logical-map-pixel, normalized, or in-game map display coordinate.".to_string(),
+            description: "Find reviewed fast-travel points and player base camps near a coordinate, or near the observed player when x/y are omitted. Use distance_map_display for player-facing map-coordinate distances.".to_string(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1014,12 +1129,12 @@ fn build_definitions() -> Vec<ToolDefinition> {
                     "kind": {"type": "string", "enum": ["fast_travel", "boss_tower"]},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20}
                 },
-                "required": ["x", "y"]
+                "required": []
             }),
         },
         ToolDefinition {
             name: "plan_travel_route".to_string(),
-            description: "Compare direct travel with fast-travel legs from a from coordinate to a destination coordinate or named map point/Pal habitat.".to_string(),
+            description: "Compare direct travel with fast-travel legs to a destination. Omit from to use the observed player position. to_query supports reviewed map points, Pal habitats, and player base camps (including the generic query base camp). Player base camps are included automatically when the read-only adapter provides them; set via_base_camps to false to exclude them.".to_string(),
             parameters_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1265,8 +1380,9 @@ fn travel_anchor_seed(value: &Value) -> Result<TravelAnchorSeed, String> {
         .and_then(Value::as_str)
         .unwrap_or(&name)
         .to_string();
+    let location_value = value.get("location").unwrap_or(value);
     let read_axis = |axis: &str| -> Result<f64, String> {
-        value
+        location_value
             .get(axis)
             .and_then(Value::as_f64)
             .filter(|number| number.is_finite())
@@ -1278,7 +1394,10 @@ fn travel_anchor_seed(value: &Value) -> Result<TravelAnchorSeed, String> {
         location: WorldCoordinate {
             x: read_axis("x")?,
             y: read_axis("y")?,
-            z: value.get("z").and_then(Value::as_f64).unwrap_or(0.0),
+            z: location_value
+                .get("z")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
         },
     })
 }
@@ -1290,6 +1409,54 @@ fn base_camp_anchors(data: &Value) -> Result<Vec<TravelAnchorSeed>, String> {
         .or_else(|| data.as_array())
         .ok_or_else(|| "get_base_camps returned an unsupported shape".to_string())?;
     items.iter().map(travel_anchor_seed).collect()
+}
+
+fn nearby_base_camp(origin: &WorldCoordinate, anchor: &TravelAnchorSeed) -> NearbyMapPoint {
+    NearbyMapPoint {
+        id: anchor.id.clone(),
+        name: anchor.name.clone(),
+        names: LocaleNames {
+            en: anchor.name.clone(),
+            zh_hans: Some(anchor.name.clone()),
+        },
+        kind: MapPointKind::FastTravel,
+        location: anchor.location,
+        map_display: world_to_map_display(anchor.location),
+        distance_map_display: distance_map_display(origin, &anchor.location),
+        distance_meters: distance_meters(origin, &anchor.location),
+        bearing_degrees: bearing_degrees(origin, &anchor.location),
+    }
+}
+
+fn world_coordinate(value: &Value) -> Result<WorldCoordinate, String> {
+    let read_axis = |axis: &str| -> Result<f64, String> {
+        value
+            .get(axis)
+            .and_then(Value::as_f64)
+            .filter(|number| number.is_finite())
+            .ok_or_else(|| format!("position \"{axis}\" must be a finite number"))
+    };
+    Ok(WorldCoordinate {
+        x: read_axis("x")?,
+        y: read_axis("y")?,
+        z: value.get("z").and_then(Value::as_f64).unwrap_or(0.0),
+    })
+}
+
+fn distance_map_display(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
+    let origin_display = world_to_map_display(*origin);
+    let target_display = world_to_map_display(*target);
+    (target_display.x - origin_display.x).hypot(target_display.y - origin_display.y)
+}
+
+fn distance_meters(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
+    (target.x - origin.x).hypot(target.y - origin.y) / 100.0
+}
+
+fn bearing_degrees(origin: &WorldCoordinate, target: &WorldCoordinate) -> f64 {
+    (target.x - origin.x)
+        .atan2(target.y - origin.y)
+        .to_degrees()
 }
 
 fn require_bounded_integer(

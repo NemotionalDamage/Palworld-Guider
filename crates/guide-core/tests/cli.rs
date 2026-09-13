@@ -21,12 +21,12 @@ fn cli_answers_exact_lookup_with_provenance() {
     assert_eq!(code, 0);
     assert_eq!(answer["status"], "ok");
     assert_eq!(answer["data"]["id"], "ITEM_STONE");
-    assert_eq!(answer["version"]["knowledge_version"], "1.0.3");
+    assert_eq!(answer["version"]["knowledge_version"], "1.0");
     assert!(answer["provenance"]
         .as_array()
         .expect("provenance is an array")
         .iter()
-        .any(|item| item["source_id"] == "SRC-PALDB-CORE-ITEMS-V1_0_3-20260902"));
+        .any(|item| item["source_id"] == "SRC-PALDB-CORE-ITEMS-V1_0-20260902"));
 }
 
 #[test]
@@ -147,8 +147,10 @@ fn cli_returns_unknown_and_version_warnings_without_fabrication() {
         "Lamball",
         "Lamball",
     ]);
-    assert_eq!(code, 1);
-    assert_eq!(answer["status"], "unknown");
+    assert_eq!(code, 0);
+    assert_eq!(answer["status"], "ok");
+    assert_eq!(answer["data"]["child_id"], "PAL_LAMBALL");
+    assert_eq!(answer["data"]["rule_id"], "BREEDING_FORMULA");
     assert!(answer["uncertainty"]
         .as_array()
         .expect("uncertainty is an array")

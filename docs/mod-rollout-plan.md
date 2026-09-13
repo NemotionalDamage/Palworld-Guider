@@ -19,7 +19,7 @@
 - Installation must refuse unsupported Palworld builds and UE4SS DLL hashes.
 - Installation must require a verified save backup before writing under the game directory.
 - Installation, update, and uninstall must preserve all unrelated mods.
-- Current reviewed knowledge targets Palworld `1.0.3` / Steam build `24575825`.
+- Current reviewed knowledge targets Palworld `1.0` / Steam build `24575825`.
 - Build `25094871` is blocked until a three-layer compatibility probe passes.
 - Run targeted tests during development. Do not run the full workspace suite unless a level gate explicitly requires it.
 - At the end of every Level, create one coherent commit and push it to both configured remotes.
