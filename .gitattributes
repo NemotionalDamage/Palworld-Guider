@@ -1,0 +1,24 @@
+# Keep text files at LF in every checkout.
+#
+# The adapter source-contract tests in `crates/guide-adapter/tests/lua_source.rs`
+# read the Lua/JSON sources byte for byte and match multi-line snippets. The
+# committed blobs are already LF, but a Windows checkout with the common
+# `core.autocrlf=true` setting rewrites them to CRLF, which makes those snippet
+# matches fail even though nothing changed. Pinning `eol=lf` keeps the working
+# tree identical to what CI sees.
+*.rs text eol=lf
+*.lua text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.ps1 text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.def text eol=lf
+
+# `Cargo.toml` is the one text file still *stored* with CRLF. Leave it alone
+# here so this change stays line-ending-free; renormalize it in its own commit
+# before adding `*.toml text eol=lf` to the list above.
+Cargo.toml -text
